@@ -1,0 +1,9 @@
+{
+  "name": "LocalFirst Triage — Hybrid AI Privacy Firewall",
+  "short_name": "LocalFirst",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#4f46e5",
+  "description": "Zero-leakage Hybrid AI Incident Copilot using Chrome Gemini Nano 4 and Firebase AI Logic."
+}
