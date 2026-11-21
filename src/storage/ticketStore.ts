@@ -154,16 +154,39 @@ function openDb(): Promise<IDBDatabase> {
 
 export async function saveSanitizedTicket(result: TriageResult): Promise<void> {
   const safeRecord = stripRawTextForStorage(result);
-  memoryTickets = [safeRecord, ...memoryTickets.filter((item) => item.id !== safeRecord.id)].slice(
-    0,
-    50,
-  );
+  memoryTickets = [
+    safeRecord,
+    ...memoryTickets.filter(
+      (item) =>
+        item.id !== safeRecord.id &&
+        !(item.title === safeRecord.title && item.sanitizedText === safeRecord.sanitizedText),
+    ),
+  ].slice(0, 50);
 
   try {
     const db = await openDb();
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(TICKETS_STORE, "readwrite");
-      tx.objectStore(TICKETS_STORE).put(safeRecord);
+      const store = tx.objectStore(TICKETS_STORE);
+      const getAllReq = store.getAll();
+      getAllReq.onsuccess = () => {
+        const existing = (getAllReq.result as unknown[]) ?? [];
+        for (const rawItem of existing) {
+          const parsed = sanitizeStoredTicket(rawItem);
+          if (
+            parsed &&
+            parsed.id !== safeRecord.id &&
+            parsed.title === safeRecord.title &&
+            parsed.sanitizedText === safeRecord.sanitizedText
+          ) {
+            store.delete(parsed.id);
+          }
+        }
+        store.put(safeRecord);
+      };
+      getAllReq.onerror = () => {
+        store.put(safeRecord);
+      };
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error ?? new Error("IndexedDB write failed"));
     });

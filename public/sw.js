@@ -1,4 +1,4 @@
-const CACHE_NAME = "localfirst-triage-shell-v3";
+const CACHE_NAME = "localfirst-triage-shell-v3.1";
 const BASE_ASSETS = [
   "/",
   "/index.html",
@@ -46,6 +46,24 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
+  const isHtmlNavigation =
+    request.mode === "navigate" || url.pathname === "/" || url.pathname === "/index.html";
+
+  if (isHtmlNavigation) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response.ok) {
+            const copy = response.clone();
+            void caches.open(CACHE_NAME).then((cache) => cache.put("/index.html", copy));
+          }
+          return response;
+        })
+        .catch(async () => (await caches.match(request)) || (await caches.match("/index.html"))),
+    );
+    return;
+  }
+
   event.respondWith(
     caches.match(request).then((cached) => {
       if (cached) return cached;
@@ -53,9 +71,7 @@ self.addEventListener("fetch", (event) => {
         .then((response) => {
           if (
             response.ok &&
-            (url.pathname.startsWith("/assets/") ||
-              url.pathname.startsWith("/icons/") ||
-              url.pathname === "/")
+            (url.pathname.startsWith("/assets/") || url.pathname.startsWith("/icons/"))
           ) {
             const copy = response.clone();
             void caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));

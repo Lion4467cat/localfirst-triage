@@ -69,6 +69,7 @@ export interface AppCheckEnvSelection {
 export function selectAppCheckProvider(env: {
   enterpriseKey?: string;
   v3Key?: string;
+  providerMode?: string;
 }): AppCheckEnvSelection {
   const enterpriseKey = (env.enterpriseKey ?? "").trim();
   if (enterpriseKey) {
@@ -76,7 +77,13 @@ export function selectAppCheckProvider(env: {
   }
   const v3Key = (env.v3Key ?? "").trim();
   if (v3Key) {
-    return { provider: "RECAPTCHA_V3", siteKey: v3Key };
+    const mode = (env.providerMode ?? "").trim().toLowerCase();
+    if (mode === "v3" || mode === "recaptcha_v3") {
+      return { provider: "RECAPTCHA_V3", siteKey: v3Key };
+    }
+    // Default to RECAPTCHA_ENTERPRISE because Firebase Console project para-1-2e22b
+    // registers the site key with ReCaptchaEnterpriseProvider on the Spark tier.
+    return { provider: "RECAPTCHA_ENTERPRISE", siteKey: v3Key };
   }
   return { provider: "UNCONFIGURED", siteKey: "" };
 }
@@ -88,6 +95,7 @@ export function getAppCheckProviderStatus(): AppCheckProviderKind {
   return selectAppCheckProvider({
     enterpriseKey: import.meta.env.VITE_RECAPTCHA_ENTERPRISE_SITE_KEY,
     v3Key: import.meta.env.VITE_RECAPTCHA_V3_SITE_KEY,
+    providerMode: import.meta.env.VITE_APPCHECK_PROVIDER,
   }).provider;
 }
 
@@ -147,6 +155,7 @@ export function initAppCheckIfConfigured(app: FirebaseApp | null): void {
   const selection = selectAppCheckProvider({
     enterpriseKey: import.meta.env.VITE_RECAPTCHA_ENTERPRISE_SITE_KEY,
     v3Key: import.meta.env.VITE_RECAPTCHA_V3_SITE_KEY,
+    providerMode: import.meta.env.VITE_APPCHECK_PROVIDER,
   });
 
   if (selection.provider === "UNCONFIGURED") {
@@ -295,9 +304,13 @@ export async function warmupOnDeviceModel(
   }
 }
 
-export async function loadRuntimeConfig(timeoutMs = 1500): Promise<RuntimeConfigValues> {
+export async function loadRuntimeConfig(timeoutMs = 3500): Promise<RuntimeConfigValues> {
   const app = getFirebaseApp();
   if (!app) {
+    return { ...DEFAULT_RUNTIME_CONFIG, source: "DEFAULT_FALLBACK" };
+  }
+  initAppCheckIfConfigured(app);
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
     return { ...DEFAULT_RUNTIME_CONFIG, source: "DEFAULT_FALLBACK" };
   }
 

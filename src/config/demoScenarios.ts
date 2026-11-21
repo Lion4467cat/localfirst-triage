@@ -28,14 +28,18 @@ export const DEMO_SCENARIOS: DemoScenario[] = [
   },
   {
     id: "scenario-p1-billing-webhook",
-    title: "P1: FinTech Billing Deadlock + PCI Card + DB URI",
-    subtitle: "Redacts Luhn Visa, AWS/Stripe keys, Postgres URI & PII before Cloud RCA",
+    title: "P1: FinTech Billing Deadlock + PEM Key + PCI Card + SSN",
+    subtitle: "Redacts Luhn Visa, PEM key, SSN, AWS/Stripe keys, DB URI & high-entropy secret",
     expectedSeverity: "P1",
     rawText: [
       "P1 Incident: Stripe webhook processor returning HTTP 429 + 504 timeout on invoice_sync_worker (Deadlock in pg_locks on shard-04).",
       "DB URI leaked: postgres://billing_svc:s3cr3tP4ssword99@db-shard-04.internal:5432/ledger",
       "AWS Key: AKIAIOSFODNN7EXAMPLE | Stripe key: sk_live_51N9x8y7z6w5v4u3t2s1r | Card: 4532-0151-1283-0366",
+      "webhook_secret=whsec_9Kf8Lm2Qp7Zx4Tv1Bn6Yc3Rd8Wx5Hj2M | Affected customer SSN: 123-45-6789",
       "VP of Finance (Priya Nair, who lives near Indiranagar 100ft Road) asked for immediate ETA.",
+      "-----BEGIN RSA PRIVATE KEY-----",
+      "MIIEowIBAAKCAQEA7V5k9demoSyntheticKeyMaterialForTestingOnly0001",
+      "-----END RSA PRIVATE KEY-----",
     ].join("\n"),
   },
   {
@@ -47,20 +51,6 @@ export const DEMO_SCENARIOS: DemoScenario[] = [
       "Field kiosk #402 at Bengaluru warehouse reporting OAuth2 invalid_grant due to NTP clock skew (>310s drift).",
       "Technician contact: field.tech@logistics-ops.io | +91 98450 11223.",
       "Device cannot sync offline telemetry buffer until token clock skew is resolved.",
-    ].join("\n"),
-  },
-  {
-    id: "scenario-p0-pem-key-leak",
-    title: "P0: Support Bundle PEM Key, SSN & High-Entropy Secret",
-    subtitle: "Tests PEM block, US SSN, entropy scanner & custom workspace policy terms",
-    expectedSeverity: "P0",
-    rawText: [
-      "P0 Critical Incident: Customer support uploaded unredacted production diagnostics bundle.",
-      "webhook_secret=whsec_9Kf8Lm2Qp7Zx4Tv1Bn6Yc3Rd8Wx5Hj2M",
-      "Affected customer SSN: 123-45-6789 (email: cfo.audit@enterprise-bank.com)",
-      "-----BEGIN RSA PRIVATE KEY-----",
-      "MIIEowIBAAKCAQEA7V5k9demoSyntheticKeyMaterialForTestingOnly0001",
-      "-----END RSA PRIVATE KEY-----",
     ].join("\n"),
   },
 ];

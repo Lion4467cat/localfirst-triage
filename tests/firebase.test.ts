@@ -79,12 +79,16 @@ describe("firebase SDK & App Check config", () => {
     expect(normalizeSdkInferenceSource({}, "IN_CLOUD")).toBe("IN_CLOUD");
   });
 
-  it("selects App Check provider explicitly (Enterprise > v3 > Unconfigured) and restricts debug token to localhost", () => {
+  it("selects App Check provider explicitly (Enterprise default for para-1-2e22b, v3 with providerMode='v3', or Unconfigured) and restricts debug token to localhost", () => {
     expect(selectAppCheckProvider({ enterpriseKey: "ent_123", v3Key: "v3_456" })).toEqual({
       provider: "RECAPTCHA_ENTERPRISE",
       siteKey: "ent_123",
     });
-    expect(selectAppCheckProvider({ v3Key: "6Le7_v3_site_key" })).toEqual({
+    expect(selectAppCheckProvider({ v3Key: "6Le7_enterprise_site_key" })).toEqual({
+      provider: "RECAPTCHA_ENTERPRISE",
+      siteKey: "6Le7_enterprise_site_key",
+    });
+    expect(selectAppCheckProvider({ v3Key: "6Le7_v3_site_key", providerMode: "v3" })).toEqual({
       provider: "RECAPTCHA_V3",
       siteKey: "6Le7_v3_site_key",
     });
