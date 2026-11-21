@@ -93,7 +93,8 @@ npm test
 npm run build
 npm run test:e2e
 
-# 3. Android Native Companion (copy android/app/google-services.json first)
+# 3. Android Native Companion (copy placeholder template for local builds/tests, or replace with your Firebase google-services.json)
+cp android/app/google-services.json.example android/app/google-services.json
 cd android
 ./gradlew :app:testDebugUnitTest :app:assembleDebug
 ```
