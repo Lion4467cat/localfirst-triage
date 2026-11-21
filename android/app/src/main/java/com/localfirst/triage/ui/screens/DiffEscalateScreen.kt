@@ -46,6 +46,8 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.localfirst.triage.firewall.LocalFirewallEngine
+import com.localfirst.triage.firewall.RiskRoutingAction
+import com.localfirst.triage.firewall.RiskTier
 import com.localfirst.triage.model.DetectorSource
 import com.localfirst.triage.model.RedactionSpan
 import com.localfirst.triage.ui.MainUiState
@@ -265,24 +267,77 @@ fun DiffEscalateScreen(
             }
         }
 
+        // Risk Router Score Pill + 2-Step Critical Lockdown Guard
+        val risk = result.riskProfile
+        var criticalOverrideArmed by remember(result.id) { mutableStateOf(false) }
+
+        if (risk != null) {
+            val (bg, border, fg) = when (risk.tier) {
+                RiskTier.CRITICAL -> Triple(tokens.maskBg, tokens.maskBorder, tokens.maskText)
+                RiskTier.HIGH -> Triple(tokens.warnBg, tokens.warnBorder, tokens.warnText)
+                RiskTier.ELEVATED -> Triple(tokens.infoBg, tokens.infoBorder, tokens.infoText)
+                RiskTier.LOW -> Triple(tokens.safeBg, tokens.safeBorder, tokens.safeText)
+            }
+            Card(
+                colors = CardDefaults.cardColors(containerColor = bg),
+                border = BorderStroke(1.dp, border),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Risk ${risk.score}/100 · ${risk.tier.name}",
+                        color = fg,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                    )
+                    Text(
+                        text = risk.action.name,
+                        color = fg,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 10.sp,
+                    )
+                }
+            }
+        }
+
         // Action Buttons
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            val isCriticalLockdown =
+                risk?.action == RiskRoutingAction.CRITICAL_AIRGAP_LOCKDOWN && !criticalOverrideArmed
+
             Button(
-                onClick = onApproveEscalate,
+                onClick = {
+                    if (isCriticalLockdown) {
+                        criticalOverrideArmed = true
+                    } else {
+                        criticalOverrideArmed = false
+                        onApproveEscalate()
+                    }
+                },
                 enabled = !state.isRunning && !state.offlineMode && unmaskedCount == 0,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    containerColor = if (isCriticalLockdown) tokens.maskBg else MaterialTheme.colorScheme.primary,
+                    contentColor = if (isCriticalLockdown) tokens.maskText else MaterialTheme.colorScheme.onPrimary,
                 ),
                 modifier = Modifier
                     .weight(1f)
                     .height(46.dp),
             ) {
                 Text(
-                    text = "Send Safe Text to AI",
+                    text = when {
+                        isCriticalLockdown -> "Unlock Critical (${risk?.score}/100)"
+                        criticalOverrideArmed -> "Confirm Critical Override"
+                        else -> "Send Safe Text to AI"
+                    },
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
                 )

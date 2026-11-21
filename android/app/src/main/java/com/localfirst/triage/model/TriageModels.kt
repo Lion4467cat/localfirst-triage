@@ -1,5 +1,7 @@
 package com.localfirst.triage.model
 
+import com.localfirst.triage.firewall.RiskProfile
+
 enum class DetectorSource(val priority: Int) {
     MANUAL_MASK(5),
     NANO_SEMANTIC_FIREWALL(4),
@@ -170,6 +172,7 @@ data class TriageResult(
     val cloudError: String? = null,
     val zeroLeakageAudit: ZeroLeakageAudit? = null,
     val hybridBrief: HybridBriefResult? = null,
+    val riskProfile: RiskProfile? = null,
     val sourcePlatform: SourcePlatform = SourcePlatform.ANDROID,
     val queuedForReconnect: Boolean = false,
     val loadedFromZeroPiiStore: Boolean = false,

@@ -1,13 +1,18 @@
 package com.localfirst.triage
 
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.res.painterResource
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CompareArrows
 import androidx.compose.material.icons.filled.BrightnessAuto
@@ -45,10 +50,29 @@ import com.localfirst.triage.ui.theme.AppThemeMode
 import com.localfirst.triage.ui.theme.LocalFirstTriageTheme
 
 class MainActivity : ComponentActivity() {
+    private val pendingSharedText = mutableStateOf<Pair<String, String?>?>(null)
+
+    private fun extractSharedText(intent: Intent?) {
+        if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
+            val shared = intent.getStringExtra(Intent.EXTRA_TEXT)
+            val subject = intent.getStringExtra(Intent.EXTRA_SUBJECT)
+            if (!shared.isNullOrBlank()) {
+                pendingSharedText.value = shared to subject
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        extractSharedText(intent)
+    }
+
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        extractSharedText(intent)
 
         val prefs = getSharedPreferences("localfirst_ui_prefs", Context.MODE_PRIVATE)
         val initialMode = runCatching {
@@ -62,6 +86,14 @@ class MainActivity : ComponentActivity() {
                 val vm: TriageViewModel = viewModel()
                 val state by vm.uiState.collectAsStateWithLifecycle()
                 var activeTab by remember { mutableIntStateOf(0) }
+                val sharedPayload by pendingSharedText
+
+                LaunchedEffect(sharedPayload) {
+                    val payload = sharedPayload ?: return@LaunchedEffect
+                    vm.ingestSharedText(payload.first, payload.second)
+                    activeTab = 1
+                    pendingSharedText.value = null
+                }
 
                 Scaffold(
                     containerColor = MaterialTheme.colorScheme.background,
@@ -72,17 +104,26 @@ class MainActivity : ComponentActivity() {
                                 titleContentColor = MaterialTheme.colorScheme.onSurface,
                             ),
                             title = {
-                                Column {
-                                    Text(
-                                        text = "LocalFirst Triage",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 17.sp,
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Image(
+                                        painter = painterResource(id = R.drawable.ic_brand_logo),
+                                        contentDescription = "LocalFirst Airgap Logo",
+                                        modifier = Modifier
+                                            .padding(end = 10.dp)
+                                            .size(28.dp),
                                     )
-                                    Text(
-                                        text = "On-Device Privacy Firewall · Zero-PII",
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontSize = 11.sp,
-                                    )
+                                    Column {
+                                        Text(
+                                            text = "LocalFirst Triage",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 17.sp,
+                                        )
+                                        Text(
+                                            text = "On-Device Privacy Firewall · Zero-PII",
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontSize = 11.sp,
+                                        )
+                                    }
                                 }
                             },
                             actions = {
