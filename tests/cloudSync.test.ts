@@ -242,4 +242,20 @@ describe("cloudSync Zero-PII, Auth & Firestore Rules", () => {
     stop();
     for (const u of unsubs) expect(u).toHaveBeenCalledTimes(1);
   });
+
+  it("lazy-loads firebase/firestore via dynamic import('./firestoreTransport') with zero static runtime imports on initial boot", () => {
+    const firebaseCfgSrc = fs.readFileSync(
+      path.resolve(__dirname, "../src/config/firebase.ts"),
+      "utf8",
+    );
+    const cloudSyncSrc = fs.readFileSync(
+      path.resolve(__dirname, "../src/storage/cloudSync.ts"),
+      "utf8",
+    );
+
+    expect(firebaseCfgSrc).not.toContain("firebase/firestore");
+    expect(cloudSyncSrc).toContain('import type { Firestore } from "firebase/firestore"');
+    expect(cloudSyncSrc).not.toMatch(/import\s*\{[^}]*\}\s*from\s*["']firebase\/firestore["']/);
+    expect(cloudSyncSrc).toContain('import("./firestoreTransport")');
+  });
 });

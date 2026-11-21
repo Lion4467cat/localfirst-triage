@@ -9,19 +9,8 @@ import {
   type AuthProvider,
   type User,
 } from "firebase/auth";
-import {
-  collection,
-  deleteDoc,
-  doc,
-  limit,
-  onSnapshot,
-  orderBy,
-  query,
-  setDoc,
-  writeBatch,
-  type Firestore,
-} from "firebase/firestore";
-import { getFirebaseAuth, getFirebaseFirestore } from "../config/firebase";
+import type { Firestore } from "firebase/firestore";
+import { getFirebaseAuth } from "../config/firebase";
 import { verifyZeroLeakage } from "../firewall/spanMerger";
 import type {
   AuthUserSummary,
@@ -126,18 +115,26 @@ export interface CloudAuthDeps {
 
 export interface CloudFirestoreDeps {
   getFirestoreFn?: () => Firestore | null;
-  docFn?: typeof doc;
-  collectionFn?: typeof collection;
-  queryFn?: typeof query;
-  orderByFn?: typeof orderBy;
-  limitFn?: typeof limit;
+  docFn?: (...args: unknown[]) => unknown;
+  collectionFn?: (...args: unknown[]) => unknown;
+  queryFn?: (...args: unknown[]) => unknown;
+  orderByFn?: (...args: unknown[]) => unknown;
+  limitFn?: (...args: unknown[]) => unknown;
   setDocFn?: (ref: unknown, data: unknown) => Promise<void>;
   deleteDocFn?: (ref: unknown) => Promise<void>;
   writeBatchFn?: (db: Firestore) => {
     delete: (ref: unknown) => void;
     commit: () => Promise<void>;
   };
-  onSnapshotFn?: typeof onSnapshot;
+  onSnapshotFn?: (
+    target: unknown,
+    onNext: (snapshot: {
+      docs: Array<{ data: () => unknown }>;
+      exists?: () => boolean;
+      data?: () => unknown;
+    }) => void,
+    onError?: (err: Error) => void,
+  ) => () => void;
 }
 
 function containsRawSecretPattern(text: string): string | null {
@@ -423,18 +420,22 @@ export async function syncTicketToFirestore(
     };
   }
 
-  const db = (deps.getFirestoreFn ?? getFirebaseFirestore)();
-  if (!db) {
-    return { ok: false, reason: "Firestore not configured." };
+  if (deps.getFirestoreFn) {
+    const db = deps.getFirestoreFn();
+    if (!db) {
+      return { ok: false, reason: "Firestore not configured." };
+    }
+    try {
+      const ref = deps.docFn?.(db, "workspaces", uid, "tickets", built.doc.id);
+      await deps.setDocFn?.(ref, built.doc);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+    }
   }
 
-  try {
-    const ref = (deps.docFn ?? doc)(db, "workspaces", uid, "tickets", built.doc.id);
-    await (deps.setDocFn ?? ((r, data) => setDoc(r as ReturnType<typeof doc>, data)))(ref, built.doc);
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, reason: err instanceof Error ? err.message : String(err) };
-  }
+  const transport = await import("./firestoreTransport");
+  return transport.writeFirestoreDoc(["workspaces", uid, "tickets", built.doc.id], built.doc);
 }
 
 export async function syncPolicyToFirestore(
@@ -443,9 +444,8 @@ export async function syncPolicyToFirestore(
   createdAt = Date.now(),
   deps: CloudFirestoreDeps = {},
 ): Promise<CloudWriteResult> {
-  const db = (deps.getFirestoreFn ?? getFirebaseFirestore)();
-  if (!db || !uid.trim()) {
-    return { ok: false, reason: "Firestore not configured." };
+  if (!uid.trim()) {
+    return { ok: false, reason: "Missing uid for policy sync." };
   }
   const cleanTerms = policy.customTerms
     .map((t) => t.trim())
@@ -461,13 +461,22 @@ export async function syncPolicyToFirestore(
     updatedAt: Math.max(safeCreatedAt, Date.now()),
   };
 
-  try {
-    const ref = (deps.docFn ?? doc)(db, "workspaces", uid, "policies", "default");
-    await (deps.setDocFn ?? ((r, data) => setDoc(r as ReturnType<typeof doc>, data)))(ref, docData);
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+  if (deps.getFirestoreFn) {
+    const db = deps.getFirestoreFn();
+    if (!db) {
+      return { ok: false, reason: "Firestore not configured." };
+    }
+    try {
+      const ref = deps.docFn?.(db, "workspaces", uid, "policies", "default");
+      await deps.setDocFn?.(ref, docData);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+    }
   }
+
+  const transport = await import("./firestoreTransport");
+  return transport.writeFirestoreDoc(["workspaces", uid, "policies", "default"], docData);
 }
 
 export async function syncCustomRunbooksToFirestore(
@@ -477,49 +486,75 @@ export async function syncCustomRunbooksToFirestore(
   createdAtMap: Map<string, number>,
   deps: CloudFirestoreDeps = {},
 ): Promise<CloudWriteResult> {
-  const db = (deps.getFirestoreFn ?? getFirebaseFirestore)();
-  if (!db || !uid.trim()) {
-    return { ok: false, reason: "Firestore not configured." };
+  if (!uid.trim()) {
+    return { ok: false, reason: "Missing uid for runbook sync." };
   }
 
   const customRunbooks = runbooks.filter((rb) => !rb.builtIn);
   const nextIds = new Set(customRunbooks.map((rb) => rb.id));
-  const docBuilder = deps.docFn ?? doc;
-  const writeSet = deps.setDocFn ?? ((r, data) => setDoc(r as ReturnType<typeof doc>, data));
-  const removeDoc = deps.deleteDocFn ?? ((r) => deleteDoc(r as ReturnType<typeof doc>));
+  const preparedDocs: FirestoreRunbookDoc[] = [];
+
+  for (const rb of customRunbooks) {
+    if (containsRawSecretPattern(rb.resolution)) {
+      return {
+        ok: false,
+        blockedByZeroLeakage: true,
+        reason: `Runbook ${rb.id} contains a raw secret pattern and was blocked.`,
+      };
+    }
+    const existingCreated = createdAtMap.get(rb.id) ?? Date.now();
+    createdAtMap.set(rb.id, existingCreated);
+    preparedDocs.push({
+      id: rb.id.slice(0, 100),
+      uid,
+      title: rb.title.slice(0, 200),
+      category: rb.category.slice(0, 100),
+      severity: rb.severity,
+      keywords: rb.keywords.slice(0, 50),
+      resolution: rb.resolution.slice(0, 50_000),
+      builtIn: false,
+      createdAt: existingCreated,
+      updatedAt: Math.max(existingCreated, Date.now()),
+    });
+  }
 
   try {
-    for (const rb of customRunbooks) {
-      if (containsRawSecretPattern(rb.resolution)) {
-        return {
-          ok: false,
-          blockedByZeroLeakage: true,
-          reason: `Runbook ${rb.id} contains a raw secret pattern and was blocked.`,
-        };
+    if (deps.getFirestoreFn) {
+      const db = deps.getFirestoreFn();
+      if (!db) {
+        return { ok: false, reason: "Firestore not configured." };
       }
-      const existingCreated = createdAtMap.get(rb.id) ?? Date.now();
-      createdAtMap.set(rb.id, existingCreated);
-      const docData: FirestoreRunbookDoc = {
-        id: rb.id.slice(0, 100),
-        uid,
-        title: rb.title.slice(0, 200),
-        category: rb.category.slice(0, 100),
-        severity: rb.severity,
-        keywords: rb.keywords.slice(0, 50),
-        resolution: rb.resolution.slice(0, 50_000),
-        builtIn: false,
-        createdAt: existingCreated,
-        updatedAt: Math.max(existingCreated, Date.now()),
-      };
-      const ref = docBuilder(db, "workspaces", uid, "runbooks", docData.id);
-      await writeSet(ref, docData);
-    }
-
-    for (const oldId of prevCustomIds) {
-      if (!nextIds.has(oldId)) {
-        const ref = docBuilder(db, "workspaces", uid, "runbooks", oldId);
-        await removeDoc(ref);
-        createdAtMap.delete(oldId);
+      for (const docData of preparedDocs) {
+        const ref = deps.docFn?.(db, "workspaces", uid, "runbooks", docData.id);
+        await deps.setDocFn?.(ref, docData);
+      }
+      for (const oldId of prevCustomIds) {
+        if (!nextIds.has(oldId)) {
+          const ref = deps.docFn?.(db, "workspaces", uid, "runbooks", oldId);
+          await deps.deleteDocFn?.(ref);
+          createdAtMap.delete(oldId);
+        }
+      }
+    } else {
+      const transport = await import("./firestoreTransport");
+      for (const docData of preparedDocs) {
+        const writeRes = await transport.writeFirestoreDoc(
+          ["workspaces", uid, "runbooks", docData.id],
+          docData,
+        );
+        if (!writeRes.ok) return writeRes;
+      }
+      for (const oldId of prevCustomIds) {
+        if (!nextIds.has(oldId)) {
+          const delRes = await transport.deleteFirestoreDoc([
+            "workspaces",
+            uid,
+            "runbooks",
+            oldId,
+          ]);
+          if (!delRes.ok) return delRes;
+          createdAtMap.delete(oldId);
+        }
       }
     }
 
@@ -537,23 +572,33 @@ export async function clearWorkspaceTicketsInFirestore(
   ticketIds: string[],
   deps: CloudFirestoreDeps = {},
 ): Promise<CloudWriteResult> {
-  const db = (deps.getFirestoreFn ?? getFirebaseFirestore)();
-  if (!db || !uid.trim() || ticketIds.length === 0) {
+  if (!uid.trim() || ticketIds.length === 0) {
     return { ok: true };
   }
-  try {
-    const batch = (deps.writeBatchFn ?? writeBatch)(db);
-    const docBuilder = deps.docFn ?? doc;
-    for (const id of ticketIds) {
-      if (id.trim()) {
-        batch.delete(docBuilder(db, "workspaces", uid, "tickets", id));
-      }
+
+  if (deps.getFirestoreFn) {
+    const db = deps.getFirestoreFn();
+    if (!db) {
+      return { ok: true };
     }
-    await batch.commit();
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+    try {
+      const batch = deps.writeBatchFn?.(db);
+      if (batch) {
+        for (const id of ticketIds) {
+          if (id.trim()) {
+            batch.delete(deps.docFn?.(db, "workspaces", uid, "tickets", id));
+          }
+        }
+        await batch.commit();
+      }
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+    }
   }
+
+  const transport = await import("./firestoreTransport");
+  return transport.batchDeleteFirestoreTickets(uid, ticketIds);
 }
 
 export interface WorkspaceSyncCallbacks {
@@ -568,85 +613,103 @@ export function subscribeWorkspaceSync(
   callbacks: WorkspaceSyncCallbacks,
   deps: CloudFirestoreDeps = {},
 ): () => void {
-  const db = (deps.getFirestoreFn ?? getFirebaseFirestore)();
-  if (!db || !uid.trim()) {
+  if (!uid.trim()) {
     return () => {};
   }
 
-  const colBuilder = deps.collectionFn ?? collection;
-  const docBuilder = deps.docFn ?? doc;
-  const queryBuilder = deps.queryFn ?? query;
-  const orderByBuilder = deps.orderByFn ?? orderBy;
-  const limitBuilder = deps.limitFn ?? limit;
-  const subscribe = deps.onSnapshotFn ?? onSnapshot;
+  if (deps.getFirestoreFn && deps.onSnapshotFn) {
+    const db = deps.getFirestoreFn();
+    if (!db) {
+      return () => {};
+    }
 
-  const ticketsQuery = queryBuilder(
-    colBuilder(db, "workspaces", uid, "tickets"),
-    orderByBuilder("createdAt", "desc"),
-    limitBuilder(50),
-  );
-  const unsubTickets = subscribe(
-    ticketsQuery,
-    (snapshot) => {
-      const parsed = snapshot.docs
-        .map((snap) => firestoreTicketToLocalResult(snap.data()))
-        .filter((item): item is TriageResult => item !== null);
-      callbacks.onTickets(parsed);
-    },
-    (err) => {
-      callbacks.onError?.(err.message);
-    },
-  );
+    const ticketsQuery = deps.queryFn?.(
+      deps.collectionFn?.(db, "workspaces", uid, "tickets"),
+      deps.orderByFn?.("createdAt", "desc"),
+      deps.limitFn?.(50),
+    );
+    const unsubTickets = deps.onSnapshotFn(
+      ticketsQuery,
+      (snapshot) => {
+        const parsed = snapshot.docs
+          .map((snap) => firestoreTicketToLocalResult(snap.data()))
+          .filter((item): item is TriageResult => item !== null);
+        callbacks.onTickets(parsed);
+      },
+      (err) => {
+        callbacks.onError?.(err.message);
+      },
+    );
 
-  const policyRef = docBuilder(db, "workspaces", uid, "policies", "default");
-  const unsubPolicy = subscribe(
-    policyRef,
-    (snap) => {
-      if (!snap.exists()) return;
-      const raw = snap.data() as Partial<FirestorePolicyDoc>;
-      const valid = sanitizeStoredPolicy(raw);
-      if (valid) {
-        callbacks.onPolicy(
-          valid,
-          typeof raw.createdAt === "number" && raw.createdAt > 0 ? raw.createdAt : Date.now(),
-        );
-      }
-    },
-    (err) => {
-      callbacks.onError?.(err.message);
-    },
-  );
-
-  const runbooksRef = colBuilder(db, "workspaces", uid, "runbooks");
-  const unsubRunbooks = subscribe(
-    runbooksRef,
-    (snapshot) => {
-      const createdMap = new Map<string, number>();
-      const rawDocs = snapshot.docs.map((snap) => {
-        const data = snap.data() as Partial<FirestoreRunbookDoc>;
-        if (typeof data.id === "string" && typeof data.createdAt === "number") {
-          createdMap.set(data.id, data.createdAt);
+    const policyRef = deps.docFn?.(db, "workspaces", uid, "policies", "default");
+    const unsubPolicy = deps.onSnapshotFn(
+      policyRef,
+      (snap) => {
+        const single = snap as unknown as { exists?: () => boolean; data?: () => unknown };
+        if (!single.exists?.()) return;
+        const raw = single.data?.() as Partial<FirestorePolicyDoc>;
+        const valid = sanitizeStoredPolicy(raw);
+        if (valid) {
+          callbacks.onPolicy(
+            valid,
+            typeof raw.createdAt === "number" && raw.createdAt > 0 ? raw.createdAt : Date.now(),
+          );
         }
-        return data;
-      });
-      const valid = sanitizeStoredRunbooks(rawDocs);
-      if (valid) {
-        callbacks.onRunbooks(
-          valid.map((rb) => ({ ...rb, builtIn: false })),
-          createdMap,
-        );
-      } else if (rawDocs.length === 0) {
-        callbacks.onRunbooks([], createdMap);
+      },
+      (err) => {
+        callbacks.onError?.(err.message);
+      },
+    );
+
+    const runbooksRef = deps.collectionFn?.(db, "workspaces", uid, "runbooks");
+    const unsubRunbooks = deps.onSnapshotFn(
+      runbooksRef,
+      (snapshot) => {
+        const createdMap = new Map<string, number>();
+        const rawDocs = snapshot.docs.map((snap) => {
+          const data = snap.data() as Partial<FirestoreRunbookDoc>;
+          if (typeof data.id === "string" && typeof data.createdAt === "number") {
+            createdMap.set(data.id, data.createdAt);
+          }
+          return data;
+        });
+        const valid = sanitizeStoredRunbooks(rawDocs);
+        if (valid) {
+          callbacks.onRunbooks(
+            valid.map((rb) => ({ ...rb, builtIn: false })),
+            createdMap,
+          );
+        } else if (rawDocs.length === 0) {
+          callbacks.onRunbooks([], createdMap);
+        }
+      },
+      (err) => {
+        callbacks.onError?.(err.message);
+      },
+    );
+
+    return () => {
+      unsubTickets();
+      unsubPolicy();
+      unsubRunbooks();
+    };
+  }
+
+  let cancelled = false;
+  let activeUnsub: (() => void) | null = null;
+  void import("./firestoreTransport")
+    .then((transport) => {
+      if (cancelled) return;
+      activeUnsub = transport.attachFirestoreWorkspaceListeners(uid, callbacks);
+    })
+    .catch((err) => {
+      if (!cancelled) {
+        callbacks.onError?.(err instanceof Error ? err.message : String(err));
       }
-    },
-    (err) => {
-      callbacks.onError?.(err.message);
-    },
-  );
+    });
 
   return () => {
-    unsubTickets();
-    unsubPolicy();
-    unsubRunbooks();
+    cancelled = true;
+    activeUnsub?.();
   };
 }

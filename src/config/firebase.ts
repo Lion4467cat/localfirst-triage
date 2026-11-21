@@ -15,7 +15,6 @@ import {
   type GenerativeModel,
   type LanguageModelCreateOptions,
 } from "firebase/ai";
-import { getFirestore, type Firestore } from "firebase/firestore";
 import {
   fetchAndActivate,
   getBoolean,
@@ -65,7 +64,6 @@ const firebaseConfig = {
 let cachedApp: FirebaseApp | null = null;
 let cachedAI: AI | null = null;
 let cachedAuth: Auth | null = null;
-let cachedFirestore: Firestore | null = null;
 let cachedRemoteConfig: RemoteConfig | null = null;
 let appCheckInitialized = false;
 let activeAppCheckProvider: AppCheckProviderKind = "UNCONFIGURED";
@@ -211,18 +209,6 @@ export function getFirebaseAuth(): Auth | null {
     cachedAuth = getAuth(app);
   }
   return cachedAuth;
-}
-
-export function getFirebaseFirestore(): Firestore | null {
-  const app = getFirebaseApp();
-  if (!app) {
-    return null;
-  }
-  initAppCheckIfConfigured(app);
-  if (!cachedFirestore) {
-    cachedFirestore = getFirestore(app);
-  }
-  return cachedFirestore;
 }
 
 export function createOnDeviceFirewallModel(
@@ -473,7 +459,6 @@ export function resetFirebaseCachesForTests(): void {
   cachedApp = null;
   cachedAI = null;
   cachedAuth = null;
-  cachedFirestore = null;
   cachedRemoteConfig = null;
   appCheckInitialized = false;
   activeAppCheckProvider = "UNCONFIGURED";
