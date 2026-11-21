@@ -68,6 +68,13 @@ async function main() {
     await page.goto(url, { waitUntil: "domcontentloaded" });
     await page.waitForTimeout(300);
 
+    const armed = await page.evaluate(
+      () => document.documentElement.dataset.localfirstShield,
+    );
+    if (armed !== "armed") {
+      throw new Error(`Expected dataset.localfirstShield === 'armed', got '${armed}'`);
+    }
+
     // 1. Benign paste -> NOT canceled, NO HUD shown
     const benignRes = await dispatchPaste(page, "#sim-github-issue", "nginx 502 on /healthz");
     if (!benignRes.notCanceled) {
@@ -128,16 +135,14 @@ async function main() {
       throw new Error(`Expected safe redacted text in #sim-github-issue, got '${taAfter}'`);
     }
 
-    // 4. Typing natural-language secrets into contenteditable -> debounced Live Typed-Secret Guard (650ms) + Scrub Draft Now
+    // 4. Typing natural-language secrets into nested ChatGPT ProseMirror (<div contenteditable><p>) -> HUD + Enter block + Scrub Draft Now
     await page.waitForTimeout(1600);
-    await page.locator("#sim-ai-chat").evaluate((el) => {
-      el.textContent = "";
-      el.focus();
-    });
+    await page.locator("#sim-prosemirror p").click();
     const nlSample =
-      "my phone number is 9876543210 and my name is ravi and i work in Zenith company , and my api key is 23224324234kjjjkjl";
-    await page.locator("#sim-ai-chat").type(nlSample, { delay: 2 });
-    await page.waitForTimeout(800);
+      "my phone number is 9876543210 and my name is ravi and i work in Zenith company and my api key is 23224324234kjjjkjl";
+    await page.keyboard.type(nlSample, { delay: 2 });
+    // Immediately press Enter before debounce finishes -> must be intercepted by pre-submit Enter guard!
+    await page.keyboard.press("Enter");
     await page.locator("#localfirst-paste-shield-host").waitFor();
     const draftHeadline = await page.evaluate(
       () => document.querySelector("#localfirst-paste-shield-host")?.shadowRoot?.querySelector("#lf-headline")?.textContent || "",
@@ -149,7 +154,7 @@ async function main() {
       document.querySelector("#localfirst-paste-shield-host")?.shadowRoot?.querySelector("#lf-paste-safe")?.click();
     });
     await page.waitForTimeout(200);
-    const scrubbedDraft = await page.locator("#sim-ai-chat").textContent();
+    const scrubbedDraft = await page.locator("#sim-prosemirror").textContent();
     if (
       !scrubbedDraft ||
       scrubbedDraft.includes("9876543210") ||
@@ -157,7 +162,34 @@ async function main() {
       scrubbedDraft.includes("Zenith company") ||
       scrubbedDraft.includes("23224324234kjjjkjl")
     ) {
-      throw new Error(`Expected all 4 natural-language secrets scrubbed from draft, got '${scrubbedDraft}'`);
+      throw new Error(`Expected all 4 natural-language secrets scrubbed from nested ProseMirror draft, got '${scrubbedDraft}'`);
+    }
+
+    // 4b. Multi-segment comma-separated address + PIN typing into nested ProseMirror -> full address & PIN scrubbed
+    await page.waitForTimeout(1600);
+    await page.locator("#sim-prosemirror").evaluate((el) => {
+      el.innerHTML = "<p><br></p>";
+    });
+    await page.locator("#sim-prosemirror p").click();
+    const addrSample =
+      "my address is 42 Oak Street, Koramangala, Bengaluru 560034 and my name is ravi";
+    await page.keyboard.type(addrSample, { delay: 2 });
+    await page.keyboard.press("Enter");
+    await page.locator("#localfirst-paste-shield-host").waitFor();
+    await page.evaluate(() => {
+      document.querySelector("#localfirst-paste-shield-host")?.shadowRoot?.querySelector("#lf-paste-safe")?.click();
+    });
+    await page.waitForTimeout(200);
+    const scrubbedAddr = await page.locator("#sim-prosemirror").textContent();
+    if (
+      !scrubbedAddr ||
+      scrubbedAddr.includes("42 Oak Street") ||
+      scrubbedAddr.includes("Koramangala") ||
+      scrubbedAddr.includes("Bengaluru") ||
+      scrubbedAddr.includes("560034") ||
+      scrubbedAddr.includes("ravi")
+    ) {
+      throw new Error(`Expected full multi-segment address & PIN scrubbed, got '${scrubbedAddr}'`);
     }
 
     // 5. Verify chrome.storage.local stats in Side Panel & toggle OFF

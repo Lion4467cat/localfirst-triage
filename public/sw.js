@@ -1,4 +1,4 @@
-const CACHE_NAME = "localfirst-triage-shell-v4.1";
+const CACHE_NAME = "localfirst-triage-shell-v4.2.0";
 const BASE_ASSETS = [
   "/",
   "/index.html",

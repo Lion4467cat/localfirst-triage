@@ -253,4 +253,20 @@ describe("regexScrubber", () => {
     });
     expect(mergedP0.sanitizedText.startsWith("URGENT P0 Outage in checkout-gateway after v4.8.2 deploy.")).toBe(true);
   });
+
+  it("redacts full multi-segment comma-separated addresses including locality and PIN/ZIP in medium mode", () => {
+    const sample =
+      "my address is 42 Oak Street, Koramangala, Bengaluru 560034 and my name is ravi";
+    const res = scanAndRedactLocal(sample, {
+      protectionLevel: "medium",
+      includeHeuristics: true,
+    });
+    expect(res.sanitizedText).not.toContain("42 Oak Street");
+    expect(res.sanitizedText).not.toContain("Koramangala");
+    expect(res.sanitizedText).not.toContain("Bengaluru");
+    expect(res.sanitizedText).not.toContain("560034");
+    expect(res.sanitizedText).not.toContain("ravi");
+    expect(res.sanitizedText).toContain("[REDACTED:ADDRESS_");
+    expect(res.sanitizedText).toContain("[REDACTED:PERSON_");
+  });
 });

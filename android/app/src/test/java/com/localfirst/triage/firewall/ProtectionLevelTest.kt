@@ -27,4 +27,18 @@ class ProtectionLevelTest {
             assertFalse(sanitized.contains("23224324234kjjjkjl"))
         }
     }
+
+    @Test
+    fun `MEDIUM mode redacts full multi-segment comma-separated address with PIN code and name`() {
+        val sample =
+            "my address is 42 Oak Street, Koramangala, Bengaluru 560034 and my name is ravi"
+        val (sanitized, _) = LocalFirewallEngine.scrub(sample, ProtectionLevel.MEDIUM)
+        assertFalse(sanitized.contains("42 Oak Street"))
+        assertFalse(sanitized.contains("Koramangala"))
+        assertFalse(sanitized.contains("Bengaluru"))
+        assertFalse(sanitized.contains("560034"))
+        assertFalse(sanitized.contains("ravi"))
+        assertTrue(sanitized.contains("[REDACTED:ADDRESS_"))
+        assertTrue(sanitized.contains("[REDACTED:PERSON_"))
+    }
 }

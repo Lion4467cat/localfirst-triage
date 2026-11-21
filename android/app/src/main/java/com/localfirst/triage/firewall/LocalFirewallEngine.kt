@@ -190,9 +190,19 @@ object LocalFirewallEngine {
             category = "ADDRESS",
             detector = DetectorSource.HEURISTIC_GUARD,
             captureGroup = 1,
-            minLevel = ProtectionLevel.HIGH,
+            minLevel = ProtectionLevel.MEDIUM,
             pattern = Regex(
-                """\b(?:live(?:s|d)?\s+(?:at|in|near)|home\s+address\s*(?:is|:)?|address\s*(?:is|:))\s+([^\n,.]{4,48})""",
+                """\b(?:live(?:s|d)?\s+(?:at|in|near)|home\s+address\s*(?:is|:)?|address\s*(?:is|:))\s+((?:(?!\s+(?:and\s+(?:my|i)\b|my\s+(?:phone|email|name|api)\b))[^\n;.]){4,120})""",
+                RegexOption.IGNORE_CASE,
+            ),
+        ),
+        RegexRule(
+            category = "ADDRESS",
+            detector = DetectorSource.HEURISTIC_GUARD,
+            captureGroup = 1,
+            minLevel = ProtectionLevel.MEDIUM,
+            pattern = Regex(
+                """\b(?:pin\s*code|pincode|zip\s*code|postal\s*code|pin|zip)\s*(?:is|:|=)?\s*([1-9]\d{5}|\d{5}(?:-\d{4})?)\b""",
                 RegexOption.IGNORE_CASE,
             ),
         ),

@@ -1,6 +1,11 @@
 (function () {
   "use strict";
 
+  if (window.__LOCALFIRST_SHIELD_LOADED__) {
+    return;
+  }
+  window.__LOCALFIRST_SHIELD_LOADED__ = true;
+
   const HOST_ID = "localfirst-paste-shield-host";
   const STORAGE_KEY_ENABLED = "shieldEnabled";
   const STORAGE_KEY_STATS = "shieldStats";
@@ -20,10 +25,15 @@
   let bypassedDraftText = null;
   let lastNanoSweptText = "";
 
+  function hasValidExtensionContext() {
+    return typeof chrome !== "undefined" && Boolean(chrome.runtime?.id) && Boolean(chrome.storage?.local);
+  }
+
   function loadInitialSettings() {
-    if (typeof chrome === "undefined" || !chrome.storage?.local) return;
+    if (!hasValidExtensionContext()) return;
     try {
       chrome.storage.local.get([STORAGE_KEY_ENABLED, STORAGE_KEY_TARGET, STORAGE_KEY_LEVEL], (res) => {
+        if (!hasValidExtensionContext()) return;
         if (typeof res?.[STORAGE_KEY_ENABLED] === "boolean") {
           shieldEnabled = res[STORAGE_KEY_ENABLED];
         }
@@ -35,7 +45,7 @@
         }
       });
       chrome.storage.onChanged.addListener((changes, area) => {
-        if (area !== "local") return;
+        if (!hasValidExtensionContext() || area !== "local") return;
         if (changes[STORAGE_KEY_ENABLED] && typeof changes[STORAGE_KEY_ENABLED].newValue === "boolean") {
           shieldEnabled = changes[STORAGE_KEY_ENABLED].newValue;
         }
@@ -54,9 +64,10 @@
   }
 
   function recordAggregateTelemetry(secretCount) {
-    if (typeof chrome === "undefined" || !chrome.storage?.local) return;
+    if (!hasValidExtensionContext()) return;
     try {
       chrome.storage.local.get([STORAGE_KEY_STATS], (res) => {
+        if (!hasValidExtensionContext()) return;
         const prev = res?.[STORAGE_KEY_STATS] || {};
         const next = {
           totalBlockedPastes: (prev.totalBlockedPastes || 0) + 1,
@@ -71,7 +82,7 @@
     }
   }
 
-  function resolveEditableTarget(node) {
+  function findEditableRootFromNode(node) {
     if (!node) return null;
     const el = node.nodeType === 3 ? node.parentElement : node;
     if (!el || typeof el.closest !== "function") return null;
@@ -81,20 +92,31 @@
       const type = (input.getAttribute("type") || "text").toLowerCase();
       if (["text", "search", "url", "email", ""].includes(type)) return input;
     }
+    if (el.isContentEditable) {
+      let root = el;
+      while (root.parentElement && root.parentElement.isContentEditable) {
+        root = root.parentElement;
+      }
+      return root;
+    }
     const editable = el.closest('[contenteditable="true"], [contenteditable=""], [role="textbox"]');
     if (editable) return editable;
-    if (document.activeElement && document.activeElement !== document.body) {
-      const active = document.activeElement;
-      if (
-        active.tagName === "TEXTAREA" ||
-        active.getAttribute("contenteditable") === "true" ||
-        active.getAttribute("contenteditable") === "" ||
-        active.getAttribute("role") === "textbox"
-      ) {
-        return active;
+    return null;
+  }
+
+  function resolveEditableTarget(eventOrNode) {
+    if (eventOrNode && typeof eventOrNode.composedPath === "function") {
+      const path = eventOrNode.composedPath();
+      for (const node of path) {
+        const found = findEditableRootFromNode(node);
+        if (found) return found;
       }
     }
-    return null;
+    return (
+      findEditableRootFromNode(eventOrNode?.target ?? eventOrNode) ||
+      findEditableRootFromNode(document.activeElement) ||
+      findEditableRootFromNode(window.getSelection?.()?.anchorNode)
+    );
   }
 
   function captureSelection(target) {
@@ -288,7 +310,7 @@
     const host = document.createElement("div");
     host.id = HOST_ID;
     host.style.cssText =
-      "position:fixed;bottom:20px;right:20px;z-index:2147483647;max-width:calc(100vw - 32px);width:400px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;";
+      "position:fixed;bottom:20px;right:20px;z-index:2147483647;max-width:calc(100vw - 32px);width:400px;pointer-events:auto;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;";
     const shadow = host.attachShadow({ mode: "open" });
 
     const style = document.createElement("style");
@@ -473,7 +495,7 @@
     render();
     shadow.appendChild(style);
     shadow.appendChild(card);
-    (document.body || document.documentElement).appendChild(host);
+    document.documentElement.appendChild(host);
 
     // Optional non-blocking Nano 4 live refinement
     const fw = globalThis.LocalFirstFirewall;
@@ -498,7 +520,7 @@
     const fw = globalThis.LocalFirstFirewall;
     if (!fw?.scrubSync) return;
 
-    const target = resolveEditableTarget(event.target);
+    const target = resolveEditableTarget(event);
     if (!target) return;
 
     const rawText = event.clipboardData?.getData("text/plain") || "";
@@ -518,50 +540,56 @@
     showShieldHud({ target, savedSel, rawText, initialScan: scan });
   }
 
+  let lastPolledText = "";
+
+  function evaluateDraftTarget(target) {
+    const fw = globalThis.LocalFirstFirewall;
+    if (!fw?.scrubSync || !target) return;
+    const text = getTargetText(target);
+    if (!text.trim() || text === bypassedDraftText) return;
+    const scan = fw.scrubSync(text, true, protectionLevel);
+    if (scan.mergedSpans.length >= 1) {
+      showShieldHud({
+        target,
+        savedSel: null,
+        rawText: text,
+        initialScan: scan,
+        mode: "draft",
+      });
+      return;
+    }
+
+    // In HIGH protection mode, run always-on Nano 4 semantic PII sweep on drafts >= 20 chars
+    if (
+      protectionLevel === "high" &&
+      text.length >= 20 &&
+      text !== lastNanoSweptText &&
+      typeof globalThis.LanguageModel !== "undefined" &&
+      fw.runExtensionNanoScan
+    ) {
+      lastNanoSweptText = text;
+      void fw.runExtensionNanoScan(text, { timeoutMs: 4000 }).then((nanoRes) => {
+        if (nanoRes?.mergedSpans?.length >= 1 && getTargetText(target) === text) {
+          showShieldHud({
+            target,
+            savedSel: null,
+            rawText: text,
+            initialScan: nanoRes,
+            mode: "draft",
+          });
+        }
+      });
+    }
+  }
+
   function onInput(event) {
     if (!shieldEnabled || isInjectingSafePaste || protectionLevel === "low") return;
-    const target = resolveEditableTarget(event.target);
+    const target = resolveEditableTarget(event);
     if (!target) return;
     clearTimeout(typingDebounceTimer);
     typingDebounceTimer = setTimeout(() => {
-      const fw = globalThis.LocalFirstFirewall;
-      if (!fw?.scrubSync) return;
-      const text = getTargetText(target);
-      if (!text.trim() || text === bypassedDraftText) return;
-      const scan = fw.scrubSync(text, true, protectionLevel);
-      if (scan.mergedSpans.length >= 1) {
-        showShieldHud({
-          target,
-          savedSel: null,
-          rawText: text,
-          initialScan: scan,
-          mode: "draft",
-        });
-        return;
-      }
-
-      // In HIGH protection mode, run always-on Nano 4 semantic PII sweep on drafts >= 20 chars
-      if (
-        protectionLevel === "high" &&
-        text.length >= 20 &&
-        text !== lastNanoSweptText &&
-        typeof globalThis.LanguageModel !== "undefined" &&
-        fw.runExtensionNanoScan
-      ) {
-        lastNanoSweptText = text;
-        void fw.runExtensionNanoScan(text, { timeoutMs: 4000 }).then((nanoRes) => {
-          if (nanoRes?.mergedSpans?.length >= 1 && getTargetText(target) === text) {
-            showShieldHud({
-              target,
-              savedSel: null,
-              rawText: text,
-              initialScan: nanoRes,
-              mode: "draft",
-            });
-          }
-        });
-      }
-    }, 650);
+      evaluateDraftTarget(target);
+    }, 350);
   }
 
   function onSubmitKeyDown(event) {
@@ -570,7 +598,7 @@
       return;
     }
     if (document.getElementById(HOST_ID)) return;
-    const target = resolveEditableTarget(event.target);
+    const target = resolveEditableTarget(event);
     if (!target || target.tagName === "TEXTAREA") return;
     const fw = globalThis.LocalFirstFirewall;
     if (!fw?.scrubSync) return;
@@ -591,7 +619,28 @@
   }
 
   loadInitialSettings();
+  window.addEventListener("paste", onPaste, true);
   document.addEventListener("paste", onPaste, true);
+  window.addEventListener("input", onInput, true);
   document.addEventListener("input", onInput, true);
+  window.addEventListener("keyup", onInput, true);
+  document.addEventListener("keyup", onInput, true);
+  window.addEventListener("keydown", onSubmitKeyDown, true);
   document.addEventListener("keydown", onSubmitKeyDown, true);
+
+  // Lightweight 500ms active-focus fallback for custom editors that swallow input events
+  setInterval(() => {
+    if (!shieldEnabled || isInjectingSafePaste || protectionLevel === "low") return;
+    if (document.getElementById(HOST_ID)) return;
+    const target = findEditableRootFromNode(document.activeElement);
+    if (!target) return;
+    const text = getTargetText(target);
+    if (text === lastPolledText) return;
+    lastPolledText = text;
+    evaluateDraftTarget(target);
+  }, 500);
+
+  if (document.documentElement) {
+    document.documentElement.dataset.localfirstShield = "armed";
+  }
 })();

@@ -1,0 +1,57 @@
+[
+  {
+    "id": "multi-segment-indian-address-pin",
+    "input": "my address is 42 Oak Street, Koramangala, Bengaluru 560034 and my name is ravi",
+    "levels": {
+      "low": {
+        "mustPreserve": ["42 Oak Street, Koramangala, Bengaluru 560034", "ravi"]
+      },
+      "medium": {
+        "mustNotContain": ["42 Oak Street", "Koramangala", "Bengaluru", "560034", "ravi"]
+      },
+      "high": {
+        "mustNotContain": ["42 Oak Street", "Koramangala", "Bengaluru", "560034", "ravi"]
+      }
+    }
+  },
+  {
+    "id": "natural-language-pii-and-low-entropy-key",
+    "input": "my phone number is 9876543210 and my name is ravi and i work in Zenith company , and my api key is 23224324234kjjjkjl",
+    "levels": {
+      "low": {
+        "mustNotContain": ["23224324234kjjjkjl"],
+        "mustPreserve": ["9876543210", "ravi", "Zenith company"]
+      },
+      "medium": {
+        "mustNotContain": ["9876543210", "ravi", "Zenith company", "23224324234kjjjkjl"]
+      },
+      "high": {
+        "mustNotContain": ["9876543210", "ravi", "Zenith company", "23224324234kjjjkjl"]
+      }
+    }
+  },
+  {
+    "id": "preserve-surrounding-incident-line",
+    "input": "URGENT P0 Outage in checkout-gateway after v4.8.2 deploy.\nCustomer John's daughter (admitted to Manipal ICU Floor 3).",
+    "levels": {
+      "medium": {
+        "mustNotContain": ["Manipal ICU Floor 3"],
+        "mustPreserve": ["URGENT P0 Outage in checkout-gateway after v4.8.2 deploy."]
+      }
+    }
+  },
+  {
+    "id": "benign-coding-stack-and-timestamps",
+    "input": "TypeError: Cannot read properties of undefined at renderNode (src/App.tsx:42:10)\nHTTP 502 Bad Gateway on /api/v1/health at 2026-11-22T03:00:00Z using react@19.0.0",
+    "levels": {
+      "low": {
+        "expectZeroMasks": true,
+        "mustPreserve": ["TypeError", "src/App.tsx:42:10", "react@19.0.0"]
+      },
+      "medium": {
+        "expectZeroMasks": true,
+        "mustPreserve": ["TypeError", "src/App.tsx:42:10", "react@19.0.0"]
+      }
+    }
+  }
+]

@@ -163,9 +163,17 @@ const CONTEXTUAL_HEURISTIC_RULES: RegexRule[] = [
     category: "ADDRESS",
     detector: "HEURISTIC_GUARD",
     captureGroup: 1,
-    minLevel: "high",
+    minLevel: "medium",
     pattern:
-      /\b(?:live(?:s|d)?\s+(?:at|in|near)|home\s+address\s*(?:is|:)?|address\s*(?:is|:))\s+([^\n,.]{4,48})/gi,
+      /\b(?:live(?:s|d)?\s+(?:at|in|near)|home\s+address\s*(?:is|:)?|address\s*(?:is|:))\s+((?:(?!\s+(?:and\s+(?:my|i)\b|my\s+(?:phone|email|name|api)\b))[^\n;.]){4,120})/gi,
+  },
+  {
+    category: "ADDRESS",
+    detector: "HEURISTIC_GUARD",
+    captureGroup: 1,
+    minLevel: "medium",
+    pattern:
+      /\b(?:pin\s*code|pincode|zip\s*code|postal\s*code|pin|zip)\s*(?:is|:|=)?\s*([1-9]\d{5}|\d{5}(?:-\d{4})?)\b/gi,
   },
   {
     category: "CONTEXTUAL_PHI",
