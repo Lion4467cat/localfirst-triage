@@ -2,12 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import {
   Cloud,
   CloudOff,
-  FileCode2,
   Loader2,
   LogOut,
   Monitor,
   Moon,
-  ShieldCheck,
   Sparkles,
   Sun,
   UserCheck,
@@ -30,7 +28,7 @@ interface TelemetryHudProps {
   telemetry: HybridTelemetry;
   onToggleOffline: () => void;
   onWarmupNano: () => void;
-  onOpenTechnicalProof: () => void;
+  onOpenTechnicalProof?: () => void;
   onSignInAnonymous: () => void;
   onSignInGoogle: () => void;
   onSignOut: () => void;
@@ -48,7 +46,6 @@ export function TelemetryHud({
   telemetry,
   onToggleOffline,
   onWarmupNano,
-  onOpenTechnicalProof,
   onSignInAnonymous,
   onSignInGoogle,
   onSignOut,
@@ -83,15 +80,15 @@ export function TelemetryHud({
   }, [syncOpen]);
 
   const themeOptions: { id: ThemePreference; label: string; Icon: typeof Monitor }[] = [
-    { id: "system", label: "System", Icon: Monitor },
     { id: "light", label: "Light", Icon: Sun },
     { id: "dark", label: "Dark", Icon: Moon },
+    { id: "system", label: "System", Icon: Monitor },
   ];
 
   const navTabs: { id: WorkspaceView; label: string; count?: number }[] = [
-    { id: "triage", label: "Triage" },
+    { id: "triage", label: "Workbench" },
     { id: "history", label: "History", count: historyCount },
-    { id: "rules", label: "Privacy Rules", count: rulesCount },
+    { id: "rules", label: "Rules", count: rulesCount },
     { id: "runbooks", label: "Runbooks", count: runbooksCount },
   ];
 
@@ -103,329 +100,117 @@ export function TelemetryHud({
         : `Sync · ${telemetry.authUser.displayName?.split(" ")[0] || "Account"}`
       : "Cloud Sync";
 
-  const showNanoDownloadBar =
-    telemetry.nanoStatus === "DOWNLOADABLE" || telemetry.nanoStatus === "MODEL_DOWNLOADING";
+  const nanoReady = telemetry.nanoStatus === "READY";
 
   return (
-    <div className="flex flex-col gap-3">
-      <header className="lf-card rounded-2xl p-3 sm:p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <div
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border"
-              style={{
-                backgroundColor: "var(--accent-soft-bg)",
-                borderColor: "var(--accent-soft-border)",
-                color: "var(--accent-text)",
-              }}
+    <header
+      className="sticky top-0 z-40 border-b px-3 lg:h-12 lg:px-5"
+      style={{
+        backgroundColor: "var(--bg-surface)",
+        borderColor: "var(--border-subtle)",
+      }}
+    >
+      <div className="mx-auto flex min-h-12 max-w-[1680px] flex-wrap items-center justify-between gap-2 py-1.5 lg:h-12 lg:flex-nowrap lg:py-0">
+        {/* Left: Sharp Geometric Mark + Live Hardware Status Dot */}
+        <div className="flex min-w-0 items-center gap-2.5">
+          <div className="flex items-center gap-2">
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 20 20"
+              fill="none"
+              aria-hidden="true"
+              className="shrink-0"
             >
-              <ShieldCheck className="h-5 w-5" aria-hidden="true" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h1
-                  className="truncate text-base font-bold tracking-tight sm:text-lg"
-                  style={{ color: "var(--text-primary)" }}
-                >
-                  LocalFirst Triage
-                </h1>
-                <span
-                  className="hidden rounded-full border px-2 py-0.5 text-[11px] font-semibold sm:inline-flex"
-                  style={{
-                    backgroundColor: "var(--safe-bg)",
-                    borderColor: "var(--safe-border)",
-                    color: "var(--safe-text)",
-                  }}
-                >
-                  {telemetry.nanoStatus === "READY"
-                    ? "On-Device AI Ready"
-                    : "Local Privacy Firewall"}
-                </span>
-              </div>
-              <p
-                className="truncate text-xs"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                Mask secrets locally before sending troubleshooting logs to AI
-              </p>
-            </div>
+              <rect
+                x="1.5"
+                y="1.5"
+                width="17"
+                height="17"
+                rx="4.5"
+                stroke="currentColor"
+                strokeWidth="1.5"
+              />
+              <path
+                d="M10 4.5V15.5"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              />
+              <circle cx="6" cy="10" r="1.5" fill="var(--mask-solid)" />
+              <circle cx="14" cy="10" r="1.5" fill="var(--safe-solid)" />
+            </svg>
+            <span
+              className="text-sm font-semibold tracking-tight"
+              style={{ color: "var(--text-primary)" }}
+            >
+              LocalFirst
+            </span>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <div
-              role="group"
-              aria-label="Color theme"
-              title={`Theme: ${themePreference} (${resolvedTheme})`}
-              className="inline-flex rounded-xl border p-0.5"
+          <span
+            className="hidden h-3.5 w-px sm:inline-block"
+            style={{ backgroundColor: "var(--border-subtle)" }}
+            aria-hidden="true"
+          />
+
+          <div
+            className="hidden items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium sm:inline-flex"
+            style={{
+              backgroundColor: "var(--bg-subtle)",
+              borderColor: "var(--border-subtle)",
+              color: "var(--text-secondary)",
+            }}
+          >
+            <span
+              className="h-1.5 w-1.5 rounded-full"
               style={{
-                backgroundColor: "var(--bg-subtle)",
-                borderColor: "var(--border-subtle)",
+                backgroundColor: nanoReady ? "var(--safe-solid)" : "var(--text-muted)",
               }}
-            >
-              {themeOptions.map(({ id, label, Icon }) => {
-                const active = themePreference === id;
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    aria-pressed={active}
-                    onClick={() => onChangeTheme(id)}
-                    className="inline-flex min-h-[44px] sm:min-h-[36px] items-center gap-1 rounded-lg px-2.5 text-xs font-medium transition-colors"
-                    style={{
-                      backgroundColor: active ? "var(--bg-surface)" : "transparent",
-                      color: active ? "var(--text-primary)" : "var(--text-secondary)",
-                      boxShadow: active ? "var(--shadow-card)" : "none",
-                    }}
-                  >
-                    <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-                    <span className="hidden sm:inline">{label}</span>
-                    <span className="sr-only sm:hidden">{label} theme</span>
-                  </button>
-                );
-              })}
-            </div>
+              aria-hidden="true"
+            />
+            <span>{nanoReady ? "Nano 4 Ready" : "Local Shield Active"}</span>
+          </div>
 
-            <div ref={popoverContainerRef} className="relative">
-              <button
-                type="button"
-                aria-expanded={syncOpen}
-                aria-controls="cloud-sync-popover"
-                onClick={() => setSyncOpen((v) => !v)}
-                className="inline-flex min-h-[44px] sm:min-h-[36px] items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors"
-                style={{
-                  backgroundColor: telemetry.offlineMode
-                    ? "var(--warn-bg)"
-                    : telemetry.authUser
-                      ? "var(--safe-bg)"
-                      : "var(--bg-subtle)",
-                  borderColor: telemetry.offlineMode
-                    ? "var(--warn-border)"
-                    : telemetry.authUser
-                      ? "var(--safe-border)"
-                      : "var(--border-subtle)",
-                  color: telemetry.offlineMode
-                    ? "var(--warn-text)"
-                    : telemetry.authUser
-                      ? "var(--safe-text)"
-                      : "var(--text-primary)",
-                }}
-              >
-                {telemetry.offlineMode ? (
-                  <WifiOff className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                ) : telemetry.authUser ? (
-                  <Cloud className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                ) : (
-                  <CloudOff className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                )}
-                <span>{syncLabel}</span>
-              </button>
-
-              {syncOpen && (
-                <div
-                  id="cloud-sync-popover"
-                  role="region"
-                  aria-label="Cloud Sync and Offline Settings"
-                  className="fixed inset-x-3 top-24 z-50 rounded-2xl border p-4 sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-88"
-                  style={{
-                    backgroundColor: "var(--bg-surface)",
-                    borderColor: "var(--border-strong)",
-                    boxShadow: "var(--shadow-popover)",
-                  }}
-                >
-                  <div className="mb-3 flex items-center justify-between gap-2">
-                    <div>
-                      <h2
-                        className="text-sm font-semibold"
-                        style={{ color: "var(--text-primary)" }}
-                      >
-                        Sync &amp; Offline Control
-                      </h2>
-                      <p className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                        Cloud sync only stores redacted safe summaries.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div
-                    className="mb-3 flex items-center justify-between gap-3 rounded-xl border p-3"
-                    style={{
-                      backgroundColor: telemetry.offlineMode
-                        ? "var(--warn-bg)"
-                        : "var(--bg-subtle)",
-                      borderColor: telemetry.offlineMode
-                        ? "var(--warn-border)"
-                        : "var(--border-subtle)",
-                    }}
-                  >
-                    <div className="min-w-0">
-                      <p
-                        className="text-xs font-semibold"
-                        style={{
-                          color: telemetry.offlineMode
-                            ? "var(--warn-text)"
-                            : "var(--text-primary)",
-                        }}
-                      >
-                        Offline Mode ($0 Local)
-                      </p>
-                      <p
-                        className="text-[11px]"
-                        style={{
-                          color: telemetry.offlineMode
-                            ? "var(--warn-text)"
-                            : "var(--text-secondary)",
-                        }}
-                      >
-                        Disable cloud AI &amp; sync; solve locally only.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={telemetry.offlineMode}
-                      aria-label="Toggle Offline Mode ($0 Local)"
-                      onClick={onToggleOffline}
-                      className="min-h-[36px] shrink-0 rounded-lg border px-3 py-1 text-xs font-semibold"
-                      style={{
-                        backgroundColor: telemetry.offlineMode
-                          ? "var(--bg-surface)"
-                          : "var(--accent-primary)",
-                        borderColor: telemetry.offlineMode
-                          ? "var(--warn-border)"
-                          : "var(--accent-primary)",
-                        color: telemetry.offlineMode
-                          ? "var(--text-primary)"
-                          : "var(--accent-on-primary)",
-                      }}
-                    >
-                      {telemetry.offlineMode ? "On" : "Off"}
-                    </button>
-                  </div>
-
-                  <div
-                    className="rounded-xl border p-3"
-                    style={{
-                      backgroundColor: "var(--bg-subtle)",
-                      borderColor: "var(--border-subtle)",
-                    }}
-                  >
-                    {telemetry.authUser ? (
-                      <div className="space-y-2.5">
-                        <div className="flex items-center justify-between gap-2">
-                          <span
-                            className="inline-flex items-center gap-1.5 text-xs font-semibold"
-                            style={{ color: "var(--safe-text)" }}
-                          >
-                            <UserCheck className="h-3.5 w-3.5" aria-hidden="true" />
-                            {telemetry.authUser.isAnonymous
-                              ? "Guest Sync Active"
-                              : telemetry.authUser.email ||
-                                telemetry.authUser.displayName ||
-                                "Google Account Synced"}
-                          </span>
-                          <span
-                            className="text-[11px]"
-                            style={{ color: "var(--text-muted)" }}
-                          >
-                            {telemetry.cloudSyncStatus ?? "SYNCED"}
-                          </span>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {telemetry.authUser.isAnonymous && (
-                            <button
-                              type="button"
-                              onClick={onSignInGoogle}
-                              className="min-h-[38px] flex-1 rounded-xl border px-3 py-1.5 text-xs font-semibold"
-                              style={{
-                                backgroundColor: "var(--bg-surface)",
-                                borderColor: "var(--border-strong)",
-                                color: "var(--text-primary)",
-                              }}
-                            >
-                              Link Google Account
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            onClick={onSignOut}
-                            className="inline-flex min-h-[38px] items-center justify-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold"
-                            style={{
-                              backgroundColor: "var(--mask-bg)",
-                              borderColor: "var(--mask-border)",
-                              color: "var(--mask-text)",
-                            }}
-                          >
-                            <LogOut className="h-3.5 w-3.5" aria-hidden="true" />
-                            Sign Out
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        <p className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>
-                          Sync sanitized tickets &amp; privacy rules across web &amp; Android
-                        </p>
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            disabled={telemetry.cloudSyncStatus === "SIGNING_IN"}
-                            onClick={onSignInAnonymous}
-                            className="min-h-[38px] flex-1 rounded-xl px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
-                            style={{
-                              backgroundColor: "var(--accent-primary)",
-                              color: "var(--accent-on-primary)",
-                            }}
-                          >
-                            Sync as Guest
-                          </button>
-                          <button
-                            type="button"
-                            disabled={telemetry.cloudSyncStatus === "SIGNING_IN"}
-                            onClick={onSignInGoogle}
-                            className="min-h-[38px] flex-1 rounded-xl border px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
-                            style={{
-                              backgroundColor: "var(--bg-surface)",
-                              borderColor: "var(--border-strong)",
-                              color: "var(--text-primary)",
-                            }}
-                          >
-                            Sign In with Google
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {telemetry.cloudSyncError && (
-                      <p className="mt-2 text-[11px]" style={{ color: "var(--mask-text)" }}>
-                        {telemetry.cloudSyncError}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-
+          {telemetry.nanoStatus === "DOWNLOADABLE" && (
             <button
               type="button"
-              onClick={onOpenTechnicalProof}
-              className="inline-flex min-h-[44px] sm:min-h-[36px] items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors"
+              onClick={onWarmupNano}
+              className="hidden items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors md:inline-flex"
               style={{
                 backgroundColor: "var(--bg-subtle)",
-                borderColor: "var(--border-subtle)",
+                borderColor: "var(--border-strong)",
                 color: "var(--text-primary)",
               }}
             >
-              <FileCode2 className="h-3.5 w-3.5" aria-hidden="true" />
-              <span className="hidden md:inline">Technical Proof</span>
-              <span className="md:hidden">Proof</span>
+              <Sparkles className="h-3 w-3" aria-hidden="true" />
+              Enable Nano 4
             </button>
-          </div>
+          )}
+
+          {telemetry.nanoStatus === "MODEL_DOWNLOADING" && (
+            <span
+              className="hidden items-center gap-1 rounded-md border px-2 py-0.5 font-mono text-[11px] tabular-nums md:inline-flex"
+              style={{
+                backgroundColor: "var(--bg-subtle)",
+                borderColor: "var(--border-subtle)",
+                color: "var(--text-secondary)",
+              }}
+            >
+              <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+              Nano {telemetry.downloadProgress ?? 0}%
+            </span>
+          )}
         </div>
 
+        {/* Center: Compact Segmented Nav */}
         <nav
           aria-label="Primary sections"
-          className="mt-3 flex flex-wrap items-center gap-1.5 border-t pt-3"
-          style={{ borderColor: "var(--border-subtle)" }}
+          className="order-3 flex w-full items-center justify-between gap-0.5 rounded-lg border p-0.5 sm:w-auto lg:order-2"
+          style={{
+            backgroundColor: "var(--bg-subtle)",
+            borderColor: "var(--border-subtle)",
+          }}
         >
           {navTabs.map((tab) => {
             const active = activeView === tab.id;
@@ -435,20 +220,20 @@ export function TelemetryHud({
                 type="button"
                 aria-current={active ? "page" : undefined}
                 onClick={() => onChangeView(tab.id)}
-                className="inline-flex min-h-[44px] sm:min-h-[38px] items-center gap-2 rounded-xl border px-3.5 py-1.5 text-xs font-semibold transition-colors sm:text-sm"
+                className="inline-flex min-h-[30px] flex-1 items-center justify-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors sm:flex-initial"
                 style={{
-                  backgroundColor: active ? "var(--accent-soft-bg)" : "transparent",
-                  borderColor: active ? "var(--accent-soft-border)" : "transparent",
-                  color: active ? "var(--accent-text)" : "var(--text-secondary)",
+                  backgroundColor: active ? "var(--bg-surface)" : "transparent",
+                  color: active ? "var(--text-primary)" : "var(--text-secondary)",
+                  boxShadow: active ? "var(--shadow-card)" : "none",
                 }}
               >
                 <span>{tab.label}</span>
-                {typeof tab.count === "number" && (
+                {typeof tab.count === "number" && tab.count > 0 && (
                   <span
-                    className="rounded-full px-1.5 py-0.5 text-[11px] font-bold"
+                    className="rounded px-1 font-mono text-[10px] font-semibold tabular-nums"
                     style={{
-                      backgroundColor: active ? "var(--bg-surface)" : "var(--bg-subtle)",
-                      color: active ? "var(--accent-text)" : "var(--text-muted)",
+                      backgroundColor: active ? "var(--bg-subtle)" : "transparent",
+                      color: "var(--text-muted)",
                     }}
                   >
                     {tab.count}
@@ -458,44 +243,261 @@ export function TelemetryHud({
             );
           })}
         </nav>
-      </header>
 
-      {showNanoDownloadBar && (
-        <div
-          className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-2.5"
-          style={{
-            backgroundColor: "var(--info-bg)",
-            borderColor: "var(--info-border)",
-          }}
-        >
-          <div className="flex items-center gap-2">
-            {telemetry.nanoStatus === "MODEL_DOWNLOADING" ? (
-              <Loader2 className="h-4 w-4 animate-spin" style={{ color: "var(--info-text)" }} aria-hidden="true" />
-            ) : (
-              <Sparkles className="h-4 w-4" style={{ color: "var(--info-text)" }} aria-hidden="true" />
-            )}
-            <span className="text-xs font-medium" style={{ color: "var(--info-text)" }}>
-              {telemetry.nanoStatus === "MODEL_DOWNLOADING"
-                ? `Preparing On-Device Gemini Nano 4 (${telemetry.downloadProgress ?? 0}%)...`
-                : "On-Device Gemini Nano 4 weights can be downloaded for semantic local redaction."}
-            </span>
+        {/* Right: Theme Switcher + Cloud Sync Popover */}
+        <div className="order-2 flex items-center gap-2 lg:order-3">
+          <div
+            role="group"
+            aria-label="Color theme"
+            title={`Theme: ${themePreference} (${resolvedTheme})`}
+            className="inline-flex rounded-lg border p-0.5"
+            style={{
+              backgroundColor: "var(--bg-subtle)",
+              borderColor: "var(--border-subtle)",
+            }}
+          >
+            {themeOptions.map(({ id, label, Icon }) => {
+              const active = themePreference === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => onChangeTheme(id)}
+                  className="inline-flex min-h-[28px] items-center gap-1 rounded-md px-2 text-[11px] font-medium transition-colors"
+                  style={{
+                    backgroundColor: active ? "var(--bg-surface)" : "transparent",
+                    color: active ? "var(--text-primary)" : "var(--text-secondary)",
+                    boxShadow: active ? "var(--shadow-card)" : "none",
+                  }}
+                >
+                  <Icon className="h-3 w-3" aria-hidden="true" />
+                  <span className="hidden xl:inline">{label}</span>
+                  <span className="sr-only xl:hidden">{label}</span>
+                </button>
+              );
+            })}
           </div>
 
-          {telemetry.nanoStatus === "DOWNLOADABLE" && (
+          <div ref={popoverContainerRef} className="relative">
             <button
               type="button"
-              onClick={onWarmupNano}
-              className="min-h-[38px] rounded-xl px-3 py-1.5 text-xs font-semibold"
+              aria-expanded={syncOpen}
+              aria-controls="cloud-sync-popover"
+              onClick={() => setSyncOpen((v) => !v)}
+              className="inline-flex min-h-[30px] items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors"
               style={{
-                backgroundColor: "var(--accent-primary)",
-                color: "var(--accent-on-primary)",
+                backgroundColor: telemetry.offlineMode
+                  ? "var(--warn-bg)"
+                  : telemetry.authUser
+                    ? "var(--safe-bg)"
+                    : "var(--bg-surface)",
+                borderColor: telemetry.offlineMode
+                  ? "var(--warn-border)"
+                  : telemetry.authUser
+                    ? "var(--safe-border)"
+                    : "var(--border-subtle)",
+                color: telemetry.offlineMode
+                  ? "var(--warn-text)"
+                  : telemetry.authUser
+                    ? "var(--safe-text)"
+                    : "var(--text-primary)",
               }}
             >
-              Enable On-Device AI
+              {telemetry.offlineMode ? (
+                <WifiOff className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              ) : telemetry.authUser ? (
+                <Cloud className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              ) : (
+                <CloudOff className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              )}
+              <span>{syncLabel}</span>
             </button>
-          )}
+
+            {syncOpen && (
+              <div
+                id="cloud-sync-popover"
+                role="region"
+                aria-label="Cloud Sync and Offline Settings"
+                className="fixed inset-x-3 top-14 z-50 rounded-xl border p-4 sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-80"
+                style={{
+                  backgroundColor: "var(--bg-surface)",
+                  borderColor: "var(--border-strong)",
+                  boxShadow: "var(--shadow-popover)",
+                }}
+              >
+                <div className="mb-3">
+                  <h2
+                    className="text-xs font-semibold uppercase tracking-wider"
+                    style={{ color: "var(--text-primary)" }}
+                  >
+                    Sync &amp; Offline Control
+                  </h2>
+                  <p className="mt-0.5 text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                    Cloud sync stores only redacted safe summaries.
+                  </p>
+                </div>
+
+                <div
+                  className="mb-3 flex items-center justify-between gap-3 rounded-lg border p-2.5"
+                  style={{
+                    backgroundColor: telemetry.offlineMode
+                      ? "var(--warn-bg)"
+                      : "var(--bg-subtle)",
+                    borderColor: telemetry.offlineMode
+                      ? "var(--warn-border)"
+                      : "var(--border-subtle)",
+                  }}
+                >
+                  <div className="min-w-0">
+                    <p
+                      className="text-xs font-semibold"
+                      style={{
+                        color: telemetry.offlineMode
+                          ? "var(--warn-text)"
+                          : "var(--text-primary)",
+                      }}
+                    >
+                      Offline Mode ($0 Local)
+                    </p>
+                    <p
+                      className="text-[11px]"
+                      style={{
+                        color: telemetry.offlineMode
+                          ? "var(--warn-text)"
+                          : "var(--text-secondary)",
+                      }}
+                    >
+                      Seal airgap; solve locally only.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={telemetry.offlineMode}
+                    aria-label="Toggle Offline Mode ($0 Local)"
+                    onClick={onToggleOffline}
+                    className="min-h-[30px] shrink-0 rounded-md border px-2.5 text-xs font-semibold"
+                    style={{
+                      backgroundColor: telemetry.offlineMode
+                        ? "var(--bg-surface)"
+                        : "var(--accent-primary)",
+                      borderColor: telemetry.offlineMode
+                        ? "var(--warn-border)"
+                        : "var(--accent-primary)",
+                      color: telemetry.offlineMode
+                        ? "var(--text-primary)"
+                        : "var(--accent-on-primary)",
+                    }}
+                  >
+                    {telemetry.offlineMode ? "On" : "Off"}
+                  </button>
+                </div>
+
+                <div
+                  className="rounded-lg border p-2.5"
+                  style={{
+                    backgroundColor: "var(--bg-subtle)",
+                    borderColor: "var(--border-subtle)",
+                  }}
+                >
+                  {telemetry.authUser ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span
+                          className="inline-flex items-center gap-1.5 text-xs font-semibold"
+                          style={{ color: "var(--safe-text)" }}
+                        >
+                          <UserCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                          {telemetry.authUser.isAnonymous
+                            ? "Guest Sync Active"
+                            : telemetry.authUser.email ||
+                              telemetry.authUser.displayName ||
+                              "Google Account Synced"}
+                        </span>
+                        <span
+                          className="font-mono text-[10px]"
+                          style={{ color: "var(--text-muted)" }}
+                        >
+                          {telemetry.cloudSyncStatus ?? "SYNCED"}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {telemetry.authUser.isAnonymous && (
+                          <button
+                            type="button"
+                            onClick={onSignInGoogle}
+                            className="min-h-[32px] flex-1 rounded-md border px-2.5 text-xs font-semibold"
+                            style={{
+                              backgroundColor: "var(--bg-surface)",
+                              borderColor: "var(--border-strong)",
+                              color: "var(--text-primary)",
+                            }}
+                          >
+                            Link Google Account
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={onSignOut}
+                          className="inline-flex min-h-[32px] items-center justify-center gap-1 rounded-md border px-2.5 text-xs font-semibold"
+                          style={{
+                            backgroundColor: "var(--mask-bg)",
+                            borderColor: "var(--mask-border)",
+                            color: "var(--mask-text)",
+                          }}
+                        >
+                          <LogOut className="h-3 w-3" aria-hidden="true" />
+                          Sign Out
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="text-[11px] font-medium" style={{ color: "var(--text-secondary)" }}>
+                        Sync sanitized tickets &amp; rules across Web &amp; Android
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          disabled={telemetry.cloudSyncStatus === "SIGNING_IN"}
+                          onClick={onSignInAnonymous}
+                          className="min-h-[32px] flex-1 rounded-md px-2.5 text-xs font-semibold disabled:opacity-50"
+                          style={{
+                            backgroundColor: "var(--accent-primary)",
+                            color: "var(--accent-on-primary)",
+                          }}
+                        >
+                          Sync as Guest
+                        </button>
+                        <button
+                          type="button"
+                          disabled={telemetry.cloudSyncStatus === "SIGNING_IN"}
+                          onClick={onSignInGoogle}
+                          className="min-h-[32px] flex-1 rounded-md border px-2.5 text-xs font-semibold disabled:opacity-50"
+                          style={{
+                            backgroundColor: "var(--bg-surface)",
+                            borderColor: "var(--border-strong)",
+                            color: "var(--text-primary)",
+                          }}
+                        >
+                          Sign In with Google
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {telemetry.cloudSyncError && (
+                    <p className="mt-2 text-[11px]" style={{ color: "var(--mask-text)" }}>
+                      {telemetry.cloudSyncError}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
-      )}
-    </div>
+      </div>
+    </header>
   );
 }

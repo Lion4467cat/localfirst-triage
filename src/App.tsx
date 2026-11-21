@@ -40,10 +40,8 @@ import {
   savePrivacyPolicy,
   saveSanitizedTicket,
 } from "./storage/ticketStore";
-import { PipelineStepper } from "./components/PipelineStepper";
-import { RedactionDiff } from "./components/RedactionDiff";
-import { ResolutionPanel } from "./components/ResolutionPanel";
-import { TechnicalProofDrawer } from "./components/TechnicalProofDrawer";
+import { AirgapSpine } from "./components/AirgapSpine";
+import { RightWorkbenchPane } from "./components/RightWorkbenchPane";
 import { TelemetryHud, type WorkspaceView } from "./components/TelemetryHud";
 import { TriageInbox } from "./components/TriageInbox";
 import {
@@ -98,7 +96,7 @@ export function App() {
   const [runtimeConfig, setRuntimeConfig] =
     useState<RuntimeConfigValues>(DEFAULT_RUNTIME_CONFIG);
   const [activeView, setActiveView] = useState<WorkspaceView>("triage");
-  const [technicalProofOpen, setTechnicalProofOpen] = useState(false);
+  const [mobilePane, setMobilePane] = useState<"input" | "output">("input");
   const [themePreference, setThemePreference] = useState<ThemePreference>(() =>
     getStoredThemePreference()
   );
@@ -711,59 +709,90 @@ export function App() {
 
   return (
     <div
-      className="min-h-screen px-3 py-4 sm:px-6 sm:py-6 lg:px-8"
+      className="lf-dot-grid flex min-h-screen flex-col lg:h-dvh lg:overflow-hidden"
       style={{
         backgroundColor: "var(--bg-canvas)",
         color: "var(--text-primary)",
       }}
     >
-      <div className="mx-auto flex max-w-6xl flex-col gap-4 sm:gap-5">
-        <TelemetryHud
-          activeView={activeView}
-          onChangeView={setActiveView}
-          historyCount={history.length}
-          rulesCount={rulesCount}
-          runbooksCount={runbooks.length}
-          themePreference={themePreference}
-          resolvedTheme={resolvedTheme}
-          onChangeTheme={setThemePreference}
-          telemetry={telemetry}
-          onToggleOffline={() => {
-            setTelemetry((prev) => {
-              const nextOffline = !prev.offlineMode;
-              if (nextOffline) {
-                runGenerationRef.current += 1;
-                inFlightRef.current = false;
-                setIsRunning(false);
-                setCountdownPaused(true);
-              }
-              return {
-                ...prev,
-                offlineMode: nextOffline,
-                cloudSyncStatus: prev.authUser
-                  ? nextOffline
-                    ? "OFFLINE"
-                    : "SYNCED"
-                  : "DISCONNECTED",
-              };
-            });
-          }}
-          onWarmupNano={() => void handleWarmupNano()}
-          onOpenTechnicalProof={() => setTechnicalProofOpen(true)}
-          onSignInAnonymous={() => void handleSignInAnonymous()}
-          onSignInGoogle={() => void handleSignInGoogle()}
-          onSignOut={() => void handleSignOut()}
-        />
+      <TelemetryHud
+        activeView={activeView}
+        onChangeView={setActiveView}
+        historyCount={history.length}
+        rulesCount={rulesCount}
+        runbooksCount={runbooks.length}
+        themePreference={themePreference}
+        resolvedTheme={resolvedTheme}
+        onChangeTheme={setThemePreference}
+        telemetry={telemetry}
+        onToggleOffline={() => {
+          setTelemetry((prev) => {
+            const nextOffline = !prev.offlineMode;
+            if (nextOffline) {
+              runGenerationRef.current += 1;
+              inFlightRef.current = false;
+              setIsRunning(false);
+              setCountdownPaused(true);
+            }
+            return {
+              ...prev,
+              offlineMode: nextOffline,
+              cloudSyncStatus: prev.authUser
+                ? nextOffline
+                  ? "OFFLINE"
+                  : "SYNCED"
+                : "DISCONNECTED",
+            };
+          });
+        }}
+        onWarmupNano={() => void handleWarmupNano()}
+        onSignInAnonymous={() => void handleSignInAnonymous()}
+        onSignInGoogle={() => void handleSignInGoogle()}
+        onSignOut={() => void handleSignOut()}
+      />
 
-        {activeView === "triage" && (
-          <>
-            <PipelineStepper
-              currentResult={currentResult}
-              isRunning={isRunning}
-              offlineMode={telemetry.offlineMode}
-            />
+      {activeView === "triage" && (
+        <main className="mx-auto flex w-full max-w-[1680px] flex-1 flex-col gap-3 p-3 lg:h-[calc(100dvh-48px)] lg:min-h-0 lg:overflow-hidden lg:p-4">
+          {/* Mobile Input / Safe Output Switcher */}
+          <div
+            role="tablist"
+            aria-label="Mobile workbench panes"
+            className="grid grid-cols-2 rounded-lg border p-0.5 lg:hidden"
+            style={{
+              backgroundColor: "var(--bg-subtle)",
+              borderColor: "var(--border-subtle)",
+            }}
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mobilePane === "input"}
+              onClick={() => setMobilePane("input")}
+              className="rounded-md py-1.5 text-xs font-medium"
+              style={{
+                backgroundColor: mobilePane === "input" ? "var(--bg-surface)" : "transparent",
+                color: mobilePane === "input" ? "var(--text-primary)" : "var(--text-secondary)",
+              }}
+            >
+              Input
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mobilePane === "output"}
+              onClick={() => setMobilePane("output")}
+              className="rounded-md py-1.5 text-xs font-medium"
+              style={{
+                backgroundColor: mobilePane === "output" ? "var(--bg-surface)" : "transparent",
+                color: mobilePane === "output" ? "var(--text-primary)" : "var(--text-secondary)",
+              }}
+            >
+              Safe Output
+            </button>
+          </div>
 
-            <div className="grid gap-5 lg:grid-cols-[380px_1fr]">
+          <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[minmax(0,44fr)_72px_minmax(0,52fr)] lg:gap-0">
+            <div className={`${mobilePane === "input" ? "flex" : "hidden"} min-h-0 flex-col lg:flex`}>
               <TriageInbox
                 scenarios={DEMO_SCENARIOS}
                 title={title}
@@ -775,89 +804,88 @@ export function App() {
                 onTitleChange={setTitle}
                 onRawTextChange={setRawText}
                 onSelectScenario={handleSelectScenario}
-                onRunTriage={() => void handleRunTriage()}
+                onRunTriage={() => {
+                  setMobilePane("output");
+                  void handleRunTriage();
+                }}
                 onProcessOfflineQueue={() => void handleProcessOfflineQueue()}
               />
-
-              <main className="flex min-w-0 flex-col gap-4 sm:gap-5">
-                <div
-                  onMouseEnter={() => {
-                    if (currentResult?.resolutionMode === "PRE_CLOUD_COUNTDOWN") {
-                      setCountdownPaused(true);
-                    }
-                  }}
-                >
-                  <RedactionDiff
-                    rawText={currentResult ? currentResult.rawText : rawText}
-                    sanitizedText={currentResult?.sanitizedText ?? ""}
-                    spans={currentResult?.spans ?? []}
-                    loadedFromZeroPiiStore={Boolean(currentResult?.loadedFromZeroPiiStore)}
-                    onToggleSpan={handleToggleSpan}
-                    onAddManualSpan={handleAddManualSpan}
-                  />
-                </div>
-
-                <ResolutionPanel
-                  currentResult={currentResult}
-                  isRunning={isRunning}
-                  isGeneratingBrief={isGeneratingBrief}
-                  offlineMode={telemetry.offlineMode}
-                  countdownMs={countdownMs}
-                  countdownPaused={countdownPaused}
-                  maskDirtySinceCloud={maskDirtySinceCloud}
-                  onPauseCountdown={() => setCountdownPaused(true)}
-                  onApproveOrRerunCloud={() => void handleApproveOrRerunCloud()}
-                  onGenerateHybridBrief={() => void handleGenerateHybridBrief()}
-                  onOpenTechnicalProof={() => setTechnicalProofOpen(true)}
-                />
-              </main>
             </div>
-          </>
-        )}
 
-        {activeView === "history" && (
-          <main>
+            <AirgapSpine
+              currentResult={currentResult}
+              isRunning={isRunning}
+              offlineMode={telemetry.offlineMode}
+            />
+
+            <div
+              className={`${mobilePane === "output" ? "flex" : "hidden"} min-h-0 flex-col lg:flex`}
+              onMouseEnter={() => {
+                if (currentResult?.resolutionMode === "PRE_CLOUD_COUNTDOWN") {
+                  setCountdownPaused(true);
+                }
+              }}
+            >
+              <RightWorkbenchPane
+                currentResult={currentResult}
+                rawText={rawText}
+                isRunning={isRunning}
+                isGeneratingBrief={isGeneratingBrief}
+                isRefreshingPolicy={isRefreshingPolicy}
+                offlineMode={telemetry.offlineMode}
+                countdownMs={countdownMs}
+                countdownPaused={countdownPaused}
+                maskDirtySinceCloud={maskDirtySinceCloud}
+                telemetry={telemetry}
+                runtimeConfig={runtimeConfig}
+                onRunLiveDemo={() => {
+                  handleSelectScenario(DEMO_SCENARIOS[0]);
+                  setMobilePane("output");
+                  void handleRunTriage();
+                }}
+                onToggleSpan={handleToggleSpan}
+                onAddManualSpan={handleAddManualSpan}
+                onPauseCountdown={() => setCountdownPaused(true)}
+                onApproveOrRerunCloud={() => void handleApproveOrRerunCloud()}
+                onGenerateHybridBrief={() => void handleGenerateHybridBrief()}
+                onRefreshRemoteConfig={() => void handleRefreshRemoteConfig()}
+                onWarmupNano={() => void handleWarmupNano()}
+                onRecheckNano={() => void refreshNanoStatus()}
+              />
+            </div>
+          </div>
+        </main>
+      )}
+
+      {activeView !== "triage" && (
+        <main className="mx-auto w-full max-w-6xl flex-1 overflow-y-auto p-4 sm:p-6">
+          {activeView === "history" && (
             <HistoryWorkspaceView
               history={history}
               onSelectHistory={(ticket) => {
                 handleSelectHistory(ticket);
                 setActiveView("triage");
+                setMobilePane("output");
               }}
               onClearHistory={() => void handleClearHistory()}
             />
-          </main>
-        )}
+          )}
 
-        {activeView === "rules" && (
-          <main>
+          {activeView === "rules" && (
             <PrivacyRulesWorkspaceView
               policy={policy}
               onSavePolicy={handleSavePolicy}
             />
-          </main>
-        )}
+          )}
 
-        {activeView === "runbooks" && (
-          <main>
+          {activeView === "runbooks" && (
             <RunbooksWorkspaceView
               runbooks={runbooks}
               onSaveRunbooks={handleSaveRunbooks}
             />
-          </main>
-        )}
-      </div>
-
-      <TechnicalProofDrawer
-        open={technicalProofOpen}
-        telemetry={telemetry}
-        currentResult={currentResult}
-        runtimeConfig={runtimeConfig}
-        isRefreshingPolicy={isRefreshingPolicy}
-        onClose={() => setTechnicalProofOpen(false)}
-        onRefreshRemoteConfig={() => void handleRefreshRemoteConfig()}
-        onWarmupNano={() => void handleWarmupNano()}
-        onRecheckNano={() => void refreshNanoStatus()}
-      />
+          )}
+        </main>
+      )}
     </div>
   );
 }

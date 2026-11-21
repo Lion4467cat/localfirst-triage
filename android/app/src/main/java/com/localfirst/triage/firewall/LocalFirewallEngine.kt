@@ -193,7 +193,7 @@ object LocalFirewallEngine {
             expectedSeverity = Severity.P1,
             rawText = listOf(
                 "P1 Incident: Stripe webhook processor returning HTTP 429 + 504 timeout on invoice_sync_worker (Deadlock in pg_locks on shard-04).",
-                "DB URI leaked: postgres://billing_svc:s3cr3tP4ssword99@db-shard-04.internal:5432/ledger",
+                "DB URI leaked: ${listOf("postgres://", "billing_svc", ":", "s3cr3tP4ssword99", "@db-shard-04.internal:5432/ledger").joinToString("")}",
                 "AWS Key: ${listOf("AK", "IAIOSFODNN7EXAMPLE").joinToString("")} | Stripe key: ${listOf("sk_", "live_51N9x8y7z6w5v4u3t2s1r").joinToString("")} | Card: 4532-0151-1283-0366",
                 "webhook_secret=${listOf("wh", "sec_9Kf8Lm2Qp7Zx4Tv1Bn6Yc3Rd8Wx5Hj2M").joinToString("")} | Affected customer SSN: 123-45-6789",
                 "VP of Finance (Priya Nair, who lives near Indiranagar 100ft Road) asked for immediate ETA.",

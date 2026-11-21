@@ -80,7 +80,7 @@ describe("App integration", () => {
   it("runs triage on P0 scenario into fail-closed review and respects Offline Mode toggle in Cloud Sync popover", async () => {
     const { getByRole, findByText } = render(<App />);
 
-    const runBtn = getByRole("button", { name: /Protect & (Analyze|Fix Offline)/i });
+    const runBtn = getByRole("button", { name: /Scrub & (Analyze|Fix Offline)/i });
     fireEvent.click(runBtn);
 
     expect(
@@ -95,7 +95,7 @@ describe("App integration", () => {
     }
 
     await waitFor(() => {
-      const sendBtn = getByRole("button", { name: /Send Safe Text to AI/i });
+      const sendBtn = getByRole("button", { name: /Approve & Get Safe AI Solution/i });
       expect((sendBtn as HTMLButtonElement).disabled).toBe(true);
     });
   });
@@ -103,22 +103,22 @@ describe("App integration", () => {
   it("switches to Privacy Rules and Runbooks views cleanly", async () => {
     const { getByRole, findByText } = render(<App />);
 
-    fireEvent.click(getByRole("button", { name: /Privacy Rules/i }));
+    fireEvent.click(getByRole("button", { name: /^Rules/i }));
     expect(await findByText(/Custom Blocked Terms/i)).toBeTruthy();
 
-    fireEvent.click(getByRole("button", { name: /Runbooks/i }));
+    fireEvent.click(getByRole("button", { name: /^Runbooks/i }));
     expect(await findByText(/Offline Fix Runbooks/i)).toBeTruthy();
   });
 
   it("resolves P3 local runbook scenario on-device", async () => {
     const { getByRole, getByText, findByText, getByLabelText } = render(<App />);
 
-    fireEvent.click(getByText(/Expired Local Certificate/i));
-    fireEvent.click(getByRole("button", { name: /Protect & (Analyze|Fix Offline)/i }));
+    fireEvent.click(getByText(/Build Error/i));
+    fireEvent.click(getByRole("button", { name: /Scrub & (Analyze|Fix Offline)/i }));
 
     expect(await findByText(/Instant On-Device Fix \(\$0\)/i)).toBeTruthy();
 
-    fireEvent.click(getByText(/Hospital Checkout Alert/i));
+    fireEvent.click(getByText(/Medical PHI/i));
     const textarea = getByLabelText(/Support Ticket or Error Logs/i) as HTMLTextAreaElement;
     expect(textarea.value).toContain("Manipal ICU Floor 3");
   });
@@ -138,14 +138,12 @@ describe("App integration", () => {
     expect(window.location.hash).toBe("");
   });
 
-  it("opens Technical Proof & SDK Details drawer and verifies Remote Config, Audit Proof, and Exports", async () => {
-    const { getByRole, findByRole, findByText } = render(<App />);
-    fireEvent.click(getByRole("button", { name: /Protect & (Analyze|Fix Offline)/i }));
-    await findByText(/Inspect Technical Proof/i);
+  it("opens Proof & SDK tab and verifies Remote Config, Audit Proof, and Exports", async () => {
+    const { getByRole, findByText } = render(<App />);
+    fireEvent.click(getByRole("button", { name: /Scrub & (Analyze|Fix Offline)/i }));
+    await findByText(/Paused for Review/i);
 
-    fireEvent.click(getByRole("button", { name: /Inspect Technical Proof/i }));
-    const dialog = await findByRole("dialog", { name: /Technical Proof & SDK Details/i });
-    expect(dialog).toBeTruthy();
+    fireEvent.click(getByRole("tab", { name: /Proof & SDK/i }));
     expect(await findByText(/ZERO-LEAKAGE VERIFIED:/i)).toBeTruthy();
     expect(await findByText(/Remote Config:/i)).toBeTruthy();
     expect(getByRole("button", { name: /Refresh Policy/i })).toBeTruthy();

@@ -1,47 +1,47 @@
 :root {
   color-scheme: light dark;
-  --bg-canvas: #f8fafc;
+  --bg-canvas: #fafafa;
   --bg-surface: #ffffff;
-  --bg-subtle: #f1f5f9;
-  --text-primary: #0f172a;
-  --text-secondary: #475569;
-  --border-subtle: #cbd5e1;
-  --border-strong: #94a3b8;
-  --accent-primary: #4f46e5;
-  --accent-on-primary: #ffffff;
-  --accent-soft-bg: #eef2ff;
-  --accent-soft-border: #a5b4fc;
-  --accent-text: #3730a3;
-  --safe-bg: #ecfdf5;
-  --safe-border: #34d399;
-  --safe-text: #065f46;
-  --info-bg: #f0f9ff;
-  --info-border: #7dd3fc;
-  --info-text: #075985;
-  --focus-ring: #4f46e5;
+  --bg-subtle: #f4f4f5;
+  --text-primary: #09090b;
+  --text-secondary: #52525b;
+  --border-subtle: rgba(9, 9, 11, 0.09);
+  --border-strong: rgba(9, 9, 11, 0.18);
+  --accent-primary: #09090b;
+  --accent-on-primary: #fafafa;
+  --accent-soft-bg: #f4f4f5;
+  --accent-soft-border: rgba(9, 9, 11, 0.16);
+  --accent-text: #09090b;
+  --safe-bg: rgba(5, 150, 105, 0.08);
+  --safe-border: rgba(5, 150, 105, 0.35);
+  --safe-text: #047857;
+  --info-bg: #f4f4f5;
+  --info-border: rgba(9, 9, 11, 0.14);
+  --info-text: #27272a;
+  --focus-ring: #09090b;
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg-canvas: #090d16;
-  --bg-surface: #111827;
-  --bg-subtle: #182235;
-  --text-primary: #f8fafc;
-  --text-secondary: #cbd5e1;
-  --border-subtle: #243247;
-  --border-strong: #475569;
-  --accent-primary: #4f46e5;
-  --accent-on-primary: #ffffff;
-  --accent-soft-bg: rgba(79, 70, 229, 0.22);
-  --accent-soft-border: rgba(129, 140, 248, 0.45);
-  --accent-text: #c7d2fe;
-  --safe-bg: rgba(16, 185, 129, 0.14);
-  --safe-border: rgba(52, 211, 153, 0.45);
-  --safe-text: #6ee7b7;
-  --info-bg: rgba(14, 165, 233, 0.16);
-  --info-border: rgba(56, 189, 248, 0.45);
-  --info-text: #bae6fd;
-  --focus-ring: #818cf8;
+  --bg-canvas: #09090b;
+  --bg-surface: #111114;
+  --bg-subtle: #18181b;
+  --text-primary: #fafafa;
+  --text-secondary: #a1a1aa;
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --accent-primary: #fafafa;
+  --accent-on-primary: #09090b;
+  --accent-soft-bg: #18181b;
+  --accent-soft-border: rgba(255, 255, 255, 0.16);
+  --accent-text: #fafafa;
+  --safe-bg: rgba(16, 185, 129, 0.12);
+  --safe-border: rgba(16, 185, 129, 0.35);
+  --safe-text: #34d399;
+  --info-bg: rgba(255, 255, 255, 0.04);
+  --info-border: rgba(255, 255, 255, 0.14);
+  --info-text: #e4e4e7;
+  --focus-ring: #fafafa;
 }
 
 * {

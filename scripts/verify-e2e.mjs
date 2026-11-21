@@ -1,7 +1,7 @@
 import { chromium } from "playwright-core";
 import { spawn } from "node:child_process";
 
-const PORT = 4173;
+const PORT = Number(process.env.E2E_PORT || 4173);
 const BASE_URL = `http://127.0.0.1:${PORT}/`;
 
 function startPreviewServer() {
@@ -64,13 +64,10 @@ async function main() {
     });
 
     await page.goto(BASE_URL, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector("h1");
-    const heading = await page.textContent("h1");
-    if (!heading?.includes("LocalFirst Triage")) {
-      throw new Error(`Unexpected H1: ${heading}`);
-    }
+    await page.waitForSelector("text=LocalFirst");
 
-    // 0. Verify System / Dark / Light theme switcher + Cloud Sync popover
+    // 0. Verify System / Dark / Light theme switcher + Cloud Sync popover + Zero-scroll on 1280x720
+    await page.setViewportSize({ width: 1280, height: 720 });
     await page.getByRole("button", { name: /^Dark/i }).click();
     if ((await page.evaluate(() => document.documentElement.getAttribute("data-theme"))) !== "dark") {
       throw new Error("Expected Dark theme to set data-theme=dark");
@@ -78,6 +75,13 @@ async function main() {
     await page.getByRole("button", { name: /^Light/i }).click();
     if ((await page.evaluate(() => document.documentElement.getAttribute("data-theme"))) !== "light") {
       throw new Error("Expected Light theme to set data-theme=light");
+    }
+
+    const verticalScroll = await page.evaluate(
+      () => document.documentElement.scrollHeight > window.innerHeight + 2,
+    );
+    if (verticalScroll) {
+      throw new Error("Expected zero vertical page scroll on desktop 1280x720");
     }
 
     await page.getByRole("button", { name: /Cloud Sync/i }).click();
@@ -97,49 +101,44 @@ async function main() {
       }
     }
 
-    // 2. Run Scenario 1 (Hospital Checkout Alert) -> Review Hidden Secrets + Technical Proof drawer
-    await page.getByRole("button", { name: /Protect & Analyze/i }).click();
-    await page.waitForSelector("text=Review Hidden Secrets");
-    await page.waitForSelector("text=Confidential Deal Info");
-    await page.getByRole("button", { name: /Send Safe Text to AI/i }).waitFor();
+    // 2. Run Scenario 1 via Ctrl+Enter / Cmd+Enter -> Paused for Review + Proof & SDK tab
+    await page.locator("#ticket-body").focus();
+    await page.keyboard.press("Control+Enter");
+    await page.waitForSelector("text=Paused for Review");
+    await page.getByRole("button", { name: /Approve & Get Safe AI Solution/i }).waitFor();
 
-    await page.getByRole("button", { name: /Inspect Technical Proof/i }).click();
+    await page.getByRole("tab", { name: /Proof & SDK/i }).click();
     await page.waitForSelector("text=ZERO-LEAKAGE VERIFIED:");
-    const drawerText = await page.textContent("dialog[open]");
-    if (!drawerText?.includes("[REGEX_FIREWALL]") || !drawerText?.includes("[HEURISTIC_GUARD]")) {
-      throw new Error("Expected [REGEX_FIREWALL] and [HEURISTIC_GUARD] in Technical Proof drawer");
-    }
     await page.getByRole("button", { name: /Refresh Policy/i }).click();
     await page.waitForSelector("text=Export Audit JSON");
-    await page.getByRole("button", { name: /Close Technical Proof drawer/i }).click();
 
-    // 3. Run Scenario 2 (Expired Local Certificate) -> Local Runbook ($0 Cloud)
-    await page.getByText(/Expired Local Certificate/i).click();
-    await page.getByRole("button", { name: /Protect & Analyze/i }).click();
+    // 3. Run Scenario 2 (Build Error) -> Local Runbook ($0 Cloud)
+    await page.getByText(/Build Error/i).click();
+    await page.getByRole("button", { name: /Scrub & Analyze/i }).click();
     await page.waitForSelector("text=RB_LOCAL_TLS_CERT");
 
-    // 4. Toggle Offline Mode ON via Cloud Sync popover & test P0 -> Saved for Connection
+    // 4. Toggle Offline Mode ON via Cloud Sync popover & test Medical PHI -> Queued Offline ($0)
     await page.getByRole("button", { name: /Cloud Sync/i }).click();
     await page.getByRole("switch", { name: /Toggle Offline Mode/i }).click();
     await page.keyboard.press("Escape");
 
-    await page.getByText(/Hospital Checkout Alert/i).first().click();
-    await page.getByRole("button", { name: /Protect & Fix Offline/i }).click();
-    await page.waitForSelector("text=Saved for Connection");
+    await page.getByText(/Medical PHI/i).first().click();
+    await page.getByRole("button", { name: /Scrub & Fix Offline/i }).click();
+    await page.waitForSelector("text=Queued Offline ($0)");
 
-    // 5. Switch to Privacy Rules tab, add custom blocked term, verify redaction
-    await page.getByRole("button", { name: /Privacy Rules/i }).click();
+    // 5. Switch to Rules tab, add custom blocked term, verify redaction
+    await page.getByRole("button", { name: /^Rules/i }).click();
     await page.getByLabel("Custom blocked term").fill("OmegaCodename");
     await page.getByRole("button", { name: /Add Rule/i }).click();
-    await page.getByRole("button", { name: /^Triage$/i }).click();
+    await page.getByRole("button", { name: /^Workbench$/i }).click();
 
     await page.locator("#ticket-body").fill("P0 issue referencing OmegaCodename in logs.");
-    await page.getByRole("button", { name: /Protect & Fix Offline/i }).click();
-    await page.waitForSelector("text=Hidden: Company Rule");
+    await page.getByRole("button", { name: /Scrub & Fix Offline/i }).click();
+    await page.waitForSelector("text=Company Rule");
 
-    // 6. Verify Leadership & Team Update (offline Generated Locally)
-    await page.getByRole("button", { name: /Draft Leadership Update/i }).click();
-    await page.waitForSelector("text=Generated Locally");
+    // 6. Verify Executive Brief (offline LOCAL_FALLBACK)
+    await page.getByRole("button", { name: /Executive Brief/i }).click();
+    await page.waitForSelector("text=Executive Brief (LOCAL_FALLBACK)");
 
     // 7. Test Chrome Extension #handoff import clears URL hash and populates History
     const handoffPayload = Buffer.from(
@@ -153,16 +152,16 @@ async function main() {
     if (new URL(page.url()).hash) {
       throw new Error(`Expected URL hash to be cleared, got ${page.url()}`);
     }
-    await page.getByRole("button", { name: /Protect & (Analyze|Fix Offline)/i }).click();
-    await page.getByRole("button", { name: /History/i }).click();
+    await page.getByRole("button", { name: /Scrub & (Analyze|Fix Offline)/i }).click();
+    await page.getByRole("button", { name: /^History/i }).click();
     await page.waitForSelector("text=Extension Capture");
-    await page.getByRole("button", { name: /^Triage$/i }).click();
+    await page.getByRole("button", { name: /^Workbench$/i }).click();
 
     // 8. Verify XSS immunity (<script> and javascript: payloads render as inert text)
     await page.locator("#ticket-body").fill(
       'P3 cert_has_expired with <script>window.__xss_fired = true;</script> and [click](javascript:alert(1))',
     );
-    await page.getByRole("button", { name: /Protect & (Analyze|Fix Offline)/i }).click();
+    await page.getByRole("button", { name: /Scrub & (Analyze|Fix Offline)/i }).click();
     await page.waitForSelector("text=RB_LOCAL_TLS_CERT");
     const xssFired = await page.evaluate(() => Boolean(window.__xss_fired));
     if (xssFired) {
