@@ -30,6 +30,7 @@
 1. Open `chrome://flags` in Chrome Desktop (`v138+` / `v149+`) and enable **`Gemma 4 for Built-in AI`** (`#gemma4-for-built-in-ai`), **`Prompt API for Gemini Nano`** (`#prompt-api-for-gemini-nano`), and **`Optimization Guide On Device Model`** (`#optimization-guide-on-device-model` → *Enabled BypassPerfRequirement*).
 2. Relaunch Chrome, open [**https://para-1-2e22b.web.app**](https://para-1-2e22b.web.app), and click **Download & Warm Up Nano 4** (or verify readiness at `chrome://on-device-internals`).
 3. Once the banner turns green (**`Chrome Gemini Nano 4 is READY`**), run **Scenario 1 (`P0`)** to watch `Stage 1 Firewall: ON_DEVICE (Nano 4)` extract semantic PHI, natural-language password hints, and M&A codenames locally.
+   > **Linux Chrome 154 Engineering Note:** On Linux x86_64 builds of Chrome `154.0.8037.57` with dual Intel + NVIDIA GPUs, Chrome's native `libLiteRtWebGpuAccelerator.so` can hit an upstream Clang `-fsanitize=cfi-vcall` cross-DSO vtable trap (`SIGILL` at `+0x8a6084`) during WebGPU delegate creation. LocalFirst Triage was specifically architected to survive browser-native AI process crashes: Stage 1 fails closed into `HEURISTIC_GUARD` + `QUARANTINED_PENDING_APPROVAL` with `0` leaked bytes, and `PREFER_ON_DEVICE` (`generateSanitizedHybridBrief()`) automatically recovers via Cloud Gemini (`IN_CLOUD`) after re-verifying `verifyZeroLeakage()`.
 
 ### Path C — Load the Unpacked Chrome Extension Companion (3 Steps)
 1. Open `chrome://extensions` in Chrome and toggle **Developer mode** ON.

@@ -567,7 +567,7 @@ export async function generateSanitizedHybridBrief(
   result: TriageResult,
   options: {
     offlineMode?: boolean;
-    deps?: Pick<PipelineDeps, "loadConfig" | "callHybridBrief">;
+    deps?: Pick<PipelineDeps, "loadConfig" | "callHybridBrief" | "callCloud">;
   } = {},
 ): Promise<HybridBriefResult> {
   const startedAt = performance.now();
@@ -595,31 +595,63 @@ export async function generateSanitizedHybridBrief(
     const config = await loadConfig();
 
     if (options.deps?.callHybridBrief) {
-      const custom = await options.deps.callHybridBrief(prompt, config);
-      return {
-        summary: custom.text,
-        stakeholderDraft: custom.text,
-        inferenceSource: custom.inferenceSource,
-        latencyMs: Math.max(1, Math.round(performance.now() - startedAt)),
-        generatedAt: Date.now(),
-      };
+      try {
+        const custom = await options.deps.callHybridBrief(prompt, config);
+        return {
+          summary: custom.text,
+          stakeholderDraft: custom.text,
+          inferenceSource: custom.inferenceSource,
+          latencyMs: Math.max(1, Math.round(performance.now() - startedAt)),
+          generatedAt: Date.now(),
+        };
+      } catch {
+        const fallbackCloud = options.deps.callCloud ?? defaultCallCloud;
+        const cloudRaw = await fallbackCloud(prompt, config);
+        const cloudNorm = normalizeCloudResponse(cloudRaw, config.cloudModel);
+        if (!cloudNorm.ok) {
+          throw new Error(cloudNorm.error ?? "Cloud brief fallback failed");
+        }
+        return {
+          summary: cloudNorm.text,
+          stakeholderDraft: cloudNorm.text,
+          inferenceSource: "IN_CLOUD",
+          latencyMs: Math.max(1, Math.round(performance.now() - startedAt)),
+          generatedAt: Date.now(),
+        };
+      }
     }
 
     const ai = getHybridAI();
     if (!ai) {
       throw new Error("Firebase AI not configured");
     }
-    const model = createHybridBriefModel(ai, config.cloudModel);
-    const res = await model.generateContent(prompt);
-    const text = res.response.text();
-    const source = normalizeSdkInferenceSource(res.response, "IN_CLOUD");
-    return {
-      summary: text,
-      stakeholderDraft: text,
-      inferenceSource: source,
-      latencyMs: Math.max(1, Math.round(performance.now() - startedAt)),
-      generatedAt: Date.now(),
-    };
+    try {
+      const model = createHybridBriefModel(ai, config.cloudModel);
+      const res = await model.generateContent(prompt);
+      const text = res.response.text();
+      const source = normalizeSdkInferenceSource(res.response, "IN_CLOUD");
+      return {
+        summary: text,
+        stakeholderDraft: text,
+        inferenceSource: source,
+        latencyMs: Math.max(1, Math.round(performance.now() - startedAt)),
+        generatedAt: Date.now(),
+      };
+    } catch {
+      // If PREFER_ON_DEVICE threw mid-call because Chrome's native on-device worker exited,
+      // automatically recover via Cloud Gemini (PREFER_IN_CLOUD) on the verified zero-PII prompt
+      const cloudRes = await defaultCallCloud(prompt, config);
+      if (!cloudRes.ok) {
+        throw new Error(cloudRes.error ?? "Cloud brief fallback failed");
+      }
+      return {
+        summary: cloudRes.text,
+        stakeholderDraft: cloudRes.text,
+        inferenceSource: "IN_CLOUD",
+        latencyMs: Math.max(1, Math.round(performance.now() - startedAt)),
+        generatedAt: Date.now(),
+      };
+    }
   } catch {
     return {
       summary: `[${result.severity}] ${result.title} — sanitized locally (${result.spans.filter((s) => s.masked !== false).length} spans masked).`,

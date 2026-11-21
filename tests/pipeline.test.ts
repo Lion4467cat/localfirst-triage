@@ -161,7 +161,7 @@ describe("pipeline", () => {
         }),
         loadConfig: async () => ({
           cloudModel: "gemini-3.5-flash-lite",
-          cloudFallbackModel: "gemini-3.8-flash",
+          cloudFallbackModel: "gemini-2.5-flash",
           enableCloudEscalation: true,
         }),
       },
@@ -292,7 +292,7 @@ describe("pipeline", () => {
       deps: {
         loadConfig: async () => ({
           cloudModel: "gemini-3.5-flash-lite",
-          cloudFallbackModel: "gemini-3.8-flash",
+          cloudFallbackModel: "gemini-2.5-flash",
           enableCloudEscalation: true,
         }),
         callHybridBrief: async () => ({
@@ -307,6 +307,32 @@ describe("pipeline", () => {
     const offlineBrief = await generateSanitizedHybridBrief(res, { offlineMode: true });
     expect(offlineBrief.inferenceSource).toBe("LOCAL_FALLBACK");
     expect(offlineBrief.stakeholderDraft).toContain("LocalFirst Privacy Firewall");
+
+    // Simulate PREFER_ON_DEVICE throwing mid-call when Chrome's native on-device worker crashes:
+    // must automatically recover via Cloud Gemini (IN_CLOUD) while enforcing verifyZeroLeakage()
+    const recoveredCloudBrief = await generateSanitizedHybridBrief(res, {
+      offlineMode: false,
+      deps: {
+        callHybridBrief: async () => {
+          throw new Error(
+            "NotSupportedError: The model process crashed too many times for this version.",
+          );
+        },
+        callCloud: async (sanitizedPrompt) => {
+          expect(sanitizedPrompt).not.toContain("AIzaSy");
+          return {
+            ok: true,
+            text: "Cloud-recovered executive summary after on-device worker crash.",
+            inferenceSource: "IN_CLOUD",
+            modelUsed: "gemini-3.5-flash-lite",
+          };
+        },
+      },
+    });
+    expect(recoveredCloudBrief.inferenceSource).toBe("IN_CLOUD");
+    expect(recoveredCloudBrief.stakeholderDraft).toContain(
+      "Cloud-recovered executive summary after on-device worker crash.",
+    );
   });
 
   it("deepens ticket span mutation (toggleTicketSpanMask, addManualTicketMask, prepareTicketForEscalation) and blocks ZeroPiiStore unmasking", async () => {
@@ -388,12 +414,12 @@ describe("pipeline", () => {
       ...p3Result,
       id: "t-cloud-1",
       resolutionMode: "CLOUD_ESCALATION" as const,
-      activeCloudModel: "gemini-3.8-flash",
+      activeCloudModel: "gemini-2.5-flash",
       latencyMs: 420,
     };
     const firstEsc = recordCloudEscalationTelemetry(afterRun, cloudResult, escalatedIds);
     expect(firstEsc.cloudEscalatedCount).toBe(1);
-    expect(firstEsc.activeCloudModel).toBe("gemini-3.8-flash");
+    expect(firstEsc.activeCloudModel).toBe("gemini-2.5-flash");
 
     // Re-running cloud escalation on the same ticket ID must not double-count cloudEscalatedCount
     const secondEsc = recordCloudEscalationTelemetry(firstEsc, cloudResult, escalatedIds);
