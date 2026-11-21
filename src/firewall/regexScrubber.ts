@@ -1,4 +1,5 @@
 import type { DetectorSource, RedactionSpan } from "../types/triage";
+import { mergeAndRedactSpans } from "./spanMerger";
 
 interface RegexRule {
   category: string;
@@ -231,4 +232,102 @@ export function detectPolicyTermSpans(text: string, customTerms: string[]): Reda
   }
 
   return spans;
+}
+
+export interface LocalFirewallScanOptions {
+  includeHeuristics?: boolean;
+  enableEntropyScanner?: boolean;
+  customTerms?: string[];
+  extraSpans?: RedactionSpan[];
+}
+
+/**
+ * Deepened LocalFirewall interface: executes all deterministic on-device detectors
+ * (Regex + Luhn, Shannon Entropy, Policy Terms, optional Contextual Heuristics)
+ * and merges overlapping intervals behind a single module seam.
+ */
+export function scanAndRedactLocal(
+  rawText: string,
+  options: LocalFirewallScanOptions = {},
+): { sanitizedText: string; mergedSpans: RedactionSpan[] } {
+  const regexSpans = detectRegexSpans(rawText);
+  const entropySpans =
+    options.enableEntropyScanner === false ? [] : detectHighEntropySecrets(rawText);
+  const policySpans = options.customTerms?.length
+    ? detectPolicyTermSpans(rawText, options.customTerms)
+    : [];
+  const heuristicSpans = options.includeHeuristics ? detectContextualHeuristicSpans(rawText) : [];
+  const extraSpans = options.extraSpans ?? [];
+
+  return mergeAndRedactSpans(rawText, [
+    ...regexSpans,
+    ...entropySpans,
+    ...policySpans,
+    ...heuristicSpans,
+    ...extraSpans,
+  ]);
+}
+
+const MAX_HANDOFF_ENCODED_CHARS = 65_536;
+const MAX_HANDOFF_TEXT_CHARS = 50_000;
+const MAX_HANDOFF_TITLE_CHARS = 200;
+
+function stripUnsafeControlChars(input: string): string {
+  return input.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
+}
+
+export function encodeHandoffPayload(payload: { title?: string; sanitizedText: string }): string {
+  const json = JSON.stringify({
+    title: payload.title ?? "Chrome Extension Capture",
+    sanitizedText: payload.sanitizedText,
+  });
+  const bytes = new TextEncoder().encode(json);
+  let binary = "";
+  for (const b of bytes) {
+    binary += String.fromCharCode(b);
+  }
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+export function decodeHandoffPayload(
+  hash: string,
+): { title: string; sanitizedText: string } | null {
+  if (!hash || !hash.includes("handoff=")) return null;
+  try {
+    const encoded = hash.split("handoff=")[1]?.split("&")[0] ?? "";
+    if (
+      !encoded ||
+      encoded.length > MAX_HANDOFF_ENCODED_CHARS ||
+      !/^[A-Za-z0-9\-_]+=*$/.test(encoded)
+    ) {
+      return null;
+    }
+    const base64 = encoded.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+    const bytes = Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
+    const json = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    const parsed = JSON.parse(json) as { title?: unknown; sanitizedText?: unknown };
+    if (typeof parsed.sanitizedText === "string" && parsed.sanitizedText.trim()) {
+      const cleanBody = stripUnsafeControlChars(parsed.sanitizedText).slice(
+        0,
+        MAX_HANDOFF_TEXT_CHARS,
+      );
+      if (!cleanBody.trim()) return null;
+      const { sanitizedText } = scanAndRedactLocal(cleanBody, {
+        includeHeuristics: false,
+        enableEntropyScanner: true,
+      });
+      const rawTitle =
+        typeof parsed.title === "string" && parsed.title.trim()
+          ? stripUnsafeControlChars(parsed.title.trim()).slice(0, MAX_HANDOFF_TITLE_CHARS)
+          : "Chrome Extension Capture";
+      return {
+        title: rawTitle || "Chrome Extension Capture",
+        sanitizedText,
+      };
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }

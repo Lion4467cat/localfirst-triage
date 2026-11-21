@@ -1,10 +1,15 @@
 import { describe, it, expect, vi } from "vitest";
 import {
+  addManualTicketMask,
   escalateApprovedTicket,
   generateSanitizedHybridBrief,
+  prepareTicketForEscalation,
+  recordCloudEscalationTelemetry,
+  recordTriageRunTelemetry,
   runTriagePipeline,
+  toggleTicketSpanMask,
 } from "../src/firewall/pipeline";
-import type { CustomRunbook } from "../src/types/triage";
+import type { CustomRunbook, HybridTelemetry } from "../src/types/triage";
 
 describe("pipeline", () => {
   it("resolves P2/P3 local runbook tickets via runbookId entirely on-device with zero cloud calls", async () => {
@@ -302,5 +307,96 @@ describe("pipeline", () => {
     const offlineBrief = await generateSanitizedHybridBrief(res, { offlineMode: true });
     expect(offlineBrief.inferenceSource).toBe("LOCAL_FALLBACK");
     expect(offlineBrief.stakeholderDraft).toContain("LocalFirst Privacy Firewall");
+  });
+
+  it("deepens ticket span mutation (toggleTicketSpanMask, addManualTicketMask, prepareTicketForEscalation) and blocks ZeroPiiStore unmasking", async () => {
+    const ticket = await runTriagePipeline(
+      {
+        id: "t-mut",
+        title: "Mutation Seam Test",
+        rawText: "Contact alice.ops@example.com about SecretCodenameX.",
+        offlineMode: false,
+      },
+      {
+        extractWithNano: async () => ({
+          nanoStatus: "UNAVAILABLE",
+          inferenceSource: "LOCAL_REGEX_FALLBACK",
+          severity: "P1",
+          runbookId: null,
+          category: "GENERAL_INCIDENT",
+          spans: [],
+        }),
+      },
+    );
+
+    const toggled = toggleTicketSpanMask({ ...ticket, resolutionMode: "CLOUD_ESCALATION" }, 0);
+    expect(toggled.ticket.sanitizedText).toContain("alice.ops@example.com");
+    expect(toggled.maskDirtySinceCloud).toBe(true);
+
+    const startIdx = ticket.rawText.indexOf("SecretCodenameX");
+    const manual = addManualTicketMask(
+      { ...ticket, resolutionMode: "PRE_CLOUD_COUNTDOWN" },
+      startIdx,
+      startIdx + "SecretCodenameX".length,
+    );
+    expect(manual.ticket.sanitizedText).toContain("[REDACTED:MANUAL_SECRET_1]");
+    expect(manual.shouldPauseCountdown).toBe(true);
+
+    // Purged ZeroPiiStore record must be immutable against unmasking and rehydrate from sanitizedText
+    const purged = {
+      ...ticket,
+      rawText: "[PURGED_FROM_DISK_FOR_PRIVACY]",
+      loadedFromZeroPiiStore: true,
+    };
+    expect(toggleTicketSpanMask(purged, 0).ticket).toBe(purged);
+    expect(addManualTicketMask(purged, 0, 5).ticket).toBe(purged);
+    const prepared = prepareTicketForEscalation(purged);
+    expect(prepared.rawText).toBe(ticket.sanitizedText);
+    expect(prepared.spans).toEqual([]);
+  });
+
+  it("deepens telemetry transitions (recordTriageRunTelemetry & recordCloudEscalationTelemetry) with deduplicated escalation counting", async () => {
+    const baseTelemetry: HybridTelemetry = {
+      nanoStatus: "UNAVAILABLE",
+      totalRuns: 0,
+      localResolvedCount: 0,
+      cloudEscalatedCount: 0,
+      estimatedTokensSaved: 0,
+      lastLatencyMs: 0,
+      offlineMode: false,
+      browserOnline: true,
+      activeCloudModel: "gemini-3.5-flash-lite",
+      remoteConfigStatus: "LOADED",
+      appCheckProvider: "RECAPTCHA_ENTERPRISE",
+      downloadProgress: null,
+      queuedOfflineCount: 0,
+    };
+
+    const p3Result = await runTriagePipeline({
+      id: "t-tel-1",
+      title: "TLS",
+      rawText: "CERT_HAS_EXPIRED on localhost",
+      offlineMode: true,
+    });
+    const afterRun = recordTriageRunTelemetry(baseTelemetry, p3Result);
+    expect(afterRun.totalRuns).toBe(1);
+    expect(afterRun.localResolvedCount).toBe(1);
+    expect(afterRun.estimatedTokensSaved).toBeGreaterThan(0);
+
+    const escalatedIds = new Set<string>();
+    const cloudResult = {
+      ...p3Result,
+      id: "t-cloud-1",
+      resolutionMode: "CLOUD_ESCALATION" as const,
+      activeCloudModel: "gemini-3.8-flash",
+      latencyMs: 420,
+    };
+    const firstEsc = recordCloudEscalationTelemetry(afterRun, cloudResult, escalatedIds);
+    expect(firstEsc.cloudEscalatedCount).toBe(1);
+    expect(firstEsc.activeCloudModel).toBe("gemini-3.8-flash");
+
+    // Re-running cloud escalation on the same ticket ID must not double-count cloudEscalatedCount
+    const secondEsc = recordCloudEscalationTelemetry(firstEsc, cloudResult, escalatedIds);
+    expect(secondEsc.cloudEscalatedCount).toBe(1);
   });
 });

@@ -7,12 +7,16 @@ import {
 } from "./config/firebase";
 import { checkChromeNanoAvailability } from "./firewall/nanoExtractor";
 import {
+  addManualTicketMask,
   escalateApprovedTicket,
   generateSanitizedHybridBrief,
+  prepareTicketForEscalation,
+  recordCloudEscalationTelemetry,
+  recordTriageRunTelemetry,
   runTriagePipeline,
+  toggleTicketSpanMask,
 } from "./firewall/pipeline";
-import { detectHighEntropySecrets, detectRegexSpans } from "./firewall/regexScrubber";
-import { addManualSpan, applyMaskedSpans, mergeAndRedactSpans } from "./firewall/spanMerger";
+import { decodeHandoffPayload } from "./firewall/regexScrubber";
 import {
   clearSanitizedTickets,
   DEFAULT_PRIVACY_POLICY,
@@ -45,63 +49,11 @@ function mapAvailabilityToStatus(avail: string): NanoStatus {
   return "UNAVAILABLE";
 }
 
-const MAX_HANDOFF_ENCODED_CHARS = 65_536;
-const MAX_HANDOFF_TEXT_CHARS = 50_000;
-const MAX_HANDOFF_TITLE_CHARS = 200;
-
-function stripUnsafeControlChars(input: string): string {
-  // Strip ASCII control chars except \t (0x09), \n (0x0A), and \r (0x0D)
-  return input.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
-}
-
 export function decodeHandoffHash(hash: string): { title?: string; sanitizedText?: string } | null {
-  if (!hash || !hash.includes("handoff=")) return null;
-  try {
-    const encoded = hash.split("handoff=")[1]?.split("&")[0] ?? "";
-    if (
-      !encoded ||
-      encoded.length > MAX_HANDOFF_ENCODED_CHARS ||
-      !/^[A-Za-z0-9\-_]+=*$/.test(encoded)
-    ) {
-      return null;
-    }
-    const base64 = encoded.replace(/-/g, "+").replace(/_/g, "/");
-    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
-    const bytes = Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
-    const json = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    const parsed = JSON.parse(json) as { title?: unknown; sanitizedText?: unknown };
-    if (typeof parsed.sanitizedText === "string" && parsed.sanitizedText.trim()) {
-      const cleanBody = stripUnsafeControlChars(parsed.sanitizedText).slice(
-        0,
-        MAX_HANDOFF_TEXT_CHARS,
-      );
-      if (!cleanBody.trim()) return null;
-      // Defensive re-scrub: ensure tampered #handoff= links cannot smuggle raw deterministic secrets
-      const rescrubSpans = [
-        ...detectRegexSpans(cleanBody),
-        ...detectHighEntropySecrets(cleanBody),
-      ];
-      const { sanitizedText } = mergeAndRedactSpans(cleanBody, rescrubSpans);
-      const rawTitle =
-        typeof parsed.title === "string" && parsed.title.trim()
-          ? stripUnsafeControlChars(parsed.title.trim()).slice(0, MAX_HANDOFF_TITLE_CHARS)
-          : "Chrome Extension Capture";
-      return {
-        title: rawTitle || "Chrome Extension Capture",
-        sanitizedText,
-      };
-    }
-  } catch {
-    return null;
-  }
-  return null;
+  return decodeHandoffPayload(hash);
 }
 
-export function prepareTicketForEscalation(ticket: TriageResult): TriageResult {
-  return ticket.loadedFromZeroPiiStore
-    ? { ...ticket, rawText: ticket.sanitizedText, spans: [] }
-    : ticket;
-}
+export { prepareTicketForEscalation };
 
 export function App() {
   const [title, setTitle] = useState(DEMO_SCENARIOS[0].title);
@@ -236,19 +188,9 @@ export function App() {
       await saveSanitizedTicket(escalated);
       await syncHistoryAndQueueCount();
 
-      const didSucceedCloud =
-        escalated.resolutionMode === "CLOUD_ESCALATION" &&
-        !escalatedTicketIds.current.has(escalated.id);
-      if (didSucceedCloud) {
-        escalatedTicketIds.current.add(escalated.id);
-      }
-
-      setTelemetry((prev) => ({
-        ...prev,
-        cloudEscalatedCount: prev.cloudEscalatedCount + (didSucceedCloud ? 1 : 0),
-        lastLatencyMs: escalated.latencyMs,
-        activeCloudModel: escalated.activeCloudModel ?? prev.activeCloudModel,
-      }));
+      setTelemetry((prev) =>
+        recordCloudEscalationTelemetry(prev, escalated, escalatedTicketIds.current),
+      );
     } finally {
       if (gen === runGenerationRef.current) {
         inFlightRef.current = false;
@@ -323,17 +265,7 @@ export function App() {
         setCountdownMs((policy.autoCountdownSeconds ?? 3) * 1000);
       }
 
-      setTelemetry((prev) => ({
-        ...prev,
-        nanoStatus: result.nanoStatus,
-        totalRuns: prev.totalRuns + 1,
-        localResolvedCount:
-          prev.localResolvedCount + (result.resolutionMode === "LOCAL_RUNBOOK" ? 1 : 0),
-        cloudEscalatedCount:
-          prev.cloudEscalatedCount + (result.resolutionMode === "CLOUD_ESCALATION" ? 1 : 0),
-        estimatedTokensSaved: prev.estimatedTokensSaved + result.estimatedTokensSaved,
-        lastLatencyMs: result.latencyMs,
-      }));
+      setTelemetry((prev) => recordTriageRunTelemetry(prev, result));
     } finally {
       if (gen === runGenerationRef.current) {
         inFlightRef.current = false;
@@ -343,45 +275,31 @@ export function App() {
   };
 
   const handleToggleSpan = (index: number) => {
-    if (!currentResult || currentResult.loadedFromZeroPiiStore) return;
-    if (currentResult.resolutionMode === "PRE_CLOUD_COUNTDOWN") {
+    if (!currentResult) return;
+    const { ticket: updatedResult, shouldPauseCountdown, maskDirtySinceCloud: dirty } =
+      toggleTicketSpanMask(currentResult, index);
+    if (updatedResult === currentResult) return;
+    if (shouldPauseCountdown) {
       setCountdownPaused(true);
     }
-    const updatedSpans = currentResult.spans.map((s, idx) =>
-      idx === index ? { ...s, masked: s.masked === false } : s,
-    );
-    const updatedSanitized = applyMaskedSpans(currentResult.rawText, updatedSpans);
-    const updatedResult: TriageResult = {
-      ...currentResult,
-      spans: updatedSpans,
-      sanitizedText: updatedSanitized,
-    };
     volatileSessionMap.current.set(updatedResult.id, updatedResult);
     setCurrentResult(updatedResult);
-    if (updatedResult.resolutionMode === "CLOUD_ESCALATION") {
+    if (dirty) {
       setMaskDirtySinceCloud(true);
     }
   };
 
   const handleAddManualSpan = (start: number, end: number) => {
-    if (!currentResult || currentResult.loadedFromZeroPiiStore) return;
-    if (currentResult.resolutionMode === "PRE_CLOUD_COUNTDOWN") {
+    if (!currentResult) return;
+    const { ticket: updatedResult, shouldPauseCountdown, maskDirtySinceCloud: dirty } =
+      addManualTicketMask(currentResult, start, end);
+    if (updatedResult === currentResult) return;
+    if (shouldPauseCountdown) {
       setCountdownPaused(true);
     }
-    const { sanitizedText, mergedSpans } = addManualSpan(
-      currentResult.rawText,
-      currentResult.spans,
-      start,
-      end,
-    );
-    const updatedResult: TriageResult = {
-      ...currentResult,
-      spans: mergedSpans,
-      sanitizedText,
-    };
     volatileSessionMap.current.set(updatedResult.id, updatedResult);
     setCurrentResult(updatedResult);
-    if (updatedResult.resolutionMode === "CLOUD_ESCALATION") {
+    if (dirty) {
       setMaskDirtySinceCloud(true);
     }
   };

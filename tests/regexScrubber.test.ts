@@ -4,7 +4,10 @@ import {
   detectHighEntropySecrets,
   detectPolicyTermSpans,
   detectRegexSpans,
+  encodeHandoffPayload,
+  decodeHandoffPayload,
   passesLuhnCheck,
+  scanAndRedactLocal,
   shannonEntropy,
 } from "../src/firewall/regexScrubber";
 
@@ -134,5 +137,30 @@ describe("regexScrubber", () => {
     const elapsedMs = performance.now() - startMs;
     expect(ccSpans).toEqual([]);
     expect(elapsedMs).toBeLessThan(200);
+  });
+
+  it("deepens local scanning and ExtensionHandoff behind scanAndRedactLocal and encodeHandoffPayload/decodeHandoffPayload", () => {
+    const raw =
+      'P0 error on Project-Nebula with {"api_key": "xK9#mP2$vL5@nQ8!rT1wZ4"} and patient admitted to Manipal ICU Floor 3.';
+    const result = scanAndRedactLocal(raw, {
+      includeHeuristics: true,
+      enableEntropyScanner: true,
+      customTerms: ["Project-Nebula"],
+    });
+
+    expect(result.sanitizedText).not.toContain("Project-Nebula");
+    expect(result.sanitizedText).not.toContain("xK9#mP2$vL5@nQ8!rT1wZ4");
+    expect(result.sanitizedText).not.toContain("Manipal ICU Floor 3");
+    expect(result.mergedSpans.length).toBeGreaterThanOrEqual(3);
+
+    const encodedHash = encodeHandoffPayload({
+      title: "Incident\u0000Title",
+      sanitizedText: "Leaked AKIAIOSFODNN7EXAMPLE in handoff",
+    });
+    const decoded = decodeHandoffPayload(`#handoff=${encodedHash}`);
+    expect(decoded).not.toBeNull();
+    expect(decoded?.title).toBe("IncidentTitle");
+    expect(decoded?.sanitizedText).not.toContain("AKIAIOSFODNN7EXAMPLE");
+    expect(decoded?.sanitizedText).toContain("[REDACTED:AWS_ACCESS_KEY_");
   });
 });

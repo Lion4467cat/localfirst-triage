@@ -10,6 +10,7 @@ import { DEFAULT_RUNBOOKS, getRunbookById, matchLocalRunbook } from "../config/d
 import type {
   CustomRunbook,
   HybridBriefResult,
+  HybridTelemetry,
   InferenceSource,
   PrivacyPolicy,
   RedactionSpan,
@@ -17,13 +18,8 @@ import type {
   ZeroLeakageAudit,
 } from "../types/triage";
 import { extractSemanticSecretsWithNano, type NanoExtractionResult } from "./nanoExtractor";
-import {
-  detectContextualHeuristicSpans,
-  detectHighEntropySecrets,
-  detectPolicyTermSpans,
-  detectRegexSpans,
-} from "./regexScrubber";
-import { applyMaskedSpans, mergeAndRedactSpans, verifyZeroLeakage } from "./spanMerger";
+import { scanAndRedactLocal } from "./regexScrubber";
+import { addManualSpan, applyMaskedSpans, verifyZeroLeakage } from "./spanMerger";
 
 const SRE_SYSTEM_INSTRUCTION =
   "You are a Principal SRE Incident Triage Assistant. Produce concise Markdown with sections: ### Root Cause Hypothesis, ### Immediate Mitigation, and ### Verification Checklist. Never ask for or echo redacted PII.";
@@ -202,27 +198,17 @@ export async function runTriagePipeline(
   const loadConfig = deps.loadConfig ?? loadRuntimeConfig;
   const callCloud = deps.callCloud ?? defaultCallCloud;
 
-  const regexSpans = detectRegexSpans(input.rawText);
-  const entropySpans =
-    input.policy?.enableEntropyScanner === false ? [] : detectHighEntropySecrets(input.rawText);
-  const policySpans = input.policy?.customTerms?.length
-    ? detectPolicyTermSpans(input.rawText, input.policy.customTerms)
-    : [];
   const nanoResult = await extractNano(input.rawText);
 
   const stage1Source: TriageResult["stage1Source"] =
     nanoResult.nanoStatus === "READY" ? "ON_DEVICE (Nano 4)" : "HEURISTIC_GUARD";
 
-  const heuristicSpans =
-    nanoResult.nanoStatus === "READY" ? [] : detectContextualHeuristicSpans(input.rawText);
-
-  const { sanitizedText, mergedSpans } = mergeAndRedactSpans(input.rawText, [
-    ...regexSpans,
-    ...entropySpans,
-    ...policySpans,
-    ...heuristicSpans,
-    ...nanoResult.spans,
-  ]);
+  const { sanitizedText, mergedSpans } = scanAndRedactLocal(input.rawText, {
+    includeHeuristics: nanoResult.nanoStatus !== "READY",
+    enableEntropyScanner: input.policy?.enableEntropyScanner !== false,
+    customTerms: input.policy?.customTerms,
+    extraSpans: nanoResult.spans,
+  });
 
   const stage1LatencyMs = Math.max(1, Math.round(performance.now() - startedAt));
   const approxTokens = Math.max(40, Math.ceil(input.rawText.length / 4));
@@ -622,4 +608,121 @@ export async function generateSanitizedHybridBrief(
       generatedAt: Date.now(),
     };
   }
+}
+
+export interface TicketMaskMutationResult {
+  ticket: TriageResult;
+  shouldPauseCountdown: boolean;
+  maskDirtySinceCloud: boolean;
+}
+
+/**
+ * Deepened Pipeline ticket mutator: rehydrates purged ZeroPiiStore tickets safely
+ * so "[PURGED_FROM_DISK_FOR_PRIVACY]" is never sent to Cloud Gemini.
+ */
+export function prepareTicketForEscalation(ticket: TriageResult): TriageResult {
+  return ticket.loadedFromZeroPiiStore
+    ? { ...ticket, rawText: ticket.sanitizedText, spans: [] }
+    : ticket;
+}
+
+/**
+ * Deepened Pipeline ticket mutator: toggles a RedactionSpan mask while enforcing
+ * ZeroPiiStore immutability, recomputing SanitizedPayload, and returning UI flags.
+ */
+export function toggleTicketSpanMask(
+  ticket: TriageResult,
+  spanIndex: number,
+): TicketMaskMutationResult {
+  if (ticket.loadedFromZeroPiiStore) {
+    return { ticket, shouldPauseCountdown: false, maskDirtySinceCloud: false };
+  }
+  const updatedSpans = ticket.spans.map((s, idx) =>
+    idx === spanIndex ? { ...s, masked: s.masked === false } : s,
+  );
+  const updatedSanitized = applyMaskedSpans(ticket.rawText, updatedSpans);
+  const updatedTicket: TriageResult = {
+    ...ticket,
+    spans: updatedSpans,
+    sanitizedText: updatedSanitized,
+  };
+  return {
+    ticket: updatedTicket,
+    shouldPauseCountdown: ticket.resolutionMode === "PRE_CLOUD_COUNTDOWN",
+    maskDirtySinceCloud: ticket.resolutionMode === "CLOUD_ESCALATION",
+  };
+}
+
+/**
+ * Deepened Pipeline ticket mutator: adds a manual [start, end) mask while enforcing
+ * ZeroPiiStore immutability, merging overlapping intervals, and returning UI flags.
+ */
+export function addManualTicketMask(
+  ticket: TriageResult,
+  start: number,
+  end: number,
+  category = "MANUAL_SECRET",
+): TicketMaskMutationResult {
+  if (ticket.loadedFromZeroPiiStore) {
+    return { ticket, shouldPauseCountdown: false, maskDirtySinceCloud: false };
+  }
+  const { sanitizedText, mergedSpans } = addManualSpan(
+    ticket.rawText,
+    ticket.spans,
+    start,
+    end,
+    category,
+  );
+  const updatedTicket: TriageResult = {
+    ...ticket,
+    spans: mergedSpans,
+    sanitizedText,
+  };
+  return {
+    ticket: updatedTicket,
+    shouldPauseCountdown: ticket.resolutionMode === "PRE_CLOUD_COUNTDOWN",
+    maskDirtySinceCloud: ticket.resolutionMode === "CLOUD_ESCALATION",
+  };
+}
+
+/**
+ * Deepened HybridTelemetry state transition after a Stage 1 / local run.
+ */
+export function recordTriageRunTelemetry(
+  prev: HybridTelemetry,
+  result: TriageResult,
+): HybridTelemetry {
+  return {
+    ...prev,
+    nanoStatus: result.nanoStatus,
+    totalRuns: prev.totalRuns + 1,
+    localResolvedCount:
+      prev.localResolvedCount + (result.resolutionMode === "LOCAL_RUNBOOK" ? 1 : 0),
+    cloudEscalatedCount:
+      prev.cloudEscalatedCount + (result.resolutionMode === "CLOUD_ESCALATION" ? 1 : 0),
+    estimatedTokensSaved: prev.estimatedTokensSaved + result.estimatedTokensSaved,
+    lastLatencyMs: result.latencyMs,
+  };
+}
+
+/**
+ * Deepened HybridTelemetry state transition after a Stage 2 Cloud Escalation,
+ * deduplicating cloudEscalatedCount by ticket ID across re-runs.
+ */
+export function recordCloudEscalationTelemetry(
+  prev: HybridTelemetry,
+  escalated: TriageResult,
+  escalatedTicketIds: Set<string>,
+): HybridTelemetry {
+  const didSucceedCloud =
+    escalated.resolutionMode === "CLOUD_ESCALATION" && !escalatedTicketIds.has(escalated.id);
+  if (didSucceedCloud) {
+    escalatedTicketIds.add(escalated.id);
+  }
+  return {
+    ...prev,
+    cloudEscalatedCount: prev.cloudEscalatedCount + (didSucceedCloud ? 1 : 0),
+    lastLatencyMs: escalated.latencyMs,
+    activeCloudModel: escalated.activeCloudModel ?? prev.activeCloudModel,
+  };
 }

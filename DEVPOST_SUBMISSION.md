@@ -44,7 +44,7 @@ We built **LocalFirst Triage** to prove why **hybrid on-device + cloud inference
 
 ### Accomplishments That We're Proud Of
 - Demonstrating all three core `InferenceMode` patterns (`ONLY_ON_DEVICE`, `PREFER_ON_DEVICE`, `PREFER_IN_CLOUD`) plus streaming and `initializeDeviceModel()` in one cohesive, practical enterprise workflow.
-- **57/57** passing Vitest unit & React integration tests plus headless Playwright Chromium E2E verification across 9 user & adversarial security flows covering Luhn checks, JSON/URL-encoded entropy detection, ReDoS immunity, 50KB trace chunk capping, fail-closed quarantine, constituent-span zero-leakage verification, corrupted-storage recovery, XSS immunity, responsive viewports (`1280x720`, `1024x768`, `375x667`), and Chrome Extension MV3 handoff re-scrubbing.
+- **60/60** passing Vitest unit & React integration tests plus headless Playwright Chromium E2E verification across 9 user & adversarial security flows covering Luhn checks, JSON/URL-encoded entropy detection, ReDoS immunity, 50KB trace chunk capping, fail-closed quarantine, constituent-span zero-leakage verification, corrupted-storage recovery, XSS immunity, responsive viewports (`1280x720`, `1024x768`, `375x667`), and Chrome Extension MV3 handoff re-scrubbing.
 - Running the entire stack—including hosted PWA, App Check, Remote Config, and Gemini Developer API—at **`$0.00`** on Firebase Spark.
 
 ### What We Learned

@@ -62,7 +62,7 @@ flowchart LR
 ```bash
 npm install
 cp .env.example .env.local   # Add your public Firebase Web config + reCAPTCHA site key
-npm test                     # Runs all 9 Vitest suites (57 tests)
+npm test                     # Runs all 9 Vitest suites (60 tests)
 npm run test:e2e             # Runs Playwright Chromium E2E across 9 user & security flows
 npm run build                # Runs tsc --noEmit && vite build (code-split <275 kB chunks)
 npm run dev                  # Starts local dev server with localhost App Check debug token
