@@ -1,3 +1,4 @@
+import { motion } from "motion/react";
 import { CheckCircle2, Cloud, Cpu, Loader2, ShieldAlert, ShieldCheck, WifiOff } from "lucide-react";
 import type { TriageResult } from "../types/triage";
 
@@ -17,9 +18,7 @@ export function LivePipelineRail({
 
   const stage1Active = isRunning && !currentResult;
   const stage1Done = Boolean(currentResult);
-
   const stage2Active = Boolean(isRunning && currentResult);
-
   const stage3Done = Boolean(
     currentResult &&
       (currentResult.resolutionMode === "CLOUD_ESCALATION" ||
@@ -46,13 +45,13 @@ export function LivePipelineRail({
       className="lf-card flex flex-wrap items-center justify-between gap-2 rounded-xl px-3.5 py-2"
     >
       <div className="flex flex-wrap items-center gap-2 text-[11px] font-medium">
-        {/* Node 1 */}
+        {/* Node 1: Local Scan (Neural Cyan) */}
         <div
           className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1"
           style={{
-            backgroundColor: stage1Done || stage1Active ? "var(--safe-bg)" : "var(--bg-subtle)",
-            borderColor: stage1Done || stage1Active ? "var(--safe-border)" : "var(--border-subtle)",
-            color: stage1Done || stage1Active ? "var(--safe-text)" : "var(--text-secondary)",
+            backgroundColor: stage1Done || stage1Active ? "var(--nano-bg)" : "var(--bg-subtle)",
+            borderColor: stage1Done || stage1Active ? "var(--nano-border)" : "var(--border-subtle)",
+            color: stage1Done || stage1Active ? "var(--nano-text)" : "var(--text-secondary)",
           }}
         >
           {stage1Active ? (
@@ -69,15 +68,19 @@ export function LivePipelineRail({
           style={{ backgroundColor: "var(--border-subtle)" }}
           aria-hidden="true"
         >
-          {(stage1Active || stage1Done) && (
-            <div
-              className={stage1Active ? "animate-pipeline-beam h-full w-1/2 rounded-full" : "h-full w-full"}
-              style={{ backgroundColor: "var(--safe-solid)" }}
+          {stage1Active ? (
+            <motion.div
+              className="h-full w-1/2 rounded-full"
+              style={{ backgroundColor: "var(--nano-solid)" }}
+              animate={{ x: ["-100%", "220%"] }}
+              transition={{ duration: 1.0, repeat: Infinity, ease: "linear" }}
             />
-          )}
+          ) : stage1Done ? (
+            <div className="h-full w-full" style={{ backgroundColor: "var(--safe-solid)" }} />
+          ) : null}
         </div>
 
-        {/* Node 2 */}
+        {/* Node 2: Airgap Gate */}
         <div
           className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 tabular-nums"
           style={{
@@ -114,15 +117,19 @@ export function LivePipelineRail({
           style={{ backgroundColor: "var(--border-subtle)" }}
           aria-hidden="true"
         >
-          {(stage2Active || stage3Done) && (
-            <div
-              className={stage2Active ? "animate-pipeline-beam h-full w-1/2 rounded-full" : "h-full w-full"}
+          {stage2Active ? (
+            <motion.div
+              className="h-full w-1/2 rounded-full"
               style={{ backgroundColor: "var(--safe-solid)" }}
+              animate={{ x: ["-100%", "220%"] }}
+              transition={{ duration: 1.0, repeat: Infinity, ease: "linear" }}
             />
-          )}
+          ) : stage3Done ? (
+            <div className="h-full w-full" style={{ backgroundColor: "var(--safe-solid)" }} />
+          ) : null}
         </div>
 
-        {/* Node 3 */}
+        {/* Node 3: Safe Cloud / $0 Local */}
         <div
           className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1"
           style={{

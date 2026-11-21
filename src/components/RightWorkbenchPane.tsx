@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { motion } from "motion/react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -500,14 +501,23 @@ export function RightWorkbenchPane({
                   role="tab"
                   aria-selected={active}
                   onClick={() => setActiveTab(tab.id)}
-                  className="rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors"
+                  className="relative rounded-md px-2.5 py-1 text-[11px] font-medium"
                   style={{
-                    backgroundColor: active ? "var(--bg-surface)" : "transparent",
                     color: active ? "var(--text-primary)" : "var(--text-secondary)",
-                    boxShadow: active ? "var(--shadow-card)" : "none",
                   }}
                 >
-                  {tab.label}
+                  {active && (
+                    <motion.span
+                      layoutId="right-pane-tab"
+                      transition={{ type: "spring", duration: 0.35, bounce: 0.15 }}
+                      className="absolute inset-0 rounded-md"
+                      style={{
+                        backgroundColor: "var(--bg-surface)",
+                        boxShadow: "var(--shadow-card)",
+                      }}
+                    />
+                  )}
+                  <span className="relative z-10">{tab.label}</span>
                 </button>
               );
             })}
@@ -725,19 +735,41 @@ export function RightWorkbenchPane({
               <div className="flex flex-wrap gap-1.5">
                 {currentResult.spans.map((span, idx) => {
                   const isMasked = span.masked !== false;
+                  const isNano = span.detector === "NANO_SEMANTIC_FIREWALL";
                   return (
-                    <button
+                    <motion.button
                       key={`${currentResult.id}-${span.start}-${span.end}-${idx}`}
                       type="button"
                       disabled={Boolean(currentResult.loadedFromZeroPiiStore)}
                       aria-pressed={isMasked}
                       onClick={() => onToggleSpan(idx)}
-                      className="animate-chip-lock inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors disabled:opacity-55"
+                      initial={{ opacity: 0, y: 4, scale: 0.94 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      whileHover={{ scale: 1.03 }}
+                      whileTap={{ scale: 0.96 }}
+                      transition={{
+                        type: "spring",
+                        duration: 0.28,
+                        bounce: 0.18,
+                        delay: Math.min(idx, 12) * 0.025,
+                      }}
+                      className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium disabled:opacity-55"
                       style={{
-                        animationDelay: `${Math.min(idx, 12) * 25}ms`,
-                        backgroundColor: isMasked ? "var(--mask-bg)" : "var(--warn-bg)",
-                        borderColor: isMasked ? "var(--mask-border)" : "var(--warn-border)",
-                        color: isMasked ? "var(--mask-text)" : "var(--warn-text)",
+                        backgroundColor: !isMasked
+                          ? "var(--warn-bg)"
+                          : isNano
+                            ? "var(--nano-bg)"
+                            : "var(--mask-bg)",
+                        borderColor: !isMasked
+                          ? "var(--warn-border)"
+                          : isNano
+                            ? "var(--nano-border)"
+                            : "var(--mask-border)",
+                        color: !isMasked
+                          ? "var(--warn-text)"
+                          : isNano
+                            ? "var(--nano-text)"
+                            : "var(--mask-text)",
                       }}
                     >
                       {isMasked ? (
@@ -746,7 +778,7 @@ export function RightWorkbenchPane({
                         <Unlock className="h-2.5 w-2.5" aria-hidden="true" />
                       )}
                       <span>{formatCategoryLabel(span.category)}</span>
-                    </button>
+                    </motion.button>
                   );
                 })}
               </div>

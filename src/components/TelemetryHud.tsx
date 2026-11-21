@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import {
   AlertCircle,
   Cloud,
@@ -13,6 +14,7 @@ import {
 } from "lucide-react";
 import type { ResolvedTheme, ThemePreference } from "../config/theme";
 import type { HybridTelemetry } from "../types/triage";
+import { BrandLogo } from "./BrandLogo";
 
 export type WorkspaceView = "triage" | "history" | "rules" | "runbooks";
 
@@ -115,37 +117,12 @@ export function TelemetryHud({
       }}
     >
       <div className="mx-auto flex min-h-12 max-w-[1680px] flex-wrap items-center justify-between gap-2 py-1.5 lg:h-12 lg:flex-nowrap lg:py-0">
-        {/* Left: Sharp Geometric Mark + Live Hardware Status Dot */}
+        {/* Left: Bespoke Split-Shield Logo + Live Hardware Status Dot */}
         <div className="flex min-w-0 items-center gap-2.5">
           <div className="flex items-center gap-2">
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 20 20"
-              fill="none"
-              aria-hidden="true"
-              className="shrink-0"
-            >
-              <rect
-                x="1.5"
-                y="1.5"
-                width="17"
-                height="17"
-                rx="4.5"
-                stroke="currentColor"
-                strokeWidth="1.5"
-              />
-              <path
-                d="M10 4.5V15.5"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-              />
-              <circle cx="6" cy="10" r="1.5" fill="var(--mask-solid)" />
-              <circle cx="14" cy="10" r="1.5" fill="var(--safe-solid)" />
-            </svg>
+            <BrandLogo size={22} animated />
             <span
-              className="text-sm font-semibold tracking-tight"
+              className="text-sm font-bold tracking-tight"
               style={{ color: "var(--text-primary)" }}
             >
               LocalFirst
@@ -169,7 +146,7 @@ export function TelemetryHud({
             <span
               className="h-1.5 w-1.5 rounded-full"
               style={{
-                backgroundColor: nanoReady ? "var(--safe-solid)" : "var(--text-muted)",
+                backgroundColor: nanoReady ? "var(--nano-solid)" : "var(--safe-solid)",
               }}
               aria-hidden="true"
             />
@@ -243,17 +220,26 @@ export function TelemetryHud({
                     onJumpToWorkbench?.();
                   }
                 }}
-                className="inline-flex min-h-[30px] flex-1 items-center justify-center gap-1 rounded-md px-1.5 text-[11px] font-medium transition-colors sm:flex-initial sm:gap-1.5 sm:px-2.5 sm:text-xs"
+                className="relative inline-flex min-h-[30px] flex-1 items-center justify-center gap-1 rounded-md px-1.5 text-[11px] font-medium sm:flex-initial sm:gap-1.5 sm:px-2.5 sm:text-xs"
                 style={{
-                  backgroundColor: active ? "var(--bg-surface)" : "transparent",
                   color: active ? "var(--text-primary)" : "var(--text-secondary)",
-                  boxShadow: active ? "var(--shadow-card)" : "none",
                 }}
               >
-                <span>{tab.label}</span>
+                {active && (
+                  <motion.span
+                    layoutId="top-nav-pill"
+                    transition={{ type: "spring", duration: 0.35, bounce: 0.15 }}
+                    className="absolute inset-0 rounded-md"
+                    style={{
+                      backgroundColor: "var(--bg-surface)",
+                      boxShadow: "var(--shadow-card)",
+                    }}
+                  />
+                )}
+                <span className="relative z-10">{tab.label}</span>
                 {typeof tab.count === "number" && tab.count > 0 && (
                   <span
-                    className="rounded px-1 font-mono text-[10px] font-semibold tabular-nums"
+                    className="relative z-10 rounded px-1 font-mono text-[10px] font-semibold tabular-nums"
                     style={{
                       backgroundColor: active ? "var(--bg-subtle)" : "transparent",
                       color: "var(--text-muted)",
@@ -335,18 +321,24 @@ export function TelemetryHud({
               <span>{syncLabel}</span>
             </button>
 
-            {syncOpen && (
-              <div
-                id="cloud-sync-popover"
-                role="region"
-                aria-label="Cloud Sync and Offline Settings"
-                className="fixed inset-x-3 top-14 z-50 rounded-xl border p-4 sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-80"
-                style={{
-                  backgroundColor: "var(--bg-surface)",
-                  borderColor: "var(--border-strong)",
-                  boxShadow: "var(--shadow-popover)",
-                }}
-              >
+            <AnimatePresence>
+              {syncOpen && (
+                <motion.div
+                  id="cloud-sync-popover"
+                  role="region"
+                  aria-label="Cloud Sync and Offline Settings"
+                  initial={{ opacity: 0, scale: 0.95, y: -4 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.96, y: -4 }}
+                  transition={{ duration: 0.16, ease: [0.23, 1, 0.32, 1] }}
+                  style={{
+                    transformOrigin: "top right",
+                    backgroundColor: "var(--bg-surface)",
+                    borderColor: "var(--border-strong)",
+                    boxShadow: "var(--shadow-popover)",
+                  }}
+                  className="fixed inset-x-3 top-14 z-50 rounded-xl border p-4 sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-80"
+                >
                 <div className="mb-3">
                   <h2
                     className="text-xs font-semibold uppercase tracking-wider"
@@ -523,8 +515,9 @@ export function TelemetryHud({
                     </div>
                   )}
                 </div>
-              </div>
-            )}
+              </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         </div>
       </div>

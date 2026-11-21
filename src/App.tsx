@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { DEMO_SCENARIOS, DEFAULT_RUNBOOKS } from "./config/demoScenarios";
 import {
   DEFAULT_RUNTIME_CONFIG,
@@ -749,6 +750,7 @@ export function App() {
   };
 
   return (
+    <MotionConfig reducedMotion="user">
     <div
       className="lf-dot-grid flex min-h-screen flex-col"
       style={{
@@ -931,36 +933,46 @@ export function App() {
         </>
       )}
 
-      {activeView !== "triage" && (
-        <main className="mx-auto w-full max-w-6xl flex-1 overflow-y-auto p-4 sm:p-6">
-          {activeView === "history" && (
-            <HistoryWorkspaceView
-              history={history}
-              onSelectHistory={(ticket) => {
-                handleSelectHistory(ticket);
-                setActiveView("triage");
-                setMobilePane("output");
-              }}
-              onClearHistory={() => void handleClearHistory()}
-            />
-          )}
+      <AnimatePresence mode="wait">
+        {activeView !== "triage" && (
+          <motion.main
+            key={activeView}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
+            className="mx-auto w-full max-w-6xl flex-1 overflow-y-auto p-4 sm:p-6"
+          >
+            {activeView === "history" && (
+              <HistoryWorkspaceView
+                history={history}
+                onSelectHistory={(ticket) => {
+                  handleSelectHistory(ticket);
+                  setActiveView("triage");
+                  setMobilePane("output");
+                }}
+                onClearHistory={() => void handleClearHistory()}
+              />
+            )}
 
-          {activeView === "rules" && (
-            <PrivacyRulesWorkspaceView
-              policy={policy}
-              onSavePolicy={handleSavePolicy}
-            />
-          )}
+            {activeView === "rules" && (
+              <PrivacyRulesWorkspaceView
+                policy={policy}
+                onSavePolicy={handleSavePolicy}
+              />
+            )}
 
-          {activeView === "runbooks" && (
-            <RunbooksWorkspaceView
-              runbooks={runbooks}
-              onSaveRunbooks={handleSaveRunbooks}
-            />
-          )}
-        </main>
-      )}
+            {activeView === "runbooks" && (
+              <RunbooksWorkspaceView
+                runbooks={runbooks}
+                onSaveRunbooks={handleSaveRunbooks}
+              />
+            )}
+          </motion.main>
+        )}
+      </AnimatePresence>
     </div>
+    </MotionConfig>
   );
 }
 

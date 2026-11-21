@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { motion } from "motion/react";
 import { BookOpen, Clock, Lock, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { getSeverityStyle } from "../config/displayLabels";
 import type { CustomRunbook, PrivacyPolicy, TriageResult } from "../types/triage";
@@ -59,14 +60,23 @@ export function HistoryWorkspaceView({
         </div>
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
-          {history.map((item) => {
+          {history.map((item, idx) => {
             const sev = getSeverityStyle(item.severity);
             return (
-              <button
+              <motion.button
                 key={item.id}
                 type="button"
                 onClick={() => onSelectHistory(item)}
-                className="flex min-h-[44px] flex-col items-start gap-2 rounded-xl border p-4 text-left transition-colors"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                whileHover={{ y: -1 }}
+                whileTap={{ scale: 0.99 }}
+                transition={{
+                  duration: 0.22,
+                  delay: Math.min(idx, 8) * 0.03,
+                  ease: [0.23, 1, 0.32, 1],
+                }}
+                className="flex min-h-[44px] flex-col items-start gap-2 rounded-xl border p-4 text-left"
                 style={{
                   backgroundColor: "var(--bg-subtle)",
                   borderColor: "var(--border-subtle)",
@@ -113,7 +123,7 @@ export function HistoryWorkspaceView({
                   <span>{item.spans.length} secret(s)</span>
                   <span>· {new Date(item.createdAt).toLocaleString()}</span>
                 </div>
-              </button>
+              </motion.button>
             );
           })}
         </div>
@@ -381,11 +391,18 @@ export function RunbooksWorkspaceView({
         </form>
 
         <div className="space-y-3">
-          {runbooks.map((rb) => {
+          {runbooks.map((rb, idx) => {
             const sev = getSeverityStyle(rb.severity);
             return (
-              <article
+              <motion.article
                 key={rb.id}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{
+                  duration: 0.22,
+                  delay: Math.min(idx, 8) * 0.03,
+                  ease: [0.23, 1, 0.32, 1],
+                }}
                 className="rounded-xl border p-4"
                 style={{
                   backgroundColor: "var(--bg-subtle)",
@@ -442,7 +459,7 @@ export function RunbooksWorkspaceView({
                 <p className="mt-2 text-xs" style={{ color: "var(--text-secondary)" }}>
                   Keywords: <code className="font-mono">{rb.keywords.join(", ")}</code>
                 </p>
-              </article>
+              </motion.article>
             );
           })}
         </div>
