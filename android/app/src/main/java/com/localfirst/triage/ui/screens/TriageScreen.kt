@@ -11,10 +11,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FlightTakeoff
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -26,6 +29,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -38,7 +42,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -49,7 +52,23 @@ import com.localfirst.triage.model.NanoStatus
 import com.localfirst.triage.model.RemoteConfigSource
 import com.localfirst.triage.model.Severity
 import com.localfirst.triage.ui.MainUiState
-import com.localfirst.triage.ui.theme.SrePalette
+import com.localfirst.triage.ui.theme.LocalFirstThemeTokens
+
+private fun friendlyScenarioTitle(scenario: DemoScenario): String = when (scenario.id) {
+    "scenario-p0-semantic-leak" -> "Hospital Checkout Alert"
+    "scenario-p3-local-runbook" -> "Expired Local Certificate"
+    "scenario-p1-billing-webhook" -> "Payment Webhook Outage"
+    "scenario-p2-offline-oauth" -> "Warehouse Kiosk Login Error"
+    else -> scenario.title
+}
+
+private fun friendlyScenarioSubtitle(scenario: DemoScenario): String = when (scenario.id) {
+    "scenario-p0-semantic-leak" -> "Hides patient info, password clue & API key"
+    "scenario-p3-local-runbook" -> "Instant fix on your device ($0 cloud)"
+    "scenario-p1-billing-webhook" -> "Hides card, SSN, private key & AWS/Stripe keys"
+    "scenario-p2-offline-oauth" -> "Offline clock-sync fix without cloud AI"
+    else -> scenario.subtitle
+}
 
 @Composable
 fun TriageScreen(
@@ -65,7 +84,9 @@ fun TriageScreen(
     onRunTriage: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val tokens = LocalFirstThemeTokens.colors
     var customTermDraft by remember { mutableStateOf("") }
+    var showSdkControls by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier
@@ -74,222 +95,208 @@ fun TriageScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        // Offline + App Check Header Row
+        // Offline + Status Strip
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Surface(
-                color = SrePalette.Slate900,
-                border = BorderStroke(1.dp, SrePalette.Slate700),
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Shield,
-                        contentDescription = null,
-                        tint = SrePalette.Indigo300,
-                    )
-                    Text(
-                        text = state.appCheckLabel,
-                        color = SrePalette.Slate300,
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                    )
-                }
-            }
-
             OutlinedButton(
                 onClick = onToggleOffline,
                 border = BorderStroke(
                     1.dp,
-                    if (state.offlineMode) SrePalette.Amber400 else SrePalette.Emerald400,
+                    if (state.offlineMode) tokens.warnBorder else tokens.safeBorder,
                 ),
             ) {
                 Icon(
                     imageVector = if (state.offlineMode) Icons.Default.FlightTakeoff else Icons.Default.Wifi,
                     contentDescription = null,
-                    tint = if (state.offlineMode) SrePalette.Amber400 else SrePalette.Emerald400,
+                    tint = if (state.offlineMode) tokens.warnText else tokens.safeText,
+                    modifier = Modifier.padding(end = 6.dp),
                 )
-                Spacer(Modifier.padding(3.dp))
                 Text(
-                    text = if (state.offlineMode) "Airplane: ON" else "Hybrid Cloud Allowed",
-                    color = if (state.offlineMode) SrePalette.Amber400 else SrePalette.Emerald400,
+                    text = if (state.offlineMode) "Offline Mode ($0 Local)" else "Hybrid Safe Online",
+                    color = if (state.offlineMode) tokens.warnText else tokens.safeText,
                     fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+
+            Surface(
+                color = if (state.nanoStatus == NanoStatus.READY) tokens.safeBg else tokens.infoBg,
+                border = BorderStroke(
+                    1.dp,
+                    if (state.nanoStatus == NanoStatus.READY) tokens.safeBorder else tokens.infoBorder,
+                ),
+                shape = RoundedCornerShape(999.dp),
+            ) {
+                Text(
+                    text = when (state.nanoStatus) {
+                        NanoStatus.READY -> "On-Device AI Ready"
+                        NanoStatus.DOWNLOADABLE -> "Nano 4 Downloadable"
+                        NanoStatus.MODEL_DOWNLOADING -> "Preparing AI..."
+                        NanoStatus.UNAVAILABLE -> "Local Guard Active"
+                    },
+                    color = if (state.nanoStatus == NanoStatus.READY) tokens.safeText else tokens.infoText,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                 )
             }
         }
 
-        // AICore Gemini Nano 4 Status Banner
-        val bannerBg = when (state.nanoStatus) {
-            NanoStatus.READY -> SrePalette.Emerald950
-            NanoStatus.DOWNLOADABLE, NanoStatus.MODEL_DOWNLOADING -> SrePalette.Cyan950
-            NanoStatus.UNAVAILABLE -> SrePalette.Amber950
-        }
-        val bannerBorder = when (state.nanoStatus) {
-            NanoStatus.READY -> SrePalette.Emerald400
-            NanoStatus.DOWNLOADABLE, NanoStatus.MODEL_DOWNLOADING -> SrePalette.Cyan400
-            NanoStatus.UNAVAILABLE -> SrePalette.Amber400
-        }
-        Card(
-            colors = CardDefaults.cardColors(containerColor = bannerBg),
-            border = BorderStroke(1.dp, bannerBorder.copy(alpha = 0.5f)),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column(modifier = Modifier.padding(12.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = when (state.nanoStatus) {
-                            NanoStatus.READY -> "AICore Gemini Nano 4 READY (ONLY_ON_DEVICE Active)"
-                            NanoStatus.DOWNLOADABLE -> "Gemini Nano 4 DOWNLOADABLE via AICore"
-                            NanoStatus.MODEL_DOWNLOADING -> "Downloading Gemini Nano 4 Weights..."
-                            NanoStatus.UNAVAILABLE -> "Nano 4 Unavailable — Fail-Closed Local Firewall Active"
-                        },
-                        color = bannerBorder,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp,
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton(onClick = onRecheckNano) {
-                        Text("Re-check", fontSize = 11.sp, color = bannerBorder)
-                    }
-                }
-                if (state.nanoStatus == NanoStatus.DOWNLOADABLE || state.nanoStatus == NanoStatus.MODEL_DOWNLOADING) {
-                    if (state.downloadProgress != null) {
-                        LinearProgressIndicator(
-                            progress = { (state.downloadProgress.coerceIn(0, 100)) / 100f },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 6.dp),
-                        )
-                    }
-                    Button(
-                        onClick = onWarmupNano,
-                        colors = ButtonDefaults.buttonColors(containerColor = SrePalette.Cyan400),
-                    ) {
-                        Icon(Icons.Default.Download, contentDescription = null, tint = SrePalette.Slate950)
-                        Spacer(Modifier.padding(4.dp))
-                        Text(
-                            text = if (state.downloadProgress != null) "Downloading (${state.downloadProgress}%)" else "Download & Warm Up Nano 4",
-                            color = SrePalette.Slate950,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp,
-                        )
-                    }
-                } else if (state.nanoStatus == NanoStatus.UNAVAILABLE) {
-                    Text(
-                        text = "9 Regex rules + Shannon Entropy (>=${"%.2f".format(state.runtimeConfig.entropyThreshold)}) + Heuristic Guard protect payloads with Fail-Closed Quarantine.",
-                        color = SrePalette.Slate300,
-                        fontSize = 11.sp,
-                    )
-                }
-            }
-        }
-
-        // Live Remote Config Provenance Pill + Refresh Button
-        Card(
-            colors = CardDefaults.cardColors(containerColor = SrePalette.Slate900),
-            border = BorderStroke(1.dp, SrePalette.Slate800),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    val rcSource =
-                        if (state.runtimeConfig.source == RemoteConfigSource.DEFAULT_FALLBACK) "DEFAULT"
-                        else state.runtimeConfig.source.name
-                    Text(
-                        text = "Remote Config: $rcSource · entropy>=${"%.2f".format(state.runtimeConfig.entropyThreshold)} · +${state.runtimeConfig.enterpriseBlockedTerms.size} org terms",
-                        color = SrePalette.Indigo300,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
-                    )
-                    Text(
-                        text = "Model: ${state.runtimeConfig.cloudModel} -> fallback ${state.runtimeConfig.cloudFallbackModel}",
-                        color = SrePalette.Slate400,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 10.sp,
-                    )
-                }
-                OutlinedButton(
-                    onClick = onRefreshRemoteConfig,
-                    enabled = !state.isRefreshingPolicy,
-                ) {
-                    Icon(Icons.Default.Refresh, contentDescription = null, tint = SrePalette.Indigo300)
-                    Spacer(Modifier.padding(2.dp))
-                    Text(
-                        text = if (state.isRefreshingPolicy) "Syncing..." else "Refresh Policy",
-                        fontSize = 11.sp,
-                    )
-                }
-            }
-        }
-
-        // 1-Click Demo Scenarios (P0 - P3)
-        Text(
-            text = "1-CLICK DEMO SCENARIOS (P0-P3)",
-            color = SrePalette.Slate400,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
-        )
-        LocalFirewallEngine.DEMO_SCENARIOS.forEach { scenario ->
-            val sevColor = when (scenario.expectedSeverity) {
-                Severity.P0 -> SrePalette.Rose400
-                Severity.P1 -> SrePalette.Amber400
-                Severity.P2 -> SrePalette.Cyan400
-                Severity.P3 -> SrePalette.Emerald400
-            }
+        if (state.nanoStatus == NanoStatus.DOWNLOADABLE || state.nanoStatus == NanoStatus.MODEL_DOWNLOADING) {
             Card(
-                colors = CardDefaults.cardColors(containerColor = SrePalette.Slate900),
-                border = BorderStroke(1.dp, SrePalette.Slate800),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onSelectScenario(scenario) },
+                colors = CardDefaults.cardColors(containerColor = tokens.infoBg),
+                border = BorderStroke(1.dp, tokens.infoBorder),
             ) {
-                Column(modifier = Modifier.padding(10.dp)) {
+                Column(modifier = Modifier.padding(12.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            text = scenario.title,
-                            color = Color.White,
-                            fontWeight = FontWeight.SemiBold,
+                            text = if (state.nanoStatus == NanoStatus.MODEL_DOWNLOADING) {
+                                "Downloading On-Device Nano 4 (${state.downloadProgress ?: 0}%)"
+                            } else {
+                                "Download On-Device Nano 4 for semantic masking"
+                            },
+                            color = tokens.infoText,
                             fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.weight(1f),
                         )
-                        Text(
-                            text = scenario.expectedSeverity.name,
-                            color = sevColor,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 11.sp,
+                        if (state.nanoStatus == NanoStatus.DOWNLOADABLE) {
+                            OutlinedButton(onClick = onWarmupNano) {
+                                Icon(Icons.Default.Download, contentDescription = null)
+                                Text("Enable", modifier = Modifier.padding(start = 4.dp), fontSize = 12.sp)
+                            }
+                        }
+                    }
+                    if (state.nanoStatus == NanoStatus.MODEL_DOWNLOADING) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        LinearProgressIndicator(
+                            progress = { (state.downloadProgress ?: 10).coerceIn(5, 100) / 100f },
+                            modifier = Modifier.fillMaxWidth(),
                         )
                     }
-                    Text(
-                        text = scenario.subtitle,
-                        color = SrePalette.Slate400,
-                        fontSize = 11.sp,
-                    )
                 }
             }
         }
 
-        // Custom Workspace Privacy Policy Term Quick-Add
+        // Step 1: Starter Examples
+        Text(
+            text = "1. Paste or Pick Example",
+            color = MaterialTheme.colorScheme.onBackground,
+            fontWeight = FontWeight.Bold,
+            fontSize = 15.sp,
+        )
+
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            LocalFirewallEngine.DEMO_SCENARIOS.forEach { scenario ->
+                val isSelected = scenario.rawText == state.rawTextInput
+                val (sevBg, sevBorder, sevText) = when (scenario.expectedSeverity) {
+                    Severity.P0 -> Triple(tokens.maskBg, tokens.maskBorder, tokens.maskText)
+                    Severity.P1 -> Triple(tokens.warnBg, tokens.warnBorder, tokens.warnText)
+                    Severity.P2 -> Triple(tokens.infoBg, tokens.infoBorder, tokens.infoText)
+                    Severity.P3 -> Triple(tokens.safeBg, tokens.safeBorder, tokens.safeText)
+                }
+
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onSelectScenario(scenario) },
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isSelected) tokens.accentSoftBg else MaterialTheme.colorScheme.surface,
+                    ),
+                    border = BorderStroke(
+                        1.dp,
+                        if (isSelected) tokens.accentSoftBorder else tokens.borderSubtle,
+                    ),
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = friendlyScenarioTitle(scenario),
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.sp,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Surface(
+                                color = sevBg,
+                                border = BorderStroke(1.dp, sevBorder),
+                                shape = RoundedCornerShape(6.dp),
+                            ) {
+                                Text(
+                                    text = scenario.expectedSeverity.name,
+                                    color = sevText,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                )
+                            }
+                        }
+                        Text(
+                            text = friendlyScenarioSubtitle(scenario),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+                }
+            }
+        }
+
+        // Inputs
+        OutlinedTextField(
+            value = state.titleInput,
+            onValueChange = onTitleChange,
+            label = { Text("Incident Title") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        OutlinedTextField(
+            value = state.rawTextInput,
+            onValueChange = onRawTextChange,
+            label = { Text("Incident Logs or Ticket Text (Stays on Device)") },
+            minLines = 5,
+            maxLines = 8,
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        Button(
+            onClick = onRunTriage,
+            enabled = !state.isRunning && state.rawTextInput.isNotBlank(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp),
+        ) {
+            Icon(Icons.Default.PlayArrow, contentDescription = null)
+            Text(
+                text = if (state.isRunning) {
+                    "Checking Secrets On-Device..."
+                } else if (state.offlineMode) {
+                    "Protect & Fix Offline"
+                } else {
+                    "Protect & Analyze"
+                },
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(start = 6.dp),
+            )
+        }
+
+        // Custom Blocked Rule
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -298,58 +305,88 @@ fun TriageScreen(
             OutlinedTextField(
                 value = customTermDraft,
                 onValueChange = { customTermDraft = it },
-                label = { Text("Add Policy Term (e.g. Project-Titan)", fontSize = 11.sp) },
+                label = { Text("Block company codename or word") },
                 singleLine = true,
                 modifier = Modifier.weight(1f),
             )
             OutlinedButton(
                 onClick = {
-                    onAddCustomTerm(customTermDraft)
-                    customTermDraft = ""
+                    val trimmed = customTermDraft.trim()
+                    if (trimmed.isNotEmpty()) {
+                        onAddCustomTerm(trimmed)
+                        customTermDraft = ""
+                    }
                 },
             ) {
-                Text("Block", fontSize = 12.sp)
+                Text("Add Rule")
             }
         }
 
-        // RAM-only Incident Input
-        OutlinedTextField(
-            value = state.titleInput,
-            onValueChange = onTitleChange,
-            label = { Text("Incident Title", fontSize = 12.sp) },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        OutlinedTextField(
-            value = state.rawTextInput,
-            onValueChange = onRawTextChange,
-            label = { Text("Raw Support / SRE Payload (RAM-only, never persisted raw)", fontSize = 12.sp) },
-            minLines = 5,
-            maxLines = 9,
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        Button(
-            onClick = onRunTriage,
-            enabled = !state.isRunning && state.rawTextInput.isNotBlank(),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = SrePalette.Indigo500),
+        // Collapsible Technical Proof & Policy Controls
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, tokens.borderSubtle),
         ) {
-            Icon(Icons.Default.PlayArrow, contentDescription = null)
-            Spacer(Modifier.padding(4.dp))
-            Text(
-                text = if (state.isRunning) "Running Local Privacy Firewall..." else "Run Hybrid Triage",
-                fontWeight = FontWeight.Bold,
-            )
-        }
+            Column(modifier = Modifier.padding(12.dp)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showSdkControls = !showSdkControls },
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.Shield,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(end = 6.dp),
+                        )
+                        Text(
+                            text = "SDK Telemetry & Remote Policy",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.sp,
+                        )
+                    }
+                    Icon(
+                        imageVector = if (showSdkControls) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
 
-        if (state.cloudSyncMessage != null) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Icon(Icons.Default.Cloud, contentDescription = null, tint = SrePalette.Cyan400)
-                Text(state.cloudSyncMessage, color = SrePalette.Cyan400, fontSize = 11.sp)
+                if (showSdkControls) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Remote Config: ${if (state.runtimeConfig.source == RemoteConfigSource.LOADED) "LOADED" else "DEFAULT"} · App Check: ${state.appCheckLabel}",
+                        color = tokens.textMuted,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                    )
+                    Text(
+                        text = "Runs: ${state.totalRuns} · Local Fixed ($0): ${state.localResolvedCount} · Active Cloud: ${state.runtimeConfig.cloudModel}",
+                        color = tokens.textMuted,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        TextButton(onClick = onRefreshRemoteConfig, enabled = !state.isRefreshingPolicy) {
+                            Icon(Icons.Default.Cloud, contentDescription = null)
+                            Text("Refresh Policy", modifier = Modifier.padding(start = 4.dp), fontSize = 12.sp)
+                        }
+                        TextButton(onClick = onRecheckNano) {
+                            Icon(Icons.Default.Refresh, contentDescription = null)
+                            Text("Recheck Nano 4", modifier = Modifier.padding(start = 4.dp), fontSize = 12.sp)
+                        }
+                    }
+                }
             }
         }
     }

@@ -66,13 +66,21 @@ async function main() {
       throw new Error(`Unexpected H1: ${heading}`);
     }
 
-    // 0. Verify Remote Config provenance pill & Cloud Sync (Zero-PII) controls
-    await page.waitForSelector("text=Cloud Sync (Zero-PII):");
-    await page.waitForSelector("text=Local-Only (IndexedDB)");
-    await page.getByRole("button", { name: /Enable Cloud Sync \(Guest\)/i }).waitFor();
+    // 0. Verify System / Dark / Light theme switcher + Cloud Sync popover
+    await page.getByRole("button", { name: /^Dark/i }).click();
+    if ((await page.evaluate(() => document.documentElement.getAttribute("data-theme"))) !== "dark") {
+      throw new Error("Expected Dark theme to set data-theme=dark");
+    }
+    await page.getByRole("button", { name: /^Light/i }).click();
+    if ((await page.evaluate(() => document.documentElement.getAttribute("data-theme"))) !== "light") {
+      throw new Error("Expected Light theme to set data-theme=light");
+    }
+
+    await page.getByRole("button", { name: /Cloud Sync/i }).click();
+    await page.waitForSelector("#cloud-sync-popover");
+    await page.getByRole("button", { name: /Sync as Guest/i }).waitFor();
     await page.getByRole("button", { name: /Sign In with Google/i }).waitFor();
-    await page.waitForSelector("text=entropy>=3.25");
-    await page.getByRole("button", { name: /Refresh Policy/i }).click();
+    await page.keyboard.press("Escape");
 
     // 1. Verify PWA manifest & icons return 200 OK
     for (const assetPath of ["manifest.json", "icons/icon-192.png", "icons/icon-512.png"]) {
@@ -85,48 +93,51 @@ async function main() {
       }
     }
 
-    // 2. Run Scenario 1 (P0) -> Quarantine + inline diff badges
-    await page.getByRole("button", { name: /Run Hybrid Triage/i }).click();
-    await page.waitForSelector("text=QUARANTINED_PENDING_APPROVAL");
-    await page.getByRole("button", { name: /Approve & Escalate Sanitized Payload to Cloud/i }).waitFor();
-    const bodyText = await page.textContent("body");
-    if (!bodyText?.includes("[REGEX_FIREWALL]") || !bodyText?.includes("[HEURISTIC_GUARD]")) {
-      throw new Error("Expected [REGEX_FIREWALL] and [HEURISTIC_GUARD] badges after Stage 1");
-    }
+    // 2. Run Scenario 1 (Hospital Checkout Alert) -> Review Hidden Secrets + Technical Proof drawer
+    await page.getByRole("button", { name: /Protect & Analyze/i }).click();
+    await page.waitForSelector("text=Review Hidden Secrets");
+    await page.waitForSelector("text=Confidential Deal Info");
+    await page.getByRole("button", { name: /Send Safe Text to AI/i }).waitFor();
 
-    // 3. Run Scenario 2 (P3) -> Local Runbook ($0 Cloud)
-    await page.getByText(/P3: Expired Local Dev TLS Cert/i).click();
-    await page.getByRole("button", { name: /Run Hybrid Triage/i }).click();
+    await page.getByRole("button", { name: /Inspect Technical Proof/i }).click();
+    await page.waitForSelector("text=ZERO-LEAKAGE VERIFIED:");
+    const drawerText = await page.textContent("dialog[open]");
+    if (!drawerText?.includes("[REGEX_FIREWALL]") || !drawerText?.includes("[HEURISTIC_GUARD]")) {
+      throw new Error("Expected [REGEX_FIREWALL] and [HEURISTIC_GUARD] in Technical Proof drawer");
+    }
+    await page.getByRole("button", { name: /Refresh Policy/i }).click();
+    await page.waitForSelector("text=Export Audit JSON");
+    await page.getByRole("button", { name: /Close Technical Proof drawer/i }).click();
+
+    // 3. Run Scenario 2 (Expired Local Certificate) -> Local Runbook ($0 Cloud)
+    await page.getByText(/Expired Local Certificate/i).click();
+    await page.getByRole("button", { name: /Protect & Analyze/i }).click();
     await page.waitForSelector("text=RB_LOCAL_TLS_CERT");
 
-    // 4. Toggle Offline Mode ON & test P0 -> OFFLINE_QUEUED
-    await page.getByRole("button", { name: /Hybrid Cloud Allowed/i }).click();
-    await page.getByText(/P0: Semantic PHI/i).first().click();
-    await page.getByRole("button", { name: /Run Hybrid Triage/i }).click();
-    await page.waitForSelector("text=OFFLINE_QUEUED");
+    // 4. Toggle Offline Mode ON via Cloud Sync popover & test P0 -> Saved for Connection
+    await page.getByRole("button", { name: /Cloud Sync/i }).click();
+    await page.getByRole("switch", { name: /Toggle Offline Mode/i }).click();
+    await page.keyboard.press("Escape");
 
-    // 5. Open Runbooks & Policy modal, add custom policy term, verify redaction
-    await page.getByRole("button", { name: /Runbooks & Policy/i }).click();
-    await page.getByRole("button", { name: /Workspace Privacy Policy/i }).click();
-    await page.getByPlaceholder(/Project-Apollo/i).fill("OmegaCodename");
-    await page.getByRole("button", { name: /Add Term/i }).click();
-    await page.getByRole("button", { name: /Close modal/i }).click();
+    await page.getByText(/Hospital Checkout Alert/i).first().click();
+    await page.getByRole("button", { name: /Protect & Fix Offline/i }).click();
+    await page.waitForSelector("text=Saved for Connection");
+
+    // 5. Switch to Privacy Rules tab, add custom blocked term, verify redaction
+    await page.getByRole("button", { name: /Privacy Rules/i }).click();
+    await page.getByLabel("Custom blocked term").fill("OmegaCodename");
+    await page.getByRole("button", { name: /Add Rule/i }).click();
+    await page.getByRole("button", { name: /^Triage$/i }).click();
 
     await page.locator("#ticket-body").fill("P0 issue referencing OmegaCodename in logs.");
-    await page.getByRole("button", { name: /Run Hybrid Triage/i }).click();
-    await page.getByText(/\[REDACTED:POLICY_TERM_/).first().waitFor();
+    await page.getByRole("button", { name: /Protect & Fix Offline/i }).click();
+    await page.waitForSelector("text=Hidden: Company Rule");
 
-    // 6. Verify Hybrid Stakeholder Brief (offline LOCAL_FALLBACK), Zero-Leakage Proof & Export tabs
-    await page.getByRole("button", { name: /Generate Hybrid Stakeholder Brief/i }).click();
-    await page.waitForSelector("text=Source: LOCAL_FALLBACK");
+    // 6. Verify Leadership & Team Update (offline Generated Locally)
+    await page.getByRole("button", { name: /Draft Leadership Update/i }).click();
+    await page.waitForSelector("text=Generated Locally");
 
-    await page.getByRole("button", { name: /Zero-Leakage Proof/i }).click();
-    await page.waitForSelector("text=ZERO-LEAKAGE VERIFIED: 0 /");
-
-    await page.getByRole("button", { name: /Export & Handoff/i }).click();
-    await page.waitForSelector("text=Download Audit JSON");
-
-    // 7. Test Chrome Extension #handoff import clears URL hash and tags EXT platform badge
+    // 7. Test Chrome Extension #handoff import clears URL hash and populates History
     const handoffPayload = Buffer.from(
       JSON.stringify({
         title: "Extension Capture",
@@ -134,37 +145,46 @@ async function main() {
       }),
     ).toString("base64url");
     await page.goto(`${BASE_URL}#handoff=${handoffPayload}`, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector("text=Imported sanitized payload from Chrome Extension Side Panel");
+    await page.waitForSelector("text=From Browser Extension");
     if (new URL(page.url()).hash) {
       throw new Error(`Expected URL hash to be cleared, got ${page.url()}`);
     }
-    await page.getByRole("button", { name: /Run Hybrid Triage/i }).click();
-    await page.waitForSelector("text=EXT");
+    await page.getByRole("button", { name: /Protect & (Analyze|Fix Offline)/i }).click();
+    await page.getByRole("button", { name: /History/i }).click();
+    await page.waitForSelector("text=Extension Capture");
+    await page.getByRole("button", { name: /^Triage$/i }).click();
 
     // 8. Verify XSS immunity (<script> and javascript: payloads render as inert text)
     await page.locator("#ticket-body").fill(
       'P3 cert_has_expired with <script>window.__xss_fired = true;</script> and [click](javascript:alert(1))',
     );
-    await page.getByRole("button", { name: /Run Hybrid Triage/i }).click();
+    await page.getByRole("button", { name: /Protect & (Analyze|Fix Offline)/i }).click();
     await page.waitForSelector("text=RB_LOCAL_TLS_CERT");
     const xssFired = await page.evaluate(() => Boolean(window.__xss_fired));
     if (xssFired) {
       throw new Error("XSS script payload executed!");
     }
 
-    // 9. Verify zero horizontal layout overflow across 1280x720, 1024x768, and 375x667 viewports
-    for (const vp of [
-      { width: 1280, height: 720 },
-      { width: 1024, height: 768 },
-      { width: 375, height: 667 },
-    ]) {
-      await page.setViewportSize(vp);
-      const overflow = await page.evaluate(
-        () => document.documentElement.scrollWidth > window.innerWidth,
-      );
-      if (overflow) {
-        throw new Error(`Horizontal layout overflow detected at viewport ${vp.width}x${vp.height}`);
+    // 9. Verify zero horizontal layout overflow across 1280x720, 1024x768, and 375x667 in BOTH Light and Dark themes
+    for (const theme of ["Light", "Dark"]) {
+      const themeBtn = page.getByRole("button", { name: new RegExp(`^${theme}`, "i") }).first();
+      await themeBtn.click();
+      for (const vp of [
+        { width: 1280, height: 720 },
+        { width: 1024, height: 768 },
+        { width: 375, height: 667 },
+      ]) {
+        await page.setViewportSize(vp);
+        const overflow = await page.evaluate(
+          () => document.documentElement.scrollWidth > window.innerWidth,
+        );
+        if (overflow) {
+          throw new Error(
+            `Horizontal layout overflow detected at ${theme} theme viewport ${vp.width}x${vp.height}`,
+          );
+        }
       }
+      await page.setViewportSize({ width: 1280, height: 720 });
     }
 
     if (pageErrors.length > 0) {
@@ -174,7 +194,7 @@ async function main() {
       throw new Error(`@firebase/ai hybrid config warnings: ${consoleWarnings.join("; ")}`);
     }
 
-    console.log("PLAYWRIGHT E2E VERIFICATION PASSED (all 9 flows, 0 page errors, 0 SDK warnings).");
+    console.log("PLAYWRIGHT E2E VERIFICATION PASSED (all 9 flows, Light+Dark, 0 page errors, 0 SDK warnings).");
   } finally {
     await browser.close();
     server.kill("SIGTERM");

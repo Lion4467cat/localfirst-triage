@@ -1,1 +1,165 @@
 @import "tailwindcss";
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+:root {
+  color-scheme: light dark;
+
+  --bg-canvas: #f8fafc;
+  --bg-surface: #ffffff;
+  --bg-subtle: #f1f5f9;
+  --bg-elevated: #ffffff;
+  --bg-hover: #e2e8f0;
+
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #526071;
+
+  --border-subtle: #cbd5e1;
+  --border-strong: #94a3b8;
+
+  --accent-primary: #4f46e5;
+  --accent-primary-hover: #4338ca;
+  --accent-on-primary: #ffffff;
+  --accent-text: #3730a3;
+  --accent-soft-bg: #eef2ff;
+  --accent-soft-border: #a5b4fc;
+
+  --safe-bg: #ecfdf5;
+  --safe-border: #34d399;
+  --safe-text: #065f46;
+  --safe-solid: #059669;
+
+  --mask-bg: #fff1f2;
+  --mask-border: #fda4af;
+  --mask-text: #9f1239;
+
+  --warn-bg: #fffbeb;
+  --warn-border: #fcd34d;
+  --warn-text: #92400e;
+
+  --info-bg: #f0f9ff;
+  --info-border: #7dd3fc;
+  --info-text: #075985;
+
+  --code-bg: #f1f5f9;
+  --code-border: #cbd5e1;
+  --code-text: #0f172a;
+
+  --focus-ring: #4f46e5;
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.05), 0 4px 12px rgba(15, 23, 42, 0.04);
+  --shadow-popover: 0 12px 32px rgba(15, 23, 42, 0.14);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg-canvas: #090d16;
+  --bg-surface: #111827;
+  --bg-subtle: #182235;
+  --bg-elevated: #1e293b;
+  --bg-hover: #273449;
+
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+
+  --border-subtle: #243247;
+  --border-strong: #475569;
+
+  --accent-primary: #4f46e5;
+  --accent-primary-hover: #6366f1;
+  --accent-on-primary: #ffffff;
+  --accent-text: #a5b4fc;
+  --accent-soft-bg: rgba(79, 70, 229, 0.2);
+  --accent-soft-border: rgba(129, 140, 248, 0.45);
+
+  --safe-bg: rgba(16, 185, 129, 0.14);
+  --safe-border: rgba(52, 211, 153, 0.45);
+  --safe-text: #6ee7b7;
+  --safe-solid: #059669;
+
+  --mask-bg: rgba(244, 63, 94, 0.16);
+  --mask-border: rgba(251, 113, 133, 0.45);
+  --mask-text: #fecdd3;
+
+  --warn-bg: rgba(245, 158, 11, 0.16);
+  --warn-border: rgba(251, 191, 36, 0.45);
+  --warn-text: #fde68a;
+
+  --info-bg: rgba(14, 165, 233, 0.16);
+  --info-border: rgba(56, 189, 248, 0.45);
+  --info-text: #bae6fd;
+
+  --code-bg: #0b1120;
+  --code-border: #243247;
+  --code-text: #e2e8f0;
+
+  --focus-ring: #818cf8;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35), 0 8px 24px rgba(0, 0, 0, 0.25);
+  --shadow-popover: 0 16px 40px rgba(0, 0, 0, 0.55);
+}
+
+@layer base {
+  html,
+  body {
+    min-height: 100%;
+    background-color: var(--bg-canvas);
+    color: var(--text-primary);
+    overflow-x: hidden;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  summary,
+  a[href] {
+    cursor: pointer;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+
+  dialog {
+    color: var(--text-primary);
+    background-color: var(--bg-surface);
+  }
+
+  dialog:modal {
+    overscroll-behavior: contain;
+  }
+
+  dialog::backdrop {
+    background: rgba(15, 23, 42, 0.62);
+    backdrop-filter: blur(4px);
+    overflow: hidden;
+    overscroll-behavior: contain;
+  }
+}
+
+.lf-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-card);
+}
+
+.lf-subtle-box {
+  background-color: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+}
+
+.lf-input {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  color: var(--text-primary);
+}
+
+.lf-input::placeholder {
+  color: var(--text-muted);
+}
+
+.lf-input:focus {
+  outline: none;
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-ring) 25%, transparent);
+}

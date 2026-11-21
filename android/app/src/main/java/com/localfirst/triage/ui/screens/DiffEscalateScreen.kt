@@ -1,6 +1,7 @@
 package com.localfirst.triage.ui.screens
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -15,7 +16,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.Button
@@ -24,12 +28,16 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -41,24 +49,39 @@ import com.localfirst.triage.firewall.LocalFirewallEngine
 import com.localfirst.triage.model.DetectorSource
 import com.localfirst.triage.model.RedactionSpan
 import com.localfirst.triage.ui.MainUiState
-import com.localfirst.triage.ui.theme.SrePalette
+import com.localfirst.triage.ui.theme.LocalFirstThemeTokens
 
-private fun colorForDetector(detector: DetectorSource): Color = when (detector) {
-    DetectorSource.NANO_SEMANTIC_FIREWALL -> SrePalette.Cyan400
-    DetectorSource.REGEX_FIREWALL -> SrePalette.Amber400
-    DetectorSource.ENTROPY_SCANNER -> SrePalette.Fuchsia400
-    DetectorSource.HEURISTIC_GUARD -> Color(0xFFFB923C)
-    DetectorSource.POLICY_TERM -> SrePalette.Violet400
-    DetectorSource.MANUAL_MASK -> SrePalette.Rose400
+private fun friendlyCategoryName(category: String): String = when (category) {
+    "AWS_ACCESS_KEY" -> "AWS Key"
+    "STRIPE_KEY" -> "Stripe Key"
+    "FIREBASE_KEY" -> "Firebase Key"
+    "WEBHOOK_SECRET" -> "Webhook Secret"
+    "PEM_PRIVATE_KEY" -> "Private Key"
+    "JWT_TOKEN", "BEARER_OR_JWT" -> "Auth Token"
+    "DATABASE_URI", "DB_CONNECTION_URI" -> "Database Link"
+    "CREDIT_CARD" -> "Card Number"
+    "SSN", "US_SSN" -> "SSN"
+    "EMAIL" -> "Email"
+    "PHONE" -> "Phone Number"
+    "MEDICAL_PHI", "CONTEXTUAL_PHI" -> "Medical Info"
+    "PASSWORD_HINT", "NATURAL_SECRET" -> "Password Hint"
+    "INTERNAL_CODENAME" -> "Project Codename"
+    "M_AND_A_SECRET" -> "Confidential Deal Info"
+    "PERSONAL_PII_LOCATION" -> "Personal Location"
+    "HIGH_ENTROPY_SECRET" -> "Secret Key"
+    "POLICY_TERM" -> "Company Rule"
+    "MANUAL_MASK", "MANUAL_SECRET" -> "Hidden by You"
+    else -> category.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() }
 }
 
 @Composable
-private fun buildHighlightedSanitized(
+private fun buildHighlightedSafePreview(
     rawText: String,
     sanitizedText: String,
     spans: List<RedactionSpan>,
     loadedFromZeroPiiStore: Boolean,
 ) = buildAnnotatedString {
+    val tokens = LocalFirstThemeTokens.colors
     if (loadedFromZeroPiiStore || spans.isEmpty() || rawText == LocalFirewallEngine.PURGED_PLACEHOLDER) {
         append(sanitizedText)
         return@buildAnnotatedString
@@ -73,16 +96,14 @@ private fun buildHighlightedSanitized(
         if (span.start > cursor) {
             append(rawText.substring(cursor, span.start))
         }
-        val color = colorForDetector(span.detector)
-        val token = if (span.masked) span.placeholder else rawText.substring(span.start, span.end)
+        val content = if (span.masked) span.placeholder else rawText.substring(span.start, span.end)
         withStyle(
             SpanStyle(
-                color = if (span.masked) color else SrePalette.Slate400,
-                background = color.copy(alpha = 0.16f),
-                fontWeight = FontWeight.SemiBold,
+                color = if (span.masked) tokens.safeText else tokens.warnText,
+                fontWeight = FontWeight.Bold,
             ),
         ) {
-            append(token)
+            append(content)
         }
         cursor = span.end
     }
@@ -100,7 +121,9 @@ fun DiffEscalateScreen(
     onSyncToFirestore: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val tokens = LocalFirstThemeTokens.colors
     val result = state.currentResult
+    var showProofDetails by remember { mutableStateOf(false) }
 
     if (result == null) {
         Column(
@@ -110,23 +133,32 @@ fun DiffEscalateScreen(
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Icon(Icons.Default.Shield, contentDescription = null, tint = SrePalette.Indigo300)
-            Spacer(Modifier.height(8.dp))
+            Icon(
+                Icons.Default.Shield,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(modifier = Modifier.height(10.dp))
             Text(
-                text = "Run Hybrid Triage on Screen 1 first to inspect the Redaction Diff, Zero-Leakage Proof, and Cloud Escalation.",
-                color = SrePalette.Slate300,
+                text = "Run Protect & Analyze in Triage",
+                color = MaterialTheme.colorScheme.onBackground,
+                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp,
+            )
+            Text(
+                text = "Masked secrets, Zero-Leakage proof, and safe AI fixes appear here.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 13.sp,
+                modifier = Modifier.padding(top = 4.dp),
             )
         }
         return
     }
 
-    val audit = LocalFirewallEngine.verifyZeroLeakage(result.sanitizedText, result.spans)
-    val outboundPreview = LocalFirewallEngine.buildOutboundCloudPrompt(
-        result.severity,
-        result.category,
-        result.sanitizedText,
-    )
+    val unmaskedCount = result.spans.count { !it.masked }
+    val audit = result.zeroLeakageAudit
+    val leakedCount = audit?.leakedSpansCount ?: unmaskedCount
+    val checkedCount = audit?.checkedSpansCount ?: result.spans.size
 
     Column(
         modifier = modifier
@@ -135,187 +167,220 @@ fun DiffEscalateScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        // Stage Summary Card
+        // Scannable Trust Summary Bar
         Card(
-            colors = CardDefaults.cardColors(containerColor = SrePalette.Slate900),
-            border = BorderStroke(1.dp, SrePalette.Slate800),
-            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = if (unmaskedCount > 0) tokens.warnBg else tokens.safeBg,
+            ),
+            border = BorderStroke(
+                1.dp,
+                if (unmaskedCount > 0) tokens.warnBorder else tokens.safeBorder,
+            ),
         ) {
-            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    text = "${result.severity.name} · ${result.title}",
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.VerifiedUser,
+                    contentDescription = null,
+                    tint = if (unmaskedCount > 0) tokens.warnText else tokens.safeText,
                 )
                 Text(
-                    text = "Stage 1: ${result.stage1Source} (${result.stage1LatencyMs}ms)",
-                    color = SrePalette.Cyan400,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 11.sp,
-                )
-                Text(
-                    text = "Stage 2: ${result.stage2Source.name} · Mode: ${result.resolutionMode.name}",
-                    color = SrePalette.Indigo300,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 11.sp,
+                    text = if (unmaskedCount > 0) {
+                        "Action needed: $unmaskedCount secret(s) exposed · Cloud AI paused"
+                    } else {
+                        "Protected On-Device (${result.stage1Source}) · $leakedCount / $checkedCount secrets leaked · ${result.latencyMs}ms"
+                    },
+                    color = if (unmaskedCount > 0) tokens.warnText else tokens.safeText,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 12.sp,
                 )
             }
         }
 
-        // Interactive Sanitized Payload Diff + Mask Toggle Chips
-        Card(
-            colors = CardDefaults.cardColors(containerColor = SrePalette.Slate900),
-            border = BorderStroke(1.dp, SrePalette.Emerald400.copy(alpha = 0.4f)),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Icon(Icons.Default.Lock, contentDescription = null, tint = SrePalette.Emerald400)
-                    Text(
-                        text = "Sanitized Outbound Payload (${result.spans.count { it.masked }} active masks)",
-                        color = SrePalette.Emerald400,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp,
+        // Step 2: Review Hidden Secrets
+        Text(
+            text = "2. Review Hidden Secrets (Tap to Toggle)",
+            color = MaterialTheme.colorScheme.onBackground,
+            fontWeight = FontWeight.Bold,
+            fontSize = 14.sp,
+        )
+
+        if (result.spans.isNotEmpty()) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                result.spans.forEachIndexed { idx, span ->
+                    FilterChip(
+                        selected = span.masked,
+                        onClick = { onToggleSpan(idx) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = if (span.masked) Icons.Default.Lock else Icons.Default.LockOpen,
+                                contentDescription = null,
+                            )
+                        },
+                        label = {
+                            val verb = if (span.masked) "Hidden" else "Exposed"
+                            Text(
+                                text = "$verb: ${friendlyCategoryName(span.category)}",
+                                fontSize = 12.sp,
+                            )
+                        },
                     )
                 }
+            }
+        }
+
+        // Safe Preview Card
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, tokens.borderSubtle),
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
                 Text(
-                    text = buildHighlightedSanitized(
+                    text = "Safe Version Sent to AI",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 12.sp,
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = buildHighlightedSafePreview(
                         rawText = result.rawText,
                         sanitizedText = result.sanitizedText,
                         spans = result.spans,
                         loadedFromZeroPiiStore = result.loadedFromZeroPiiStore,
                     ),
-                    color = SrePalette.Slate300,
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontFamily = FontFamily.Monospace,
                     fontSize = 12.sp,
-                )
-
-                if (!result.loadedFromZeroPiiStore && result.spans.isNotEmpty()) {
-                    Text(
-                        text = "Tap mask chips to toggle redaction:",
-                        color = SrePalette.Slate400,
-                        fontSize = 11.sp,
-                    )
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        result.spans.forEachIndexed { idx, span ->
-                            FilterChip(
-                                selected = span.masked,
-                                onClick = { onToggleSpan(idx) },
-                                label = {
-                                    Text(
-                                        text = "${span.category} (${span.detector.name.take(6)})",
-                                        fontSize = 10.sp,
-                                        color = colorForDetector(span.detector),
-                                    )
-                                },
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // Zero-Leakage Proof Card
-        Card(
-            colors = CardDefaults.cardColors(
-                containerColor = if (audit.verified) SrePalette.Emerald950 else SrePalette.Rose950,
-            ),
-            border = BorderStroke(
-                1.dp,
-                if (audit.verified) SrePalette.Emerald400 else SrePalette.Rose400,
-            ),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Icon(
-                        imageVector = Icons.Default.VerifiedUser,
-                        contentDescription = null,
-                        tint = if (audit.verified) SrePalette.Emerald400 else SrePalette.Rose400,
-                    )
-                    Text(
-                        text = if (audit.verified) {
-                            "ZERO-LEAKAGE VERIFIED: 0 / ${audit.checkedSpansCount} raw secrets leaked"
-                        } else {
-                            "LEAK GUARD TRIGGERED: ${audit.leakedSpansCount} unredacted spans blocked!"
-                        },
-                        color = if (audit.verified) SrePalette.Emerald400 else SrePalette.Rose400,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 12.sp,
-                    )
-                }
-                Text(
-                    text = outboundPreview.take(420),
-                    color = SrePalette.Slate300,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 10.sp,
+                    lineHeight = 17.sp,
                 )
             }
         }
 
-        // Action Buttons: Cloud Escalate & Sync Sanitized to Firestore
+        // Action Buttons
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Button(
                 onClick = onApproveEscalate,
-                enabled = !state.isRunning && !state.offlineMode && audit.verified,
-                colors = ButtonDefaults.buttonColors(containerColor = SrePalette.Indigo500),
-                modifier = Modifier.weight(1f),
+                enabled = !state.isRunning && !state.offlineMode && unmaskedCount == 0,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(46.dp),
             ) {
                 Text(
-                    text = if (state.isRunning) "Streaming Cloud RCA..." else "Approve & Escalate",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
+                    text = "Send Safe Text to AI",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
                 )
             }
 
             OutlinedButton(
                 onClick = onSyncToFirestore,
-                enabled = audit.verified && !state.offlineMode,
-                border = BorderStroke(1.dp, SrePalette.Emerald400),
-                modifier = Modifier.weight(1f),
+                enabled = state.authUser != null && !state.offlineMode,
+                modifier = Modifier.height(46.dp),
             ) {
-                Icon(Icons.Default.CloudUpload, contentDescription = null, tint = SrePalette.Emerald400)
-                Spacer(Modifier.padding(2.dp))
+                Icon(Icons.Default.CloudUpload, contentDescription = null)
+                Text("Sync", modifier = Modifier.padding(start = 6.dp), fontSize = 13.sp)
+            }
+        }
+
+        // Step 3: Safe AI Solution
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, tokens.borderSubtle),
+        ) {
+            Column(modifier = Modifier.padding(14.dp)) {
                 Text(
-                    text = "Sync Zero-PII",
-                    color = SrePalette.Emerald400,
-                    fontSize = 12.sp,
+                    text = "3. Safe AI Solution (${result.severity})",
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = result.resolution,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp,
                 )
             }
         }
 
-        if (state.cloudSyncMessage != null) {
-            Text(state.cloudSyncMessage, color = SrePalette.Cyan400, fontSize = 11.sp)
-        }
-
-        // Streaming / Local Resolution Output
+        // Collapsible Technical Proof & SDK Details for Judges
         Card(
-            colors = CardDefaults.cardColors(containerColor = SrePalette.Slate900),
-            border = BorderStroke(1.dp, SrePalette.Slate800),
-            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = tokens.subtleSurface),
+            border = BorderStroke(1.dp, tokens.borderSubtle),
         ) {
-            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(
-                    text = "TRIAGE RESOLUTION (${result.inferenceSource.name})",
-                    color = SrePalette.Indigo300,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
-                )
-                Text(
-                    text = result.resolution,
-                    color = Color(0xFFE2E8F0),
-                    fontSize = 13.sp,
-                )
+            Column(modifier = Modifier.padding(12.dp)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showProofDetails = !showProofDetails },
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Technical Proof & SDK Details",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                    )
+                    Icon(
+                        imageVector = if (showProofDetails) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                if (showProofDetails) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Stage 1 (ONLY_ON_DEVICE): ${result.stage1Source} · ${result.stage1LatencyMs}ms",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                    )
+                    Text(
+                        text = "Stage 2 (PREFER_IN_CLOUD): ${result.stage2Source} · ${result.stage2LatencyMs}ms · Model: ${result.activeCloudModel ?: "Local"}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                    val countsSummary = DetectorSource.entries.joinToString(" | ") { src ->
+                        "${src.name}: ${result.spans.count { it.detector == src }}"
+                    }
+                    Text(
+                        text = countsSummary,
+                        color = tokens.textMuted,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 10.sp,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                    if (audit != null) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Outbound Zero-Leakage Preview:\n${audit.outboundPromptPreview}",
+                            color = tokens.safeText,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp,
+                        )
+                    }
+                }
             }
         }
     }

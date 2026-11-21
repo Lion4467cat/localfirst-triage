@@ -1,24 +1,20 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import {
   AlertTriangle,
+  ArrowRight,
   Check,
+  Cloud,
   Copy,
-  Download,
   FileText,
+  Loader2,
   Pause,
-  Play,
   RefreshCw,
   ShieldAlert,
   ShieldCheck,
   Sparkles,
-  Terminal,
+  WifiOff,
 } from "lucide-react";
-import {
-  exportAuditReportJson,
-  exportAuditReportMarkdown,
-} from "../storage/ticketStore";
-import { buildOutboundCloudPrompt } from "../firewall/pipeline";
-import { verifyZeroLeakage } from "../firewall/spanMerger";
+import { getSeverityStyle } from "../config/displayLabels";
 import type { TriageResult } from "../types/triage";
 
 interface ResolutionPanelProps {
@@ -32,16 +28,22 @@ interface ResolutionPanelProps {
   onPauseCountdown: () => void;
   onApproveOrRerunCloud: () => void;
   onGenerateHybridBrief: () => void;
+  onOpenTechnicalProof: () => void;
 }
 
-function renderInlineMarkdown(text: string): React.ReactNode[] {
-  const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*)/g);
+function renderInlineCodeAndBold(line: string): ReactNode[] {
+  const parts = line.split(/(`[^`]+`|\*\*[^*]+\*\*)/g);
   return parts.map((part, i) => {
     if (part.startsWith("`") && part.endsWith("`") && part.length >= 2) {
       return (
         <code
           key={i}
-          className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-[12px] text-cyan-200"
+          className="rounded border px-1.5 py-0.5 font-mono text-[11px]"
+          style={{
+            backgroundColor: "var(--code-bg)",
+            borderColor: "var(--code-border)",
+            color: "var(--code-text)",
+          }}
         >
           {part.slice(1, -1)}
         </code>
@@ -49,7 +51,7 @@ function renderInlineMarkdown(text: string): React.ReactNode[] {
     }
     if (part.startsWith("**") && part.endsWith("**") && part.length >= 4) {
       return (
-        <strong key={i} className="font-semibold text-white">
+        <strong key={i} className="font-semibold" style={{ color: "var(--text-primary)" }}>
           {part.slice(2, -2)}
         </strong>
       );
@@ -60,57 +62,108 @@ function renderInlineMarkdown(text: string): React.ReactNode[] {
 
 function SafeMarkdownView({ content }: { content: string }) {
   const lines = content.split("\n");
-  return (
-    <div className="space-y-1.5 text-sm leading-relaxed text-slate-200">
-      {lines.map((rawLine, idx) => {
-        const line = rawLine.trim();
-        if (!line) return <div key={idx} className="h-1" />;
-        if (line.startsWith("### ")) {
-          return (
-            <h3 key={idx} className="pt-1 text-sm font-bold text-indigo-300">
-              {renderInlineMarkdown(line.slice(4))}
-            </h3>
-          );
-        }
-        if (line.startsWith("## ") || line.startsWith("# ")) {
-          const clean = line.replace(/^#{1,3}\s+/, "");
-          return (
-            <h3 key={idx} className="pt-1 text-sm font-bold text-emerald-300">
-              {renderInlineMarkdown(clean)}
-            </h3>
-          );
-        }
-        if (/^[-*]\s+/.test(line)) {
-          return (
-            <div key={idx} className="flex gap-2 pl-2">
-              <span className="text-indigo-400">•</span>
-              <span>{renderInlineMarkdown(line.replace(/^[-*]\s+/, ""))}</span>
-            </div>
-          );
-        }
-        if (/^\d+\.\s+/.test(line)) {
-          const match = line.match(/^(\d+\.)\s+(.*)$/);
-          return (
-            <div key={idx} className="flex gap-2 pl-2">
-              <span className="font-mono text-xs text-cyan-300">{match?.[1]}</span>
-              <span>{renderInlineMarkdown(match?.[2] ?? line)}</span>
-            </div>
-          );
-        }
-        return <p key={idx}>{renderInlineMarkdown(line)}</p>;
-      })}
-    </div>
-  );
-}
+  const blocks: ReactNode[] = [];
+  let codeFence: string[] = [];
+  let inCode = false;
 
-function triggerDownloadFile(filename: string, content: string, mimeType: string) {
-  const blob = new Blob([content], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+  const flushCode = (key: number) => {
+    if (codeFence.length === 0) return;
+    blocks.push(
+      <pre
+        key={`code-${key}`}
+        className="my-2 overflow-x-auto rounded-xl border p-3 font-mono text-xs leading-relaxed"
+        style={{
+          backgroundColor: "var(--code-bg)",
+          borderColor: "var(--code-border)",
+          color: "var(--code-text)",
+        }}
+      >
+        {codeFence.join("\n")}
+      </pre>
+    );
+    codeFence = [];
+  };
+
+  lines.forEach((line, idx) => {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("```")) {
+      if (inCode) {
+        flushCode(idx);
+        inCode = false;
+      } else {
+        inCode = true;
+      }
+      return;
+    }
+
+    if (inCode) {
+      codeFence.push(line);
+      return;
+    }
+
+    if (!trimmed) {
+      blocks.push(<div key={`sp-${idx}`} className="h-2" />);
+      return;
+    }
+
+    if (trimmed.startsWith("### ") || trimmed.startsWith("## ")) {
+      const heading = trimmed.replace(/^#{2,3}\s+/, "");
+      blocks.push(
+        <h4
+          key={`h-${idx}`}
+          className="mt-2 text-sm font-semibold"
+          style={{ color: "var(--text-primary)" }}
+        >
+          {renderInlineCodeAndBold(heading)}
+        </h4>
+      );
+      return;
+    }
+
+    if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+      blocks.push(
+        <div
+          key={`li-${idx}`}
+          className="flex gap-2 pl-1 text-sm leading-relaxed"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          <span style={{ color: "var(--accent-text)" }}>•</span>
+          <span>{renderInlineCodeAndBold(trimmed.slice(2))}</span>
+        </div>
+      );
+      return;
+    }
+
+    const numMatch = trimmed.match(/^(\d+\.)\s+(.*)$/);
+    if (numMatch) {
+      blocks.push(
+        <div
+          key={`num-${idx}`}
+          className="flex gap-2 pl-1 text-sm leading-relaxed"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          <span className="font-semibold" style={{ color: "var(--accent-text)" }}>
+            {numMatch[1]}
+          </span>
+          <span>{renderInlineCodeAndBold(numMatch[2])}</span>
+        </div>
+      );
+      return;
+    }
+
+    blocks.push(
+      <p
+        key={`p-${idx}`}
+        className="text-sm leading-relaxed"
+        style={{ color: "var(--text-secondary)" }}
+      >
+        {renderInlineCodeAndBold(line)}
+      </p>
+    );
+  });
+
+  if (inCode) flushCode(lines.length);
+  return <div className="space-y-1">{blocks}</div>;
 }
 
 export function ResolutionPanel({
@@ -124,317 +177,514 @@ export function ResolutionPanel({
   onPauseCountdown,
   onApproveOrRerunCloud,
   onGenerateHybridBrief,
+  onOpenTechnicalProof,
 }: ResolutionPanelProps) {
-  const [activeTab, setActiveTab] = useState<"resolution" | "proof" | "export">("resolution");
-  const [copiedSlack, setCopiedSlack] = useState(false);
+  const [copiedSolution, setCopiedSolution] = useState(false);
+  const [copiedBrief, setCopiedBrief] = useState(false);
 
-  const handleCopySlackBrief = async () => {
-    if (!currentResult) return;
-    const text = currentResult.hybridBrief?.stakeholderDraft ?? exportAuditReportMarkdown(currentResult);
+  const unmaskedCount =
+    currentResult?.spans.filter((s) => s.masked === false).length ?? 0;
+
+  const audit = currentResult?.zeroLeakageAudit ?? null;
+  const totalSpans = currentResult?.spans.length ?? 0;
+  const leakedCount = audit?.leakedSpansCount ?? unmaskedCount;
+  const checkedCount = audit?.checkedSpansCount ?? totalSpans;
+
+  const handleCopy = async (text: string, which: "solution" | "brief") => {
     try {
-      await navigator.clipboard?.writeText(text);
-      setCopiedSlack(true);
-      setTimeout(() => setCopiedSlack(false), 1800);
+      await navigator.clipboard.writeText(text);
+      if (which === "solution") {
+        setCopiedSolution(true);
+        setTimeout(() => setCopiedSolution(false), 1800);
+      } else {
+        setCopiedBrief(true);
+        setTimeout(() => setCopiedBrief(false), 1800);
+      }
     } catch {
-      // Ignore headless clipboard restrictions
+      // Ignore clipboard denials
     }
   };
 
+  let trustBg = "var(--info-bg)";
+  let trustBorder = "var(--info-border)";
+  let trustText = "var(--info-text)";
+  let trustMessage =
+    "On-device protection ready · Run Step 1 to generate a redacted diff and AI fix.";
+
+  if (currentResult) {
+    if (unmaskedCount > 0) {
+      trustBg = "var(--warn-bg)";
+      trustBorder = "var(--warn-border)";
+      trustText = "var(--warn-text)";
+      trustMessage = `Action needed: ${unmaskedCount} secret(s) unmasked · Cloud AI paused until hidden`;
+    } else if (offlineMode || currentResult.resolutionMode === "OFFLINE_QUEUED") {
+      trustBg = "var(--safe-bg)";
+      trustBorder = "var(--safe-border)";
+      trustText = "var(--safe-text)";
+      trustMessage = `Offline Mode · ${leakedCount} / ${checkedCount} secrets leaked · ${currentResult.stage1LatencyMs}ms on-device`;
+    } else if (currentResult.resolutionMode === "LOCAL_RUNBOOK") {
+      trustBg = "var(--safe-bg)";
+      trustBorder = "var(--safe-border)";
+      trustText = "var(--safe-text)";
+      trustMessage = `Protected On-Device (${currentResult.stage1Source}) · 0 / ${checkedCount} secrets leaked · Instant Local Fix`;
+    } else {
+      trustBg = "var(--safe-bg)";
+      trustBorder = "var(--safe-border)";
+      trustText = "var(--safe-text)";
+      trustMessage = `Protected On-Device (${currentResult.stage1Source}) · ${leakedCount} / ${checkedCount} secrets leaked · ${currentResult.latencyMs}ms`;
+    }
+  }
+
+  const severityStyle = currentResult ? getSeverityStyle(currentResult.severity) : null;
+
+  const getModeBadge = () => {
+    if (!currentResult) return null;
+    if (currentResult.resolutionMode === "LOCAL_RUNBOOK") {
+      return {
+        label: "Instant On-Device Fix ($0)",
+        bg: "var(--safe-bg)",
+        border: "var(--safe-border)",
+        text: "var(--safe-text)",
+        Icon: ShieldCheck,
+      };
+    }
+    if (currentResult.resolutionMode === "CLOUD_ESCALATION") {
+      return {
+        label: "Safe Cloud AI Solution",
+        bg: "var(--accent-soft-bg)",
+        border: "var(--accent-soft-border)",
+        text: "var(--accent-text)",
+        Icon: Cloud,
+      };
+    }
+    if (currentResult.resolutionMode === "OFFLINE_QUEUED") {
+      return {
+        label: "Saved for Connection",
+        bg: "var(--warn-bg)",
+        border: "var(--warn-border)",
+        text: "var(--warn-text)",
+        Icon: WifiOff,
+      };
+    }
+    if (currentResult.resolutionMode === "QUARANTINED_PENDING_APPROVAL") {
+      return {
+        label: "Paused for Review",
+        bg: "var(--warn-bg)",
+        border: "var(--warn-border)",
+        text: "var(--warn-text)",
+        Icon: ShieldAlert,
+      };
+    }
+    return {
+      label: "On-Device Guidance",
+      bg: "var(--info-bg)",
+      border: "var(--info-border)",
+      text: "var(--info-text)",
+      Icon: Sparkles,
+    };
+  };
+
+  const modeBadge = getModeBadge();
+
   return (
-    <section className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <Terminal className="h-5 w-5 text-indigo-400" />
-          <h2 className="text-sm font-semibold tracking-wide text-slate-100 uppercase">
-            Triage Resolution &amp; Routing
-          </h2>
+    <div className="flex flex-col gap-4">
+      <div
+        className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3"
+        style={{
+          backgroundColor: trustBg,
+          borderColor: trustBorder,
+        }}
+      >
+        <div className="flex min-w-0 items-center gap-2.5">
+          {unmaskedCount > 0 ? (
+            <AlertTriangle className="h-4 w-4 shrink-0" style={{ color: trustText }} aria-hidden="true" />
+          ) : (
+            <ShieldCheck className="h-4 w-4 shrink-0" style={{ color: trustText }} aria-hidden="true" />
+          )}
+          <p className="text-xs font-semibold sm:text-sm" style={{ color: trustText }}>
+            {trustMessage}
+          </p>
         </div>
 
-        {currentResult && (
-          <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
-            <span className="rounded bg-indigo-500/20 px-2 py-0.5 text-indigo-200">
-              {currentResult.severity} · {currentResult.category}
-            </span>
-            <span className="rounded bg-slate-800 px-2 py-0.5 text-emerald-300">
-              {currentResult.resolutionMode}
-            </span>
-          </div>
-        )}
+        <button
+          type="button"
+          onClick={onOpenTechnicalProof}
+          className="inline-flex min-h-[38px] shrink-0 items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors"
+          style={{
+            backgroundColor: "var(--bg-surface)",
+            borderColor: trustBorder,
+            color: "var(--text-primary)",
+          }}
+        >
+          Inspect Technical Proof
+          <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
       </div>
 
-      {currentResult && (
-        <div className="mb-3 flex flex-wrap gap-1.5 border-b border-slate-800 pb-2">
-          {(
-            [
-              ["resolution", "Resolution & Hybrid Brief"],
-              ["proof", "Zero-Leakage Proof"],
-              ["export", "Export & Handoff"],
-            ] as const
-          ).map(([tabKey, label]) => (
-            <button
-              key={tabKey}
-              type="button"
-              onClick={() => setActiveTab(tabKey)}
-              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                activeTab === tabKey
-                  ? "bg-indigo-600 text-white"
-                  : "bg-slate-950/70 text-slate-400 hover:text-slate-200"
-              }`}
+      <section className="lf-card rounded-2xl p-4 sm:p-5">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2
+              className="text-base font-semibold tracking-tight"
+              style={{ color: "var(--text-primary)" }}
             >
-              {label}
-            </button>
-          ))}
-        </div>
-      )}
+              3. Get Safe AI Solution
+            </h2>
+            <p className="mt-0.5 text-xs" style={{ color: "var(--text-secondary)" }}>
+              Remediation steps generated from the masked incident text only.
+            </p>
+          </div>
 
-      {(!currentResult || activeTab === "resolution") && (
-        <>
-          {currentResult?.resolutionMode === "PRE_CLOUD_COUNTDOWN" && (
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-cyan-500/50 bg-cyan-950/40 p-3">
-              <div className="text-xs text-cyan-200">
-                {countdownPaused
-                  ? "Pre-Cloud Review Gate PAUSED — edit highlighted spans above, then escalate."
-                  : `Auto-escalating sanitized payload to Cloud Gemini in ${((countdownMs ?? 0) / 1000).toFixed(1)}s...`}
-              </div>
-              <div className="flex items-center gap-2">
-                {!countdownPaused && (
+          <div className="flex flex-wrap items-center gap-2">
+            {currentResult && severityStyle && (
+              <span
+                className="rounded-lg border px-2.5 py-1 text-xs font-bold"
+                style={{
+                  backgroundColor: severityStyle.bg,
+                  borderColor: severityStyle.border,
+                  color: severityStyle.text,
+                }}
+              >
+                {currentResult.severity} · {severityStyle.label}
+              </span>
+            )}
+            {modeBadge && (
+              <span
+                className="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold"
+                style={{
+                  backgroundColor: modeBadge.bg,
+                  borderColor: modeBadge.border,
+                  color: modeBadge.text,
+                }}
+              >
+                <modeBadge.Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                {modeBadge.label}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {!currentResult ? (
+          <div
+            className="rounded-xl border p-5 text-sm"
+            style={{
+              backgroundColor: "var(--bg-subtle)",
+              borderColor: "var(--border-subtle)",
+              color: "var(--text-secondary)",
+            }}
+          >
+            Select a starter example or paste logs in Step 1, then click{" "}
+            <strong style={{ color: "var(--text-primary)" }}>Protect &amp; Analyze</strong> to see
+            hidden secrets and safe remediation steps here.
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {currentResult.resolutionMode === "PRE_CLOUD_COUNTDOWN" && (
+              <div
+                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3.5"
+                style={{
+                  backgroundColor: "var(--accent-soft-bg)",
+                  borderColor: "var(--accent-soft-border)",
+                }}
+              >
+                <div>
+                  <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                    {countdownPaused
+                      ? "Ready when you are — inspect hidden tags above before sending."
+                      : `Sending safe masked summary to Cloud AI in ${Math.max(1, Math.ceil((countdownMs ?? 0) / 1000))}s`}
+                  </p>
+                  <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                    Only [REDACTED] placeholders leave your device.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {!countdownPaused && (
+                    <button
+                      type="button"
+                      onClick={onPauseCountdown}
+                      className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold"
+                      style={{
+                        backgroundColor: "var(--bg-surface)",
+                        borderColor: "var(--border-strong)",
+                        color: "var(--text-primary)",
+                      }}
+                    >
+                      <Pause className="h-3.5 w-3.5" aria-hidden="true" />
+                      Pause
+                    </button>
+                  )}
                   <button
                     type="button"
-                    onClick={onPauseCountdown}
-                    className="inline-flex items-center gap-1 rounded-lg border border-cyan-500/50 px-2.5 py-1 text-xs font-semibold text-cyan-200 hover:bg-cyan-900/40"
+                    disabled={isRunning || offlineMode || unmaskedCount > 0}
+                    onClick={onApproveOrRerunCloud}
+                    className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl px-4 py-1.5 text-xs font-semibold disabled:opacity-50"
+                    style={{
+                      backgroundColor: "var(--accent-primary)",
+                      color: "var(--accent-on-primary)",
+                    }}
                   >
-                    <Pause className="h-3.5 w-3.5" />
-                    <span>Pause to Edit Pills</span>
+                    <Cloud className="h-3.5 w-3.5" aria-hidden="true" />
+                    Send Safe Text Now
                   </button>
-                )}
-                <button
-                  type="button"
-                  disabled={isRunning || offlineMode}
-                  onClick={onApproveOrRerunCloud}
-                  className="inline-flex items-center gap-1 rounded-lg bg-cyan-500 px-3 py-1 text-xs font-semibold text-slate-950 hover:bg-cyan-400 disabled:opacity-50"
-                >
-                  <Play className="h-3.5 w-3.5" />
-                  <span>Escalate Now</span>
-                </button>
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {currentResult?.resolutionMode === "QUARANTINED_PENDING_APPROVAL" && (
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/50 bg-amber-950/40 p-3">
-              <div className="flex items-center gap-2 text-xs text-amber-200">
-                <ShieldAlert className="h-4 w-4 shrink-0 text-amber-400" />
-                <span>
-                  Fail-Closed Quarantine: Review masked tokens above before sending to Cloud.
-                </span>
-              </div>
-              <button
-                type="button"
-                disabled={isRunning || offlineMode}
-                onClick={onApproveOrRerunCloud}
-                className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-slate-950 transition hover:bg-amber-400 disabled:opacity-50"
+            {currentResult.resolutionMode === "QUARANTINED_PENDING_APPROVAL" && (
+              <div
+                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3.5"
+                style={{
+                  backgroundColor: "var(--warn-bg)",
+                  borderColor: "var(--warn-border)",
+                }}
               >
-                {offlineMode
-                  ? "Blocked (Offline Mode ON)"
-                  : "Approve & Escalate Sanitized Payload to Cloud"}
-              </button>
-            </div>
-          )}
-
-          {currentResult?.resolutionMode === "OFFLINE_QUEUED" && (
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/50 bg-amber-950/30 p-3 text-xs text-amber-200">
-              <span>
-                Queued safely in zero-PII Offline Queue. Turn off Airplane Mode to escalate
-                sanitized payload.
-              </span>
-              {!offlineMode && (
+                <div>
+                  <p className="text-sm font-semibold" style={{ color: "var(--warn-text)" }}>
+                    {unmaskedCount > 0
+                      ? `${unmaskedCount} secret(s) are currently unmasked.`
+                      : "All secrets are hidden again and ready for Cloud AI."}
+                  </p>
+                  <p className="text-xs" style={{ color: "var(--warn-text)" }}>
+                    {unmaskedCount > 0
+                      ? "Re-mask exposed secret chips in Step 2 before escalating."
+                      : "Click below to send only the safe masked text."}
+                  </p>
+                </div>
                 <button
                   type="button"
-                  disabled={isRunning}
+                  disabled={isRunning || offlineMode || unmaskedCount > 0}
                   onClick={onApproveOrRerunCloud}
-                  className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-amber-400 disabled:opacity-50"
+                  className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl px-4 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                  style={{
+                    backgroundColor: "var(--accent-primary)",
+                    color: "var(--accent-on-primary)",
+                  }}
                 >
-                  Escalate Queued Ticket Now
-                </button>
-              )}
-            </div>
-          )}
-
-          {currentResult?.resolutionMode === "CLOUD_ERROR" && (
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-rose-500/50 bg-rose-950/40 p-3">
-              <div className="flex items-center gap-2 text-xs text-rose-200">
-                <AlertTriangle className="h-4 w-4 shrink-0 text-rose-400" />
-                <span>
-                  Cloud escalation failed ({currentResult.cloudError ?? "Error"}). Zero raw PII left
-                  your device.
-                </span>
-              </div>
-              <button
-                type="button"
-                disabled={isRunning || offlineMode}
-                onClick={onApproveOrRerunCloud}
-                className="inline-flex items-center gap-1 rounded-lg bg-rose-500 px-3 py-1 text-xs font-semibold text-slate-950 hover:bg-rose-400 disabled:opacity-50"
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-                <span>Retry Cloud Escalation</span>
-              </button>
-            </div>
-          )}
-
-          {maskDirtySinceCloud &&
-            currentResult?.resolutionMode === "CLOUD_ESCALATION" &&
-            !offlineMode && (
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-cyan-500/50 bg-cyan-950/40 p-3">
-                <span className="text-xs text-cyan-200">
-                  Masking pills changed since the last Cloud response.
-                </span>
-                <button
-                  type="button"
-                  disabled={isRunning}
-                  onClick={onApproveOrRerunCloud}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-500 px-3 py-1.5 text-xs font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:opacity-50"
-                >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  <span>Re-Run Cloud Analysis with Updated Mask</span>
+                  <Cloud className="h-3.5 w-3.5" aria-hidden="true" />
+                  Send Safe Text to AI
                 </button>
               </div>
             )}
 
-          <div className="rounded-lg border border-slate-800 bg-slate-950/80 p-3.5">
-            {currentResult ? (
-              <SafeMarkdownView content={currentResult.resolution} />
+            {maskDirtySinceCloud &&
+              unmaskedCount === 0 &&
+              currentResult.resolutionMode === "CLOUD_ESCALATION" && (
+                <div
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3"
+                  style={{
+                    backgroundColor: "var(--info-bg)",
+                    borderColor: "var(--info-border)",
+                  }}
+                >
+                  <span className="text-xs font-medium" style={{ color: "var(--info-text)" }}>
+                    You updated the hidden tags. Refresh the AI solution with the updated safe text?
+                  </span>
+                  <button
+                    type="button"
+                    disabled={isRunning || offlineMode}
+                    onClick={onApproveOrRerunCloud}
+                    className="inline-flex min-h-[38px] items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
+                    style={{
+                      backgroundColor: "var(--accent-primary)",
+                      color: "var(--accent-on-primary)",
+                    }}
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                    Re-run Safe AI
+                  </button>
+                </div>
+              )}
+
+            {currentResult.cloudError && (
+              <div
+                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3.5"
+                style={{
+                  backgroundColor: "var(--mask-bg)",
+                  borderColor: "var(--mask-border)",
+                  color: "var(--mask-text)",
+                }}
+              >
+                <div className="text-xs">
+                  <p className="font-semibold">Cloud AI temporarily unavailable</p>
+                  <p className="mt-0.5 opacity-90">{currentResult.cloudError}</p>
+                </div>
+                <button
+                  type="button"
+                  disabled={isRunning || offlineMode || unmaskedCount > 0}
+                  onClick={onApproveOrRerunCloud}
+                  className="inline-flex min-h-[38px] items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
+                  style={{
+                    backgroundColor: "var(--bg-surface)",
+                    borderColor: "var(--mask-border)",
+                    color: "var(--text-primary)",
+                  }}
+                >
+                  Retry Safe Cloud AI
+                </button>
+              </div>
+            )}
+
+            {isRunning && currentResult.resolutionMode === "PRE_CLOUD_COUNTDOWN" ? (
+              <div
+                className="flex items-center gap-2 rounded-xl border p-4 text-sm"
+                style={{
+                  backgroundColor: "var(--bg-subtle)",
+                  borderColor: "var(--border-subtle)",
+                  color: "var(--text-secondary)",
+                }}
+              >
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                Generating remediation steps from redacted text...
+              </div>
             ) : (
-              <p className="text-sm text-slate-400">
-                Click <strong>Run Hybrid Triage</strong> to execute Stage 1 (Regex + Entropy +
-                Gemini Nano 4 <code className="font-mono">ONLY_ON_DEVICE</code>) and inspect the
-                inline diff and resolution.
-              </p>
-            )}
-          </div>
-
-          {currentResult && (
-            <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2 text-xs font-semibold text-indigo-200">
-                  <Sparkles className="h-4 w-4 text-indigo-400" />
-                  <span>Hybrid Executive Brief (InferenceMode.PREFER_ON_DEVICE)</span>
+              <div
+                className="rounded-xl border p-4"
+                style={{
+                  backgroundColor: "var(--bg-subtle)",
+                  borderColor: "var(--border-subtle)",
+                }}
+              >
+                <SafeMarkdownView content={currentResult.resolution} />
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t pt-3" style={{ borderColor: "var(--border-subtle)" }}>
+                  <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                    Tokens saved by local privacy filter: ~{currentResult.estimatedTokensSaved}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void handleCopy(currentResult.resolution, "solution")}
+                    className="inline-flex min-h-[38px] items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold"
+                    style={{
+                      backgroundColor: "var(--bg-surface)",
+                      borderColor: "var(--border-subtle)",
+                      color: "var(--text-primary)",
+                    }}
+                  >
+                    {copiedSolution ? (
+                      <>
+                        <Check className="h-3.5 w-3.5" style={{ color: "var(--safe-text)" }} aria-hidden="true" />
+                        Copied Solution
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+                        Copy Solution
+                      </>
+                    )}
+                  </button>
                 </div>
+              </div>
+            )}
+
+            <div
+              className="rounded-xl border p-4"
+              style={{
+                backgroundColor: "var(--bg-subtle)",
+                borderColor: "var(--border-subtle)",
+              }}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-4 w-4" style={{ color: "var(--accent-text)" }} aria-hidden="true" />
+                  <div>
+                    <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                      Leadership &amp; Team Update
+                    </h3>
+                    <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                      Generates a clean stakeholder status message from safe facts only.
+                    </p>
+                  </div>
+                </div>
+
                 <button
                   type="button"
-                  disabled={isGeneratingBrief}
+                  disabled={isGeneratingBrief || unmaskedCount > 0}
                   onClick={onGenerateHybridBrief}
-                  className="rounded-lg border border-indigo-500/40 bg-indigo-500/15 px-3 py-1 text-xs font-semibold text-indigo-200 transition hover:bg-indigo-500/25 disabled:opacity-50"
+                  className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border px-3.5 py-1.5 text-xs font-semibold disabled:opacity-50"
+                  style={{
+                    backgroundColor: "var(--bg-surface)",
+                    borderColor: "var(--border-strong)",
+                    color: "var(--text-primary)",
+                  }}
                 >
-                  {isGeneratingBrief
-                    ? "Generating Brief..."
-                    : currentResult.hybridBrief
-                      ? "Regenerate Hybrid Brief"
-                      : "Generate Hybrid Stakeholder Brief"}
+                  {isGeneratingBrief ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                      Writing Update...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+                      {currentResult.hybridBrief ? "Refresh Update" : "Draft Leadership Update"}
+                    </>
+                  )}
                 </button>
               </div>
+
               {currentResult.hybridBrief && (
-                <div className="mt-2.5 space-y-1.5 border-t border-slate-800 pt-2 text-xs text-slate-300">
-                  <div className="flex items-center gap-2 font-mono text-[10px] text-emerald-300">
-                    <span>Source: {currentResult.hybridBrief.inferenceSource}</span>
-                    <span>·</span>
-                    <span>{currentResult.hybridBrief.latencyMs}ms</span>
+                <div
+                  className="mt-3 rounded-xl border p-3.5"
+                  style={{
+                    backgroundColor: "var(--bg-surface)",
+                    borderColor: "var(--border-subtle)",
+                  }}
+                >
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <span
+                      className="rounded-md border px-2 py-0.5 text-[11px] font-semibold"
+                      style={{
+                        backgroundColor: "var(--safe-bg)",
+                        borderColor: "var(--safe-border)",
+                        color: "var(--safe-text)",
+                      }}
+                    >
+                      {currentResult.hybridBrief.inferenceSource === "ON_DEVICE"
+                        ? "Protected On-Device (Nano 4)"
+                        : currentResult.hybridBrief.inferenceSource === "LOCAL_FALLBACK"
+                          ? "Generated Locally"
+                          : "Safe Cloud AI"}{" "}
+                      · {currentResult.hybridBrief.latencyMs}ms
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void handleCopy(currentResult.hybridBrief!.stakeholderDraft, "brief")
+                      }
+                      className="inline-flex min-h-[34px] items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium"
+                      style={{
+                        backgroundColor: "var(--bg-subtle)",
+                        borderColor: "var(--border-subtle)",
+                        color: "var(--text-primary)",
+                      }}
+                    >
+                      {copiedBrief ? (
+                        <>
+                          <Check className="h-3.5 w-3.5" style={{ color: "var(--safe-text)" }} aria-hidden="true" />
+                          Copied
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+                          Copy Update
+                        </>
+                      )}
+                    </button>
                   </div>
-                  <SafeMarkdownView content={currentResult.hybridBrief.stakeholderDraft} />
+                  <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                    {currentResult.hybridBrief.summary}
+                  </p>
+                  <pre
+                    className="mt-2 whitespace-pre-wrap font-sans text-xs leading-relaxed"
+                    style={{ color: "var(--text-secondary)" }}
+                  >
+                    {currentResult.hybridBrief.stakeholderDraft}
+                  </pre>
                 </div>
               )}
             </div>
-          )}
-        </>
-      )}
-
-      {currentResult && activeTab === "proof" && (() => {
-        const activeMaskCount = currentResult.spans.filter((s) => s.masked !== false).length;
-        const proofAudit =
-          currentResult.zeroLeakageAudit ??
-          verifyZeroLeakage(
-            buildOutboundCloudPrompt(
-              currentResult.severity,
-              currentResult.category,
-              currentResult.sanitizedText,
-            ),
-            currentResult.spans,
-          );
-        return (
-          <div className="space-y-3 text-xs">
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-500/40 bg-emerald-950/30 p-3 text-emerald-200">
-              <span className="inline-flex items-center gap-2 font-semibold">
-                <ShieldCheck className="h-4 w-4 text-emerald-400" />
-                <span>
-                  {proofAudit.verified
-                    ? `ZERO-LEAKAGE VERIFIED: 0 / ${proofAudit.checkedSpansCount} raw secrets leaked (${activeMaskCount} active mask(s))`
-                    : `ALERT: ${proofAudit.leakedSpansCount} unmasked secrets blocked before Cloud dispatch`}
-                </span>
-              </span>
-              <span className="font-mono text-[11px]">
-                Stage 2: {currentResult.stage2Source} · Saved ~{currentResult.estimatedTokensSaved} tokens
-              </span>
-            </div>
-
-            <div className="rounded-lg border border-slate-800 bg-slate-950/80 p-3">
-              <p className="mb-1.5 font-semibold text-slate-300">
-                Exact Outbound / Sanitized Payload Preview ({activeMaskCount} active mask(s)):
-              </p>
-              <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] text-emerald-200">
-                {proofAudit.outboundPromptPreview}
-              </pre>
-            </div>
           </div>
-        );
-      })()}
-
-      {currentResult && activeTab === "export" && (
-        <div className="space-y-3 text-xs">
-          <p className="text-slate-400">
-            All exports pass through <code className="font-mono">stripRawTextForStorage()</code> —
-            zero raw PII or unredacted secrets are ever included.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => void handleCopySlackBrief()}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-500/40 bg-indigo-500/15 px-3 py-2 font-semibold text-indigo-200 hover:bg-indigo-500/25"
-            >
-              {copiedSlack ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-              <span>{copiedSlack ? "Copied Slack/Jira Brief!" : "Copy Slack / Jira Brief"}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() =>
-                triggerDownloadFile(
-                  `${currentResult.id}-audit.json`,
-                  exportAuditReportJson(currentResult),
-                  "application/json",
-                )
-              }
-              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/15 px-3 py-2 font-semibold text-emerald-200 hover:bg-emerald-500/25"
-            >
-              <Download className="h-4 w-4" />
-              <span>Download Audit JSON</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() =>
-                triggerDownloadFile(
-                  `${currentResult.id}-audit.md`,
-                  exportAuditReportMarkdown(currentResult),
-                  "text/markdown",
-                )
-              }
-              className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/40 bg-cyan-500/15 px-3 py-2 font-semibold text-cyan-200 hover:bg-cyan-500/25"
-            >
-              <FileText className="h-4 w-4" />
-              <span>Download Audit Markdown</span>
-            </button>
-          </div>
-        </div>
-      )}
-    </section>
+        )}
+      </section>
+    </div>
   );
 }

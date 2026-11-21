@@ -1,137 +1,15 @@
-import { useRef, useState } from "react";
-import { Check, Copy, Lock, Scissors, ShieldAlert, ShieldCheck } from "lucide-react";
-import type { DetectorSource, RedactionSpan } from "../types/triage";
+import { Fragment, useRef, useState } from "react";
+import { AlertTriangle, Check, Copy, EyeOff, Lock, ShieldCheck, Unlock } from "lucide-react";
+import { formatCategoryLabel, formatDetectorLabel } from "../config/displayLabels";
+import type { RedactionSpan } from "../types/triage";
 
 interface RedactionDiffProps {
   rawText: string;
   sanitizedText: string;
   spans: RedactionSpan[];
   loadedFromZeroPiiStore?: boolean;
-  onToggleSpan?: (index: number) => void;
+  onToggleSpan: (spanIndex: number) => void;
   onAddManualSpan?: (start: number, end: number) => void;
-}
-
-const DETECTOR_PILL_STYLES: Record<DetectorSource, string> = {
-  NANO_SEMANTIC_FIREWALL: "border-cyan-500/40 bg-cyan-950/50 text-cyan-200",
-  REGEX_FIREWALL: "border-amber-500/40 bg-amber-950/50 text-amber-200",
-  ENTROPY_SCANNER: "border-fuchsia-500/40 bg-fuchsia-950/50 text-fuchsia-200",
-  HEURISTIC_GUARD: "border-orange-500/40 bg-orange-950/50 text-orange-200",
-  POLICY_TERM: "border-violet-500/40 bg-violet-950/50 text-violet-200",
-  MANUAL_MASK: "border-rose-500/40 bg-rose-950/50 text-rose-200",
-};
-
-const INLINE_MARK_STYLES: Record<DetectorSource, string> = {
-  NANO_SEMANTIC_FIREWALL: "bg-cyan-500/20 text-cyan-200 border-b border-cyan-400/70",
-  REGEX_FIREWALL: "bg-amber-500/20 text-amber-200 border-b border-amber-400/70",
-  ENTROPY_SCANNER: "bg-fuchsia-500/20 text-fuchsia-200 border-b border-fuchsia-400/70",
-  HEURISTIC_GUARD: "bg-orange-500/20 text-orange-200 border-b border-orange-400/70",
-  POLICY_TERM: "bg-violet-500/20 text-violet-200 border-b border-violet-400/70",
-  MANUAL_MASK: "bg-rose-500/20 text-rose-200 border-b border-rose-400/70",
-};
-
-function renderHighlightedRaw(
-  rawText: string,
-  spans: RedactionSpan[],
-  loadedFromZeroPiiStore: boolean,
-  onToggleSpan?: (index: number) => void,
-) {
-  if (!rawText) {
-    return "Select a demo scenario, upload a log file, or paste a ticket to inspect.";
-  }
-  if (loadedFromZeroPiiStore || spans.length === 0) {
-    return rawText;
-  }
-
-  const ordered = spans
-    .map((span, originalIndex) => ({ span, originalIndex }))
-    .filter(({ span }) => span.start >= 0 && span.end <= rawText.length && span.start < span.end)
-    .sort((a, b) => a.span.start - b.span.start);
-
-  const nodes: React.ReactNode[] = [];
-  let cursor = 0;
-
-  for (const { span, originalIndex } of ordered) {
-    if (span.start < cursor) continue;
-    if (span.start > cursor) {
-      nodes.push(rawText.slice(cursor, span.start));
-    }
-    const isMasked = span.masked !== false;
-    nodes.push(
-      <button
-        key={`raw-span-${span.start}-${span.end}-${originalIndex}`}
-        type="button"
-        onClick={() => onToggleSpan?.(originalIndex)}
-        title={`[${span.detector}] ${span.category} — click to ${isMasked ? "unmask" : "re-mask"}`}
-        className={`inline rounded px-1 py-0.5 text-left font-mono transition hover:opacity-80 ${
-          isMasked
-            ? INLINE_MARK_STYLES[span.detector]
-            : "bg-slate-800/70 text-slate-400 line-through"
-        }`}
-      >
-        {rawText.slice(span.start, span.end)}
-      </button>,
-    );
-    cursor = span.end;
-  }
-
-  if (cursor < rawText.length) {
-    nodes.push(rawText.slice(cursor));
-  }
-  return nodes;
-}
-
-function renderHighlightedSanitized(
-  rawText: string,
-  sanitizedText: string,
-  spans: RedactionSpan[],
-  loadedFromZeroPiiStore: boolean,
-  onToggleSpan?: (index: number) => void,
-) {
-  if (!sanitizedText) {
-    return "Run LocalFirst Firewall to generate verified zero-PII sanitized payload.";
-  }
-  if (loadedFromZeroPiiStore || spans.length === 0 || !rawText) {
-    return sanitizedText;
-  }
-
-  const ordered = spans
-    .map((span, originalIndex) => ({ span, originalIndex }))
-    .filter(({ span }) => span.start >= 0 && span.end <= rawText.length && span.start < span.end)
-    .sort((a, b) => a.span.start - b.span.start);
-
-  const nodes: React.ReactNode[] = [];
-  let cursor = 0;
-
-  for (const { span, originalIndex } of ordered) {
-    if (span.start < cursor) continue;
-    if (span.start > cursor) {
-      nodes.push(rawText.slice(cursor, span.start));
-    }
-    const isMasked = span.masked !== false;
-    const tokenText = isMasked ? span.placeholder : rawText.slice(span.start, span.end);
-    nodes.push(
-      <button
-        key={`san-span-${span.start}-${span.end}-${originalIndex}`}
-        type="button"
-        disabled={loadedFromZeroPiiStore}
-        onClick={() => onToggleSpan?.(originalIndex)}
-        title={isMasked ? `${span.category} (${span.detector}) — click to unmask` : "Unmasked — click to re-mask"}
-        className={`inline rounded px-1 py-0.5 text-left font-mono transition hover:opacity-80 ${
-          isMasked
-            ? INLINE_MARK_STYLES[span.detector]
-            : "border border-rose-500/60 bg-rose-950/50 text-rose-200"
-        }`}
-      >
-        {tokenText}
-      </button>,
-    );
-    cursor = span.end;
-  }
-
-  if (cursor < rawText.length) {
-    nodes.push(rawText.slice(cursor));
-  }
-  return nodes;
 }
 
 export function RedactionDiff({
@@ -142,211 +20,373 @@ export function RedactionDiff({
   onToggleSpan,
   onAddManualSpan,
 }: RedactionDiffProps) {
-  const [copied, setCopied] = useState(false);
-  const [manualFeedback, setManualFeedback] = useState<string | null>(null);
-  const rawPreRef = useRef<HTMLPreElement | null>(null);
+  const rawContainerRef = useRef<HTMLDivElement>(null);
+  const [selectionRange, setSelectionRange] = useState<{
+    start: number;
+    end: number;
+    text: string;
+  } | null>(null);
+  const [copiedSafe, setCopiedSafe] = useState(false);
 
-  const activeCount = (detector: DetectorSource) =>
-    spans.filter((s) => s.detector === detector && s.masked !== false).length;
+  const sorted = spans
+    .map((span, index) => ({ span, index }))
+    .sort((a, b) => a.span.start - b.span.start);
 
-  const regexCount = activeCount("REGEX_FIREWALL");
-  const entropyCount = activeCount("ENTROPY_SCANNER");
-  const heuristicCount = activeCount("HEURISTIC_GUARD");
-  const nanoCount = activeCount("NANO_SEMANTIC_FIREWALL");
-  const policyCount = activeCount("POLICY_TERM");
-  const manualCount = activeCount("MANUAL_MASK");
+  const maskedCount = spans.filter((s) => s.masked !== false).length;
+  const unmaskedCount = spans.filter((s) => s.masked === false).length;
 
-  const handleCopySanitized = async () => {
-    if (!sanitizedText) return;
-    try {
-      await navigator.clipboard?.writeText(sanitizedText);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
-    } catch {
-      // Clipboard blocked in headless/test environment
+  const handleMouseUpOnRaw = () => {
+    const container = rawContainerRef.current;
+    const sel = window.getSelection();
+    if (!container || !sel || sel.rangeCount === 0 || sel.isCollapsed) {
+      setSelectionRange(null);
+      return;
+    }
+
+    const range = sel.getRangeAt(0);
+    if (!container.contains(range.commonAncestorContainer)) {
+      setSelectionRange(null);
+      return;
+    }
+
+    const selectedText = sel.toString();
+    if (selectedText.trim().length < 3) {
+      setSelectionRange(null);
+      return;
+    }
+
+    const preRange = range.cloneRange();
+    preRange.selectNodeContents(container);
+    preRange.setEnd(range.startContainer, range.startOffset);
+    const startOffset = preRange.toString().length;
+    const endOffset = startOffset + selectedText.length;
+
+    if (
+      startOffset >= 0 &&
+      endOffset <= rawText.length &&
+      rawText.slice(startOffset, endOffset) === selectedText
+    ) {
+      setSelectionRange({ start: startOffset, end: endOffset, text: selectedText });
+    } else {
+      const idx = rawText.indexOf(selectedText);
+      if (idx !== -1) {
+        setSelectionRange({
+          start: idx,
+          end: idx + selectedText.length,
+          text: selectedText,
+        });
+      } else {
+        setSelectionRange(null);
+      }
     }
   };
 
-  const handleMaskSelection = () => {
-    if (!onAddManualSpan || loadedFromZeroPiiStore || !rawText) return;
-    const selection = typeof window !== "undefined" ? window.getSelection() : null;
-    const selectedText = selection?.toString() ?? "";
-    if (!selectedText || selectedText.trim().length < 2) {
-      setManualFeedback("Highlight text inside the Raw Local Input pane first, then click Mask Selection.");
-      setTimeout(() => setManualFeedback(null), 3000);
-      return;
+  const handleHideSelection = () => {
+    if (!selectionRange || !onAddManualSpan) return;
+    onAddManualSpan(selectionRange.start, selectionRange.end);
+    setSelectionRange(null);
+    window.getSelection()?.removeAllRanges();
+  };
+
+  const handleCopySafe = async () => {
+    if (!sanitizedText) return;
+    try {
+      await navigator.clipboard.writeText(sanitizedText);
+      setCopiedSafe(true);
+      setTimeout(() => setCopiedSafe(false), 1800);
+    } catch {
+      // Clipboard blocked in restricted context
+    }
+  };
+
+  const renderOriginalWithHighlights = () => {
+    if (!rawText) {
+      return (
+        <span style={{ color: "var(--text-muted)" }}>
+          Paste an incident or choose a starter example on the left.
+        </span>
+      );
+    }
+    if (sorted.length === 0) {
+      return rawText;
     }
 
-    let startIdx = -1;
-    if (
-      selection &&
-      selection.rangeCount > 0 &&
-      rawPreRef.current &&
-      rawPreRef.current.contains(selection.anchorNode)
-    ) {
-      try {
-        const range = selection.getRangeAt(0);
-        const prefixRange = document.createRange();
-        prefixRange.selectNodeContents(rawPreRef.current);
-        prefixRange.setEnd(range.startContainer, range.startOffset);
-        const domOffset = prefixRange.toString().length;
-        if (rawText.slice(domOffset, domOffset + selectedText.length) === selectedText) {
-          startIdx = domOffset;
-        }
-      } catch {
-        // Fallback to indexOf below
+    const nodes: React.ReactNode[] = [];
+    let cursor = 0;
+
+    for (const { span, index } of sorted) {
+      if (span.start < cursor || span.end > rawText.length) continue;
+      if (span.start > cursor) {
+        nodes.push(
+          <Fragment key={`plain-${cursor}`}>{rawText.slice(cursor, span.start)}</Fragment>
+        );
       }
+
+      const isMasked = span.masked !== false;
+      const categoryLabel = formatCategoryLabel(span.category);
+
+      nodes.push(
+        <button
+          key={`span-${span.start}-${span.end}`}
+          type="button"
+          disabled={loadedFromZeroPiiStore}
+          aria-pressed={isMasked}
+          title={`${categoryLabel} — click or press Enter to ${isMasked ? "unmask" : "hide"}`}
+          onClick={() => onToggleSpan(index)}
+          className="mx-0.5 inline break-all rounded-md border px-1.5 py-0.5 text-left align-baseline font-mono text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+          style={{
+            backgroundColor: isMasked ? "var(--mask-bg)" : "var(--warn-bg)",
+            borderColor: isMasked ? "var(--mask-border)" : "var(--warn-border)",
+            color: isMasked ? "var(--mask-text)" : "var(--warn-text)",
+            textDecoration: isMasked ? "line-through" : "underline",
+          }}
+        >
+          {isMasked ? (
+            <Lock className="mr-1 inline h-3 w-3 align-text-bottom" aria-hidden="true" />
+          ) : (
+            <AlertTriangle className="mr-1 inline h-3 w-3 align-text-bottom" aria-hidden="true" />
+          )}
+          <span>{rawText.slice(span.start, span.end)}</span>
+        </button>
+      );
+      cursor = span.end;
     }
 
-    if (startIdx === -1) {
-      startIdx = rawText.indexOf(selectedText);
+    if (cursor < rawText.length) {
+      nodes.push(<Fragment key={`tail-${cursor}`}>{rawText.slice(cursor)}</Fragment>);
     }
-    if (startIdx === -1) {
-      setManualFeedback("Could not locate selected snippet inside raw input.");
-      setTimeout(() => setManualFeedback(null), 3000);
-      return;
+
+    return nodes;
+  };
+
+  const renderSanitizedHighlighted = () => {
+    if (!sanitizedText) {
+      return (
+        <span style={{ color: "var(--text-muted)" }}>
+          Run Step 1 to preview the redacted safe version before any cloud AI call.
+        </span>
+      );
     }
-    onAddManualSpan(startIdx, startIdx + selectedText.length);
-    selection?.removeAllRanges();
-    setManualFeedback(`Masked "${selectedText.slice(0, 32)}" with [MANUAL_MASK].`);
-    setTimeout(() => setManualFeedback(null), 2500);
+
+    const parts = sanitizedText.split(/(\[REDACTED:[^\]]+\])/g);
+    return parts.map((part, idx) => {
+      if (part.startsWith("[REDACTED:") && part.endsWith("]")) {
+        const inner = part.slice("[REDACTED:".length, -1).replace(/_\d+$/, "");
+        return (
+          <span
+            key={`red-${idx}`}
+            title={part}
+            className="mx-0.5 inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-semibold"
+            style={{
+              backgroundColor: "var(--safe-bg)",
+              borderColor: "var(--safe-border)",
+              color: "var(--safe-text)",
+            }}
+          >
+            <Lock className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
+            Hidden: {formatCategoryLabel(inner)}
+          </span>
+        );
+      }
+      return <Fragment key={`txt-${idx}`}>{part}</Fragment>;
+    });
   };
 
   return (
-    <section className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <ShieldCheck className="h-5 w-5 text-emerald-400" />
-          <h2 className="text-sm font-semibold tracking-wide text-slate-100 uppercase">
-            Inline Redaction Diff Viewer
+    <section className="lf-card rounded-2xl p-4 sm:p-5">
+      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2
+            className="text-base font-semibold tracking-tight"
+            style={{ color: "var(--text-primary)" }}
+          >
+            2. Review Hidden Secrets (On-Device)
           </h2>
+          <p className="mt-0.5 text-xs" style={{ color: "var(--text-secondary)" }}>
+            Highlight any sensitive word on the left to hide it, or click a secret tag to inspect or toggle.
+          </p>
         </div>
-        <div className="flex flex-wrap items-center gap-1.5 text-xs">
-          <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-0.5 font-mono text-amber-300">
-            [REGEX_FIREWALL]: {regexCount}
-          </span>
-          {entropyCount > 0 && (
-            <span className="rounded-full border border-fuchsia-500/40 bg-fuchsia-500/10 px-2.5 py-0.5 font-mono text-fuchsia-300">
-              [ENTROPY_SCANNER]: {entropyCount}
+
+        <div className="flex flex-wrap items-center gap-2">
+          {selectionRange && (
+            <button
+              type="button"
+              onClick={handleHideSelection}
+              className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold"
+              style={{
+                backgroundColor: "var(--accent-primary)",
+                color: "var(--accent-on-primary)",
+              }}
+            >
+              <EyeOff className="h-3.5 w-3.5" aria-hidden="true" />
+              Hide Selected Text
+            </button>
+          )}
+
+          {sanitizedText && (
+            <button
+              type="button"
+              onClick={() => void handleCopySafe()}
+              className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors"
+              style={{
+                backgroundColor: "var(--bg-subtle)",
+                borderColor: "var(--border-subtle)",
+                color: "var(--text-primary)",
+              }}
+            >
+              {copiedSafe ? (
+                <>
+                  <Check className="h-3.5 w-3.5" style={{ color: "var(--safe-text)" }} aria-hidden="true" />
+                  Copied Safe Text
+                </>
+              ) : (
+                <>
+                  <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+                  Copy Safe Text
+                </>
+              )}
+            </button>
+          )}
+
+          {spans.length > 0 && (
+            <span
+              className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold"
+              style={{
+                backgroundColor: unmaskedCount > 0 ? "var(--warn-bg)" : "var(--safe-bg)",
+                borderColor: unmaskedCount > 0 ? "var(--warn-border)" : "var(--safe-border)",
+                color: unmaskedCount > 0 ? "var(--warn-text)" : "var(--safe-text)",
+              }}
+            >
+              {unmaskedCount > 0 ? (
+                <>
+                  <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+                  {unmaskedCount} unmasked — Cloud AI paused
+                </>
+              ) : (
+                <>
+                  <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                  {maskedCount} hidden from AI
+                </>
+              )}
             </span>
           )}
-          {heuristicCount > 0 && (
-            <span className="rounded-full border border-orange-500/40 bg-orange-500/10 px-2.5 py-0.5 font-mono text-orange-300">
-              [HEURISTIC_GUARD]: {heuristicCount}
-            </span>
-          )}
-          {policyCount > 0 && (
-            <span className="rounded-full border border-violet-500/40 bg-violet-500/10 px-2.5 py-0.5 font-mono text-violet-300">
-              [POLICY_TERM]: {policyCount}
-            </span>
-          )}
-          {manualCount > 0 && (
-            <span className="rounded-full border border-rose-500/40 bg-rose-500/10 px-2.5 py-0.5 font-mono text-rose-300">
-              [MANUAL_MASK]: {manualCount}
-            </span>
-          )}
-          <span className="rounded-full border border-cyan-500/40 bg-cyan-500/10 px-2.5 py-0.5 font-mono text-cyan-300">
-            [NANO_SEMANTIC_FIREWALL]: {nanoCount}
-          </span>
         </div>
       </div>
-
-      {loadedFromZeroPiiStore && (
-        <div className="mb-3 flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs text-slate-300">
-          <Lock className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
-          <span>Loaded from zero-PII IndexedDB store — raw secrets purged on session close.</span>
-        </div>
-      )}
-
-      {manualFeedback && (
-        <div className="mb-3 rounded-lg border border-cyan-500/40 bg-cyan-950/40 px-3 py-1.5 text-xs text-cyan-200">
-          {manualFeedback}
-        </div>
-      )}
 
       <div className="grid gap-3 md:grid-cols-2">
-        <div className="rounded-lg border border-rose-900/50 bg-slate-950/90 p-3">
-          <div className="mb-1.5 flex items-center justify-between gap-2 text-xs font-medium text-rose-400">
-            <span className="inline-flex items-center gap-1.5">
-              <ShieldAlert className="h-3.5 w-3.5" />
-              <span>Raw Local Input (Session Memory Only)</span>
+        <div
+          className="rounded-xl border p-3.5"
+          style={{
+            backgroundColor: "var(--bg-subtle)",
+            borderColor: "var(--border-subtle)",
+          }}
+        >
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <span
+              className="text-xs font-semibold"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              Original on Your Device
             </span>
-            {!loadedFromZeroPiiStore && onAddManualSpan && sanitizedText && (
-              <button
-                type="button"
-                onClick={handleMaskSelection}
-                className="inline-flex items-center gap-1 rounded border border-rose-500/40 bg-rose-950/50 px-2 py-0.5 text-[11px] text-rose-200 transition hover:bg-rose-900/50"
+            {loadedFromZeroPiiStore && (
+              <span
+                className="rounded-md border px-2 py-0.5 text-[11px] font-medium"
+                style={{
+                  backgroundColor: "var(--safe-bg)",
+                  borderColor: "var(--safe-border)",
+                  color: "var(--safe-text)",
+                }}
               >
-                <Scissors className="h-3 w-3" />
-                <span>Mask Selection</span>
-              </button>
+                Raw text purged from storage
+              </span>
             )}
           </div>
-          <pre
-            ref={rawPreRef}
-            className="max-h-60 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-slate-300"
+          <div
+            ref={rawContainerRef}
+            onMouseUp={handleMouseUpOnRaw}
+            className="max-h-72 overflow-y-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed"
+            style={{ color: "var(--text-primary)" }}
           >
-            {renderHighlightedRaw(rawText, spans, loadedFromZeroPiiStore, onToggleSpan)}
-          </pre>
+            {renderOriginalWithHighlights()}
+          </div>
         </div>
 
-        <div className="rounded-lg border border-emerald-900/50 bg-slate-950/90 p-3">
-          <div className="mb-1.5 flex items-center justify-between gap-2 text-xs font-medium text-emerald-400">
-            <span className="inline-flex items-center gap-1.5">
-              <ShieldCheck className="h-3.5 w-3.5" />
-              <span>Sanitized Payload (Safe for Cloud / Storage)</span>
+        <div
+          className="rounded-xl border p-3.5"
+          style={{
+            backgroundColor: "var(--bg-subtle)",
+            borderColor: sanitizedText && unmaskedCount === 0
+              ? "var(--safe-border)"
+              : "var(--border-subtle)",
+          }}
+        >
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <span
+              className="text-xs font-semibold"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              Safe Version Sent to AI
             </span>
-            {sanitizedText && (
-              <button
-                type="button"
-                onClick={() => void handleCopySanitized()}
-                className="inline-flex items-center gap-1 rounded border border-emerald-500/40 bg-emerald-950/50 px-2 py-0.5 text-[11px] text-emerald-200 transition hover:bg-emerald-900/50"
+            {sanitizedText && unmaskedCount === 0 && (
+              <span
+                className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold"
+                style={{
+                  backgroundColor: "var(--safe-bg)",
+                  borderColor: "var(--safe-border)",
+                  color: "var(--safe-text)",
+                }}
               >
-                {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-                <span>{copied ? "Copied!" : "Copy Sanitized"}</span>
-              </button>
+                <ShieldCheck className="h-3 w-3" aria-hidden="true" />
+                Zero raw secrets
+              </span>
             )}
           </div>
-          <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-emerald-200">
-            {renderHighlightedSanitized(
-              rawText,
-              sanitizedText,
-              spans,
-              loadedFromZeroPiiStore,
-              onToggleSpan,
-            )}
-          </pre>
+          <div
+            className="max-h-72 overflow-y-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed"
+            style={{ color: "var(--text-primary)" }}
+          >
+            {renderSanitizedHighlighted()}
+          </div>
         </div>
       </div>
 
-      {spans.length > 0 && (
-        <div className="mt-3">
-          <p className="mb-1.5 text-xs font-medium text-slate-400">
-            Interactive Redaction Audit ({spans.length} spans —{" "}
-            {loadedFromZeroPiiStore
-              ? "unmasking disabled for purged disk records"
-              : "click any highlighted span or pill to toggle mask/unmask"}
-            )
+      {sorted.length > 0 && (
+        <div className="mt-4 border-t pt-3" style={{ borderColor: "var(--border-subtle)" }}>
+          <p
+            className="mb-2 text-xs font-medium"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            Secret tags found ({sorted.length}) — click or press Enter/Space to toggle hiding:
           </p>
-          <div className="flex flex-wrap gap-1.5">
-            {spans.map((span, idx) => {
+          <div className="flex flex-wrap gap-2">
+            {sorted.map(({ span, index }) => {
               const isMasked = span.masked !== false;
-              const style = !isMasked
-                ? "border-slate-700 bg-slate-900/50 text-slate-400 line-through"
-                : DETECTOR_PILL_STYLES[span.detector];
+              const categoryName = formatCategoryLabel(span.category);
+              const detectorName = formatDetectorLabel(span.detector);
+
               return (
                 <button
-                  key={`${span.start}-${span.end}-${idx}`}
+                  key={`chip-${span.start}-${span.end}-${index}`}
                   type="button"
                   disabled={loadedFromZeroPiiStore}
-                  onClick={() => onToggleSpan?.(idx)}
-                  title={isMasked ? "Click to unmask this token" : "Click to re-mask this token"}
-                  className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[11px] transition hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-60 ${style}`}
+                  aria-pressed={isMasked}
+                  onClick={() => onToggleSpan(index)}
+                  className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+                  style={{
+                    backgroundColor: isMasked ? "var(--mask-bg)" : "var(--warn-bg)",
+                    borderColor: isMasked ? "var(--mask-border)" : "var(--warn-border)",
+                    color: isMasked ? "var(--mask-text)" : "var(--warn-text)",
+                  }}
                 >
-                  <span className="font-semibold">[{span.detector}]</span>
-                  <span className="max-w-xs truncate">
-                    {isMasked ? span.placeholder : span.matchedText}
+                  {isMasked ? (
+                    <Lock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  ) : (
+                    <Unlock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  )}
+                  <span className="font-semibold">
+                    {isMasked ? `Hidden: ${categoryName}` : `Exposed: ${categoryName}`}
                   </span>
+                  <span className="opacity-75">· {detectorName}</span>
                 </button>
               );
             })}

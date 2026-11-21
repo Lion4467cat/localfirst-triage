@@ -3,57 +3,81 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
     <title>LocalFirst Triage — Side Panel</title>
     <link rel="stylesheet" href="sidepanel.css" />
+    <script src="theme-init.js"></script>
   </head>
   <body>
     <main class="panel">
       <header class="header">
-        <div>
-          <h1>LocalFirst Triage</h1>
-          <p class="subtitle">Side Panel Privacy Firewall · Nano 4 On-Device</p>
+        <div class="brand">
+          <div class="brand-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10" />
+              <path d="m9 12 2 2 4-4" />
+            </svg>
+          </div>
+          <div>
+            <h1>LocalFirst Triage</h1>
+            <p class="subtitle">On-Device Privacy Firewall</p>
+          </div>
         </div>
-        <span id="nano-badge" class="badge">Checking Nano 4...</span>
+
+        <div class="theme-group" role="group" aria-label="Color theme">
+          <button type="button" class="theme-btn" data-theme-choice="system" aria-pressed="true">System</button>
+          <button type="button" class="theme-btn" data-theme-choice="light" aria-pressed="false">Light</button>
+          <button type="button" class="theme-btn" data-theme-choice="dark" aria-pressed="false">Dark</button>
+        </div>
       </header>
+
+      <div class="status-row">
+        <span id="nano-badge" class="badge">Checking On-Device AI...</span>
+        <span class="badge badge-safe">Zero raw secrets uploaded</span>
+      </div>
 
       <section class="actions">
         <button id="btn-capture-tab" type="button" class="btn secondary">
-          Capture Active Tab
+          Capture Active Page
         </button>
         <button id="btn-run-firewall" type="button" class="btn primary">
-          Sanitize Locally
+          Mask Secrets Locally
         </button>
       </section>
 
-      <section class="field">
-        <label for="ticket-title">Ticket / Page Title</label>
-        <input id="ticket-title" type="text" placeholder="Selected incident or ticket title" />
-      </section>
+      <section class="card">
+        <div class="field">
+          <label for="ticket-title">Incident Title</label>
+          <input id="ticket-title" type="text" placeholder="Selected incident or page title" />
+        </div>
 
-      <section class="field">
-        <label for="raw-input">Raw Local Capture (Never Leaves Device Unredacted)</label>
-        <textarea
-          id="raw-input"
-          rows="6"
-          placeholder="Right-click any text on GitHub/Jira/Zendesk -> 'Sanitize & Triage with LocalFirst' or click 'Capture Active Tab'."
-        ></textarea>
+        <div class="field">
+          <label for="raw-input">Original Text (Stays on Device)</label>
+          <textarea
+            id="raw-input"
+            rows="5"
+            placeholder="Right-click any text on GitHub/Jira/Zendesk -> 'Sanitize & Triage with LocalFirst' or click 'Capture Active Page'."
+          ></textarea>
+        </div>
       </section>
 
       <section class="stats" id="scan-stats">
-        <span>No local scan run yet.</span>
+        Ready to mask secrets locally before handing off to AI.
       </section>
 
-      <section class="field">
-        <label for="sanitized-output">Sanitized Output (Zero-PII Safe)</label>
-        <pre id="sanitized-output" class="output">Run "Sanitize Locally" to inspect redacted payload.</pre>
+      <section class="card">
+        <div class="field">
+          <label for="sanitized-output">Safe Version for AI</label>
+          <pre id="sanitized-output" class="output">Click "Mask Secrets Locally" to preview safe redacted text.</pre>
+        </div>
       </section>
 
       <footer class="footer">
         <button id="btn-copy" type="button" class="btn secondary" disabled>
-          Copy Sanitized
+          Copy Safe Text
         </button>
-        <button id="btn-handoff" type="button" class="btn accent" disabled>
-          Escalate Sanitized to Cloud Workbench
+        <button id="btn-handoff" type="button" class="btn primary" disabled>
+          Open Safe Copy in Web App
         </button>
       </footer>
     </main>

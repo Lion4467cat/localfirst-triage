@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -20,13 +21,13 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -35,23 +36,24 @@ import com.localfirst.triage.model.CloudSyncStatus
 import com.localfirst.triage.model.SourcePlatform
 import com.localfirst.triage.model.TriageResult
 import com.localfirst.triage.ui.MainUiState
-import com.localfirst.triage.ui.theme.SrePalette
+import com.localfirst.triage.ui.theme.LocalFirstThemeTokens
 
 @Composable
 private fun PlatformBadge(platform: SourcePlatform) {
-    val (label, color) = when (platform) {
-        SourcePlatform.ANDROID -> "ANDROID" to SrePalette.Emerald400
-        SourcePlatform.CHROME_EXTENSION -> "EXT" to SrePalette.Cyan400
-        SourcePlatform.WEB -> "WEB" to SrePalette.Indigo300
+    val tokens = LocalFirstThemeTokens.colors
+    val (label, bg, border, text) = when (platform) {
+        SourcePlatform.ANDROID -> listOf("ANDROID", tokens.safeBg, tokens.safeBorder, tokens.safeText)
+        SourcePlatform.CHROME_EXTENSION -> listOf("EXTENSION", tokens.infoBg, tokens.infoBorder, tokens.infoText)
+        SourcePlatform.WEB -> listOf("WEB", tokens.accentSoftBg, tokens.accentSoftBorder, tokens.accentSoftText)
     }
     Surface(
-        color = color.copy(alpha = 0.14f),
-        border = BorderStroke(1.dp, color.copy(alpha = 0.5f)),
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
+        color = bg as androidx.compose.ui.graphics.Color,
+        border = BorderStroke(1.dp, border as androidx.compose.ui.graphics.Color),
+        shape = RoundedCornerShape(6.dp),
     ) {
         Text(
-            text = label,
-            color = color,
+            text = label as String,
+            color = text as androidx.compose.ui.graphics.Color,
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Bold,
             fontSize = 10.sp,
@@ -70,6 +72,8 @@ fun SyncedFeedScreen(
     onOpenTicket: (TriageResult) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val tokens = LocalFirstThemeTokens.colors
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -79,148 +83,199 @@ fun SyncedFeedScreen(
     ) {
         // Cloud Sync & Auth Card
         Card(
-            colors = CardDefaults.cardColors(containerColor = SrePalette.Slate900),
-            border = BorderStroke(1.dp, SrePalette.Slate800),
-            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, tokens.borderSubtle),
         ) {
-            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Icon(
-                        imageVector = if (state.authUser != null) Icons.Default.CloudDone else Icons.Default.CloudOff,
-                        contentDescription = null,
-                        tint = if (state.authUser != null) SrePalette.Emerald400 else SrePalette.Slate400,
-                    )
-                    Text(
-                        text = when {
-                            state.authUser == null -> "Cloud Sync: Local RAM Only"
-                            state.cloudSyncStatus == CloudSyncStatus.OFFLINE -> "Synced Account (Offline Mode)"
-                            else -> "Cloud Sync Active (${state.authUser.email ?: state.authUser.displayName ?: "Guest ${state.authUser.uid.take(6)}"})"
-                        },
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp,
-                    )
+            Column(modifier = Modifier.padding(14.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = if (state.authUser != null) Icons.Default.CloudDone else Icons.Default.CloudOff,
+                            contentDescription = null,
+                            tint = if (state.authUser != null) tokens.safeText else tokens.textMuted,
+                            modifier = Modifier.padding(end = 8.dp),
+                        )
+                        Text(
+                            text = "Cloud Sync (Safe Summaries)",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                        )
+                    }
+                    Surface(
+                        color = if (state.cloudSyncStatus == CloudSyncStatus.SYNCED) tokens.safeBg else tokens.subtleSurface,
+                        border = BorderStroke(
+                            1.dp,
+                            if (state.cloudSyncStatus == CloudSyncStatus.SYNCED) tokens.safeBorder else tokens.borderSubtle,
+                        ),
+                        shape = RoundedCornerShape(999.dp),
+                    ) {
+                        Text(
+                            text = when (state.cloudSyncStatus) {
+                                CloudSyncStatus.SYNCED -> "Connected"
+                                CloudSyncStatus.SIGNING_IN -> "Signing in..."
+                                CloudSyncStatus.OFFLINE -> "Offline"
+                                CloudSyncStatus.ERROR -> "Sync Error"
+                                CloudSyncStatus.DISCONNECTED -> "Not Signed In"
+                            },
+                            color = if (state.cloudSyncStatus == CloudSyncStatus.SYNCED) tokens.safeText else MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        )
+                    }
                 }
 
                 if (state.cloudSyncMessage != null) {
-                    Text(state.cloudSyncMessage, color = SrePalette.Cyan400, fontSize = 11.sp)
+                    Text(
+                        text = state.cloudSyncMessage,
+                        color = tokens.warnText,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
                 }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    if (state.authUser == null) {
-                        OutlinedButton(
-                            onClick = onSignInAnonymous,
-                            enabled = !state.offlineMode && state.cloudSyncStatus != CloudSyncStatus.SIGNING_IN,
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text("Enable Sync (Guest)", fontSize = 11.sp)
-                        }
+                Spacer(modifier = Modifier.padding(top = 8.dp))
+
+                if (state.authUser == null) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
-                            onClick = onSignInGoogle,
-                            enabled = !state.offlineMode && state.cloudSyncStatus != CloudSyncStatus.SIGNING_IN,
-                            colors = ButtonDefaults.buttonColors(containerColor = SrePalette.Indigo500),
-                            modifier = Modifier.weight(1f),
+                            onClick = onSignInAnonymous,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary,
+                            ),
                         ) {
-                            Text("Google Sign-In", fontSize = 11.sp)
+                            Text("Sync as Guest", fontSize = 12.sp)
                         }
-                    } else {
-                        if (state.authUser.isAnonymous) {
-                            Button(
-                                onClick = onSignInGoogle,
-                                enabled = !state.offlineMode,
-                                colors = ButtonDefaults.buttonColors(containerColor = SrePalette.Indigo500),
-                                modifier = Modifier.weight(1f),
-                            ) {
-                                Text("Link Google Account", fontSize = 11.sp)
-                            }
+                        OutlinedButton(onClick = onSignInGoogle) {
+                            Text("Sign In with Google", fontSize = 12.sp)
                         }
-                        OutlinedButton(
-                            onClick = onSignOut,
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text("Sign Out", fontSize = 11.sp)
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = if (state.authUser.isAnonymous) {
+                                "Guest Workspace (${state.authUser.uid.take(8)}...)"
+                            } else {
+                                state.authUser.email ?: state.authUser.displayName ?: "Signed-in Workspace"
+                            },
+                            color = tokens.safeText,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                        OutlinedButton(onClick = onSignOut) {
+                            Text("Sign Out", fontSize = 12.sp)
                         }
                     }
                 }
             }
         }
 
-        // PREFER_ON_DEVICE Hybrid Stakeholder Brief Card
-        val activeTicket = state.currentResult
-        Card(
-            colors = CardDefaults.cardColors(containerColor = SrePalette.Slate900),
-            border = BorderStroke(1.dp, SrePalette.Cyan400.copy(alpha = 0.4f)),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = "HYBRID STAKEHOLDER BRIEF (InferenceMode.PREFER_ON_DEVICE)",
-                    color = SrePalette.Cyan400,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 11.sp,
-                )
-                Button(
-                    onClick = onGenerateBrief,
-                    enabled = activeTicket != null && !state.isGeneratingBrief,
-                    colors = ButtonDefaults.buttonColors(containerColor = SrePalette.Cyan400),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = SrePalette.Slate950)
-                    Spacer(Modifier.padding(3.dp))
-                    Text(
-                        text = if (state.isGeneratingBrief) "Generating Brief..." else "Generate Hybrid Stakeholder Brief",
-                        color = SrePalette.Slate950,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp,
-                    )
-                }
-
-                val brief = activeTicket?.hybridBrief
-                if (brief != null) {
-                    Text(
-                        text = "Source: ${brief.inferenceSource} · ${brief.latencyMs}ms",
-                        color = SrePalette.Emerald400,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp,
-                    )
-                    Text(
-                        text = brief.stakeholderDraft,
-                        color = SrePalette.Slate300,
-                        fontSize = 12.sp,
-                    )
+        // Leadership & Team Update Card
+        if (state.currentResult != null) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, tokens.borderSubtle),
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(end = 6.dp),
+                            )
+                            Text(
+                                text = "Leadership & Team Update",
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                            )
+                        }
+                        Button(
+                            onClick = onGenerateBrief,
+                            enabled = !state.isGeneratingBrief,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary,
+                            ),
+                        ) {
+                            Text(
+                                text = if (state.isGeneratingBrief) "Writing..." else "Draft Update",
+                                fontSize = 12.sp,
+                            )
+                        }
+                    }
+                    val brief = state.currentResult.hybridBrief
+                    if (brief != null) {
+                        Spacer(modifier = Modifier.padding(top = 8.dp))
+                        Text(
+                            text = "${brief.inferenceSource} · ${brief.latencyMs}ms",
+                            color = tokens.safeText,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp,
+                        )
+                        Text(
+                            text = brief.summary,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                        Text(
+                            text = brief.stakeholderDraft,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
+                    }
                 }
             }
         }
 
-        // Cross-Platform Synced Sanitized Ticket Feed
         Text(
-            text = "CROSS-PLATFORM SANITIZED FEED (${state.syncedTickets.size} ZERO-PII TICKETS)",
-            color = SrePalette.Slate400,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
+            text = "Synced Workspace Tickets (${state.syncedTickets.size})",
+            color = MaterialTheme.colorScheme.onBackground,
+            fontWeight = FontWeight.Bold,
+            fontSize = 14.sp,
         )
 
         if (state.syncedTickets.isEmpty()) {
-            Text(
-                text = "No tickets yet. Run Hybrid Triage or sign in with Google/Guest to live-sync sanitized tickets across Web, Chrome Extension, and Android.",
-                color = SrePalette.Slate400,
-                fontSize = 12.sp,
-            )
+            Card(
+                colors = CardDefaults.cardColors(containerColor = tokens.subtleSurface),
+                border = BorderStroke(1.dp, tokens.borderSubtle),
+            ) {
+                Text(
+                    text = "Sign in as Guest or Google above and tap Sync on any redacted ticket to view shared Zero-PII reports across devices.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(14.dp),
+                )
+            }
         } else {
             state.syncedTickets.forEach { item ->
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = SrePalette.Slate900),
-                    border = BorderStroke(1.dp, SrePalette.Slate800),
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { onOpenTicket(item) },
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = BorderStroke(1.dp, tokens.borderSubtle),
                 ) {
-                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Column(modifier = Modifier.padding(12.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -228,7 +283,7 @@ fun SyncedFeedScreen(
                         ) {
                             Text(
                                 text = item.title,
-                                color = Color.White,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 13.sp,
                                 modifier = Modifier.weight(1f),
@@ -236,16 +291,17 @@ fun SyncedFeedScreen(
                             PlatformBadge(item.sourcePlatform)
                         }
                         Text(
-                            text = "${item.severity.name} · ${item.inferenceSource.name} · ${item.resolutionMode.name}",
-                            color = SrePalette.Emerald400,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 10.sp,
+                            text = "${item.severity} · ${item.resolutionMode} · Zero-PII Stored",
+                            color = tokens.safeText,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(top = 4.dp),
                         )
                         Text(
                             text = item.sanitizedText.take(140),
-                            color = SrePalette.Slate300,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontFamily = FontFamily.Monospace,
                             fontSize = 11.sp,
+                            modifier = Modifier.padding(top = 4.dp),
                         )
                     }
                 }

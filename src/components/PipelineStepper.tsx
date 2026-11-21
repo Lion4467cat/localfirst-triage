@@ -1,93 +1,146 @@
-import { CheckCircle2, Clock, Cloud, Lock, ShieldCheck } from "lucide-react";
+import { CheckCircle2, ShieldCheck, Sparkles, WifiOff } from "lucide-react";
 import type { TriageResult } from "../types/triage";
 
 interface PipelineStepperProps {
   currentResult: TriageResult | null;
   isRunning: boolean;
+  offlineMode: boolean;
 }
 
-export function PipelineStepper({ currentResult, isRunning }: PipelineStepperProps) {
+export function PipelineStepper({
+  currentResult,
+  isRunning,
+  offlineMode,
+}: PipelineStepperProps) {
+  const unmaskedCount =
+    currentResult?.spans.filter((s) => s.masked === false).length ?? 0;
+
   const step1Done = Boolean(currentResult);
-  const step2Done = Boolean(currentResult);
-  const step3State = !currentResult
-    ? "idle"
-    : currentResult.resolutionMode === "LOCAL_RUNBOOK" ||
-        currentResult.resolutionMode === "CLOUD_ESCALATION"
-      ? "done"
-      : currentResult.resolutionMode === "CLOUD_ERROR"
-        ? "error"
-        : "pending";
+  const step2Done = Boolean(currentResult) && unmaskedCount === 0;
+  const step3Done =
+    currentResult?.resolutionMode === "LOCAL_RUNBOOK" ||
+    currentResult?.resolutionMode === "CLOUD_ESCALATION" ||
+    currentResult?.resolutionMode === "LOCAL_FALLBACK_ONLY";
+
+  const step2Detail = !currentResult
+    ? "Detects & hides PII locally"
+    : unmaskedCount > 0
+      ? `${unmaskedCount} unmasked — review needed`
+      : `${currentResult.spans.length} secret(s) hidden on-device`;
+
+  const step3Detail = offlineMode
+    ? "$0 Local / Offline Queue"
+    : !currentResult
+      ? "Safe fix via Runbook or Cloud AI"
+      : currentResult.resolutionMode === "LOCAL_RUNBOOK"
+        ? "Resolved 100% locally"
+        : currentResult.resolutionMode === "CLOUD_ESCALATION"
+          ? "Safe cloud remediation ready"
+          : currentResult.resolutionMode === "OFFLINE_QUEUED"
+            ? "Saved safely in Offline Queue"
+            : currentResult.resolutionMode === "QUARANTINED_PENDING_APPROVAL"
+              ? "Paused while secret is unmasked"
+              : isRunning
+                ? "Generating safe solution..."
+                : "Ready for approval";
+
+  const steps = [
+    {
+      num: "1",
+      title: "Paste or Pick Example",
+      detail: step1Done ? "Incident loaded locally" : "Start with logs or a starter card",
+      done: step1Done,
+      active: !currentResult && !isRunning,
+      warn: false,
+      Icon: CheckCircle2,
+    },
+    {
+      num: "2",
+      title: "Review Hidden Secrets",
+      detail: step2Detail,
+      done: step2Done,
+      active: isRunning || (Boolean(currentResult) && unmaskedCount > 0),
+      warn: Boolean(currentResult) && unmaskedCount > 0,
+      Icon: ShieldCheck,
+    },
+    {
+      num: "3",
+      title: "Get Safe AI Solution",
+      detail: step3Detail,
+      done: step3Done,
+      active:
+        Boolean(currentResult) &&
+        unmaskedCount === 0 &&
+        !step3Done &&
+        currentResult?.resolutionMode !== "OFFLINE_QUEUED",
+      warn: false,
+      Icon: offlineMode ? WifiOff : Sparkles,
+    },
+  ];
 
   return (
-    <nav
-      aria-label="Hybrid Triage Pipeline Stages"
-      className="grid grid-cols-1 gap-2 rounded-xl border border-slate-800 bg-slate-900/60 p-3 sm:grid-cols-3"
-    >
-      <div
-        className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 text-xs ${
-          isRunning
-            ? "border-cyan-500/50 bg-cyan-950/30 text-cyan-200"
-            : step1Done
-              ? "border-emerald-500/40 bg-emerald-950/20 text-emerald-200"
-              : "border-slate-800 bg-slate-950/60 text-slate-400"
-        }`}
-      >
-        <ShieldCheck className="h-4 w-4 shrink-0" />
-        <div className="min-w-0">
-          <p className="font-semibold">1. Local Firewall</p>
-          <p className="truncate font-mono text-[10px] opacity-80">
-            {currentResult
-              ? `${currentResult.stage1Source} · ${currentResult.stage1LatencyMs}ms`
-              : "ONLY_ON_DEVICE + Regex + Entropy"}
-          </p>
-        </div>
-      </div>
+    <nav aria-label="Triage progress" className="lf-card rounded-2xl p-3 sm:p-4">
+      <ol className="grid gap-2.5 sm:grid-cols-3">
+        {steps.map((step) => {
+          const Icon = step.Icon;
+          let borderColor = "var(--border-subtle)";
+          let bgColor = "var(--bg-subtle)";
+          let badgeBg = "var(--bg-surface)";
+          let badgeText = "var(--text-secondary)";
 
-      <div
-        className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 text-xs ${
-          step2Done
-            ? "border-emerald-500/40 bg-emerald-950/20 text-emerald-200"
-            : "border-slate-800 bg-slate-950/60 text-slate-400"
-        }`}
-      >
-        <Lock className="h-4 w-4 shrink-0" />
-        <div className="min-w-0">
-          <p className="font-semibold">2. Diff &amp; Zero-Leakage Gate</p>
-          <p className="truncate font-mono text-[10px] opacity-80">
-            {currentResult
-              ? `${currentResult.spans.filter((s) => s.masked !== false).length} active mask(s)`
-              : "Inline Audit + Manual Selection"}
-          </p>
-        </div>
-      </div>
+          if (step.warn) {
+            borderColor = "var(--warn-border)";
+            bgColor = "var(--warn-bg)";
+            badgeBg = "var(--warn-bg)";
+            badgeText = "var(--warn-text)";
+          } else if (step.done) {
+            borderColor = "var(--safe-border)";
+            bgColor = "var(--safe-bg)";
+            badgeBg = "var(--safe-solid)";
+            badgeText = "#ffffff";
+          } else if (step.active) {
+            borderColor = "var(--accent-soft-border)";
+            bgColor = "var(--accent-soft-bg)";
+            badgeBg = "var(--accent-primary)";
+            badgeText = "#ffffff";
+          }
 
-      <div
-        className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 text-xs ${
-          step3State === "done"
-            ? "border-emerald-500/40 bg-emerald-950/20 text-emerald-200"
-            : step3State === "error"
-              ? "border-rose-500/40 bg-rose-950/30 text-rose-200"
-              : step3State === "pending"
-                ? "border-amber-500/40 bg-amber-950/30 text-amber-200"
-                : "border-slate-800 bg-slate-950/60 text-slate-400"
-        }`}
-      >
-        {step3State === "done" ? (
-          <CheckCircle2 className="h-4 w-4 shrink-0" />
-        ) : step3State === "pending" ? (
-          <Clock className="h-4 w-4 shrink-0" />
-        ) : (
-          <Cloud className="h-4 w-4 shrink-0" />
-        )}
-        <div className="min-w-0">
-          <p className="font-semibold">3. Hybrid Resolution</p>
-          <p className="truncate font-mono text-[10px] opacity-80">
-            {currentResult
-              ? currentResult.resolutionMode
-              : "Local Runbook ($0) / PREFER_IN_CLOUD"}
-          </p>
-        </div>
-      </div>
+          return (
+            <li
+              key={step.num}
+              className="flex items-start gap-3 rounded-xl border p-3 transition-colors"
+              style={{
+                borderColor,
+                backgroundColor: bgColor,
+              }}
+            >
+              <span
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold"
+                style={{
+                  backgroundColor: badgeBg,
+                  color: badgeText,
+                }}
+              >
+                {step.done ? <Icon className="h-4 w-4" aria-hidden="true" /> : step.num}
+              </span>
+              <div className="min-w-0">
+                <p
+                  className="text-sm font-semibold leading-tight"
+                  style={{ color: "var(--text-primary)" }}
+                >
+                  {step.title}
+                </p>
+                <p
+                  className="mt-0.5 text-xs leading-snug"
+                  style={{ color: step.warn ? "var(--warn-text)" : "var(--text-secondary)" }}
+                >
+                  {step.detail}
+                </p>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
     </nav>
   );
 }

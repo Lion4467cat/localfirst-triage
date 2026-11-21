@@ -43,9 +43,22 @@ import {
 import { PipelineStepper } from "./components/PipelineStepper";
 import { RedactionDiff } from "./components/RedactionDiff";
 import { ResolutionPanel } from "./components/ResolutionPanel";
-import { RunbookPolicyModal } from "./components/RunbookPolicyModal";
-import { TelemetryHud } from "./components/TelemetryHud";
+import { TechnicalProofDrawer } from "./components/TechnicalProofDrawer";
+import { TelemetryHud, type WorkspaceView } from "./components/TelemetryHud";
 import { TriageInbox } from "./components/TriageInbox";
+import {
+  HistoryWorkspaceView,
+  PrivacyRulesWorkspaceView,
+  RunbooksWorkspaceView,
+} from "./components/WorkspaceViews";
+import {
+  applyThemePreference,
+  getStoredThemePreference,
+  resolveTheme,
+  subscribeToSystemTheme,
+  type ResolvedTheme,
+  type ThemePreference,
+} from "./config/theme";
 import type {
   CustomRunbook,
   DemoScenario,
@@ -84,7 +97,25 @@ export function App() {
   const [policy, setPolicy] = useState<PrivacyPolicy>(DEFAULT_PRIVACY_POLICY);
   const [runtimeConfig, setRuntimeConfig] =
     useState<RuntimeConfigValues>(DEFAULT_RUNTIME_CONFIG);
-  const [policyModalOpen, setPolicyModalOpen] = useState(false);
+  const [activeView, setActiveView] = useState<WorkspaceView>("triage");
+  const [technicalProofOpen, setTechnicalProofOpen] = useState(false);
+  const [themePreference, setThemePreference] = useState<ThemePreference>(() =>
+    getStoredThemePreference()
+  );
+  const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() =>
+    resolveTheme(getStoredThemePreference())
+  );
+
+  useEffect(() => {
+    setResolvedTheme(applyThemePreference(themePreference, true));
+  }, [themePreference]);
+
+  useEffect(() => {
+    if (themePreference !== "system") return;
+    return subscribeToSystemTheme(() => {
+      setResolvedTheme(applyThemePreference("system", false));
+    });
+  }, [themePreference]);
 
   const volatileSessionMap = useRef<Map<string, TriageResult>>(new Map());
   const escalatedTicketIds = useRef<Set<string>>(new Set());
@@ -651,14 +682,52 @@ export function App() {
   };
 
   const queuedTickets = history.filter((t) => t.queuedForReconnect);
+  const rulesCount = policy.customTerms.length + (policy.enableEntropyScanner ? 1 : 0);
+
+  const handleSaveRunbooks = (updated: CustomRunbook[]) => {
+    setRunbooks(updated);
+    void saveCustomRunbooks(updated);
+    if (authUidRef.current && !offlineModeRef.current) {
+      void syncCustomRunbooksToFirestore(
+        authUidRef.current,
+        updated,
+        customRunbookIdsRef.current,
+        runbookCreatedAtRef.current
+      );
+    }
+  };
+
+  const handleSavePolicy = (updated: PrivacyPolicy) => {
+    setPolicy(updated);
+    void savePrivacyPolicy(updated);
+    if (authUidRef.current && !offlineModeRef.current) {
+      void syncPolicyToFirestore(
+        authUidRef.current,
+        updated,
+        policyCreatedAtRef.current
+      );
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-slate-950 px-4 py-6 text-slate-100 sm:px-6 lg:px-8">
-      <div className="mx-auto flex max-w-6xl flex-col gap-5">
+    <div
+      className="min-h-screen px-3 py-4 sm:px-6 sm:py-6 lg:px-8"
+      style={{
+        backgroundColor: "var(--bg-canvas)",
+        color: "var(--text-primary)",
+      }}
+    >
+      <div className="mx-auto flex max-w-6xl flex-col gap-4 sm:gap-5">
         <TelemetryHud
+          activeView={activeView}
+          onChangeView={setActiveView}
+          historyCount={history.length}
+          rulesCount={rulesCount}
+          runbooksCount={runbooks.length}
+          themePreference={themePreference}
+          resolvedTheme={resolvedTheme}
+          onChangeTheme={setThemePreference}
           telemetry={telemetry}
-          currentResult={currentResult}
-          isRefreshingPolicy={isRefreshingPolicy}
           onToggleOffline={() => {
             setTelemetry((prev) => {
               const nextOffline = !prev.offlineMode;
@@ -679,99 +748,115 @@ export function App() {
               };
             });
           }}
-          onOpenPolicyModal={() => setPolicyModalOpen(true)}
           onWarmupNano={() => void handleWarmupNano()}
-          onRecheckNano={() => void refreshNanoStatus()}
-          onRefreshRemoteConfig={() => void handleRefreshRemoteConfig()}
+          onOpenTechnicalProof={() => setTechnicalProofOpen(true)}
           onSignInAnonymous={() => void handleSignInAnonymous()}
           onSignInGoogle={() => void handleSignInGoogle()}
           onSignOut={() => void handleSignOut()}
         />
 
-        <PipelineStepper currentResult={currentResult} isRunning={isRunning} />
-
-        <div className="grid gap-5 lg:grid-cols-[360px_1fr]">
-          <TriageInbox
-            scenarios={DEMO_SCENARIOS}
-            title={title}
-            rawText={rawText}
-            isRunning={isRunning}
-            offlineMode={telemetry.offlineMode}
-            cloudSyncEnabled={Boolean(telemetry.authUser)}
-            history={history}
-            queuedTickets={queuedTickets}
-            importedFromExtension={importedFromExtension}
-            onTitleChange={setTitle}
-            onRawTextChange={setRawText}
-            onSelectScenario={handleSelectScenario}
-            onRunTriage={() => void handleRunTriage()}
-            onSelectHistory={handleSelectHistory}
-            onClearHistory={() => void handleClearHistory()}
-            onProcessOfflineQueue={() => void handleProcessOfflineQueue()}
-          />
-
-          <main className="flex min-w-0 flex-col gap-5">
-            <div
-              onMouseEnter={() => {
-                if (currentResult?.resolutionMode === "PRE_CLOUD_COUNTDOWN") {
-                  setCountdownPaused(true);
-                }
-              }}
-            >
-              <RedactionDiff
-                rawText={currentResult ? currentResult.rawText : rawText}
-                sanitizedText={currentResult?.sanitizedText ?? ""}
-                spans={currentResult?.spans ?? []}
-                loadedFromZeroPiiStore={Boolean(currentResult?.loadedFromZeroPiiStore)}
-                onToggleSpan={handleToggleSpan}
-                onAddManualSpan={handleAddManualSpan}
-              />
-            </div>
-
-            <ResolutionPanel
+        {activeView === "triage" && (
+          <>
+            <PipelineStepper
               currentResult={currentResult}
               isRunning={isRunning}
-              isGeneratingBrief={isGeneratingBrief}
               offlineMode={telemetry.offlineMode}
-              countdownMs={countdownMs}
-              countdownPaused={countdownPaused}
-              maskDirtySinceCloud={maskDirtySinceCloud}
-              onPauseCountdown={() => setCountdownPaused(true)}
-              onApproveOrRerunCloud={() => void handleApproveOrRerunCloud()}
-              onGenerateHybridBrief={() => void handleGenerateHybridBrief()}
+            />
+
+            <div className="grid gap-5 lg:grid-cols-[380px_1fr]">
+              <TriageInbox
+                scenarios={DEMO_SCENARIOS}
+                title={title}
+                rawText={rawText}
+                isRunning={isRunning}
+                offlineMode={telemetry.offlineMode}
+                queuedTickets={queuedTickets}
+                importedFromExtension={importedFromExtension}
+                onTitleChange={setTitle}
+                onRawTextChange={setRawText}
+                onSelectScenario={handleSelectScenario}
+                onRunTriage={() => void handleRunTriage()}
+                onProcessOfflineQueue={() => void handleProcessOfflineQueue()}
+              />
+
+              <main className="flex min-w-0 flex-col gap-4 sm:gap-5">
+                <div
+                  onMouseEnter={() => {
+                    if (currentResult?.resolutionMode === "PRE_CLOUD_COUNTDOWN") {
+                      setCountdownPaused(true);
+                    }
+                  }}
+                >
+                  <RedactionDiff
+                    rawText={currentResult ? currentResult.rawText : rawText}
+                    sanitizedText={currentResult?.sanitizedText ?? ""}
+                    spans={currentResult?.spans ?? []}
+                    loadedFromZeroPiiStore={Boolean(currentResult?.loadedFromZeroPiiStore)}
+                    onToggleSpan={handleToggleSpan}
+                    onAddManualSpan={handleAddManualSpan}
+                  />
+                </div>
+
+                <ResolutionPanel
+                  currentResult={currentResult}
+                  isRunning={isRunning}
+                  isGeneratingBrief={isGeneratingBrief}
+                  offlineMode={telemetry.offlineMode}
+                  countdownMs={countdownMs}
+                  countdownPaused={countdownPaused}
+                  maskDirtySinceCloud={maskDirtySinceCloud}
+                  onPauseCountdown={() => setCountdownPaused(true)}
+                  onApproveOrRerunCloud={() => void handleApproveOrRerunCloud()}
+                  onGenerateHybridBrief={() => void handleGenerateHybridBrief()}
+                  onOpenTechnicalProof={() => setTechnicalProofOpen(true)}
+                />
+              </main>
+            </div>
+          </>
+        )}
+
+        {activeView === "history" && (
+          <main>
+            <HistoryWorkspaceView
+              history={history}
+              onSelectHistory={(ticket) => {
+                handleSelectHistory(ticket);
+                setActiveView("triage");
+              }}
+              onClearHistory={() => void handleClearHistory()}
             />
           </main>
-        </div>
+        )}
+
+        {activeView === "rules" && (
+          <main>
+            <PrivacyRulesWorkspaceView
+              policy={policy}
+              onSavePolicy={handleSavePolicy}
+            />
+          </main>
+        )}
+
+        {activeView === "runbooks" && (
+          <main>
+            <RunbooksWorkspaceView
+              runbooks={runbooks}
+              onSaveRunbooks={handleSaveRunbooks}
+            />
+          </main>
+        )}
       </div>
 
-      <RunbookPolicyModal
-        open={policyModalOpen}
-        runbooks={runbooks}
-        policy={policy}
-        onClose={() => setPolicyModalOpen(false)}
-        onSaveRunbooks={(updated) => {
-          setRunbooks(updated);
-          void saveCustomRunbooks(updated);
-          if (authUidRef.current && !offlineModeRef.current) {
-            void syncCustomRunbooksToFirestore(
-              authUidRef.current,
-              updated,
-              customRunbookIdsRef.current,
-              runbookCreatedAtRef.current,
-            );
-          }
-        }}
-        onSavePolicy={(updated) => {
-          setPolicy(updated);
-          void savePrivacyPolicy(updated);
-          if (authUidRef.current && !offlineModeRef.current) {
-            void syncPolicyToFirestore(
-              authUidRef.current,
-              updated,
-              policyCreatedAtRef.current,
-            );
-          }
-        }}
+      <TechnicalProofDrawer
+        open={technicalProofOpen}
+        telemetry={telemetry}
+        currentResult={currentResult}
+        runtimeConfig={runtimeConfig}
+        isRefreshingPolicy={isRefreshingPolicy}
+        onClose={() => setTechnicalProofOpen(false)}
+        onRefreshRemoteConfig={() => void handleRefreshRemoteConfig()}
+        onWarmupNano={() => void handleWarmupNano()}
+        onRecheckNano={() => void refreshNanoStatus()}
       />
     </div>
   );
