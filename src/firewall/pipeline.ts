@@ -125,12 +125,14 @@ async function defaultCallCloud(
     };
   }
 
-  const candidateModels = [...new Set([config.cloudModel, config.cloudFallbackModel].filter(Boolean))];
+  const candidateModels = [
+    ...new Set([config.cloudModel, config.cloudFallbackModel, "gemini-2.5-flash"].filter(Boolean)),
+  ];
   let lastError = "Unknown Cloud error";
 
   for (const modelName of candidateModels) {
+    const model = createCloudEscalationModel(ai, modelName, SRE_SYSTEM_INSTRUCTION);
     try {
-      const model = createCloudEscalationModel(ai, modelName, SRE_SYSTEM_INSTRUCTION);
       if (typeof model.generateContentStream === "function") {
         const streamResult = await model.generateContentStream(sanitizedPrompt);
         let accumulated = "";
@@ -160,6 +162,25 @@ async function defaultCallCloud(
       };
     } catch (err) {
       lastError = err instanceof Error ? err.message : String(err);
+      // If SSE stream parsing or transient 500/503 failed, immediately fall back to unary generateContent on the same model
+      if (
+        typeof model.generateContent === "function" &&
+        /parse-failed|stream|500|503|high demand/i.test(lastError)
+      ) {
+        try {
+          const unaryRes = await model.generateContent(sanitizedPrompt);
+          const text = unaryRes.response.text();
+          onStreamChunk?.(text);
+          return {
+            ok: true,
+            text,
+            inferenceSource: normalizeSdkInferenceSource(unaryRes.response, "IN_CLOUD"),
+            modelUsed: modelName,
+          };
+        } catch (retryErr) {
+          lastError = retryErr instanceof Error ? retryErr.message : String(retryErr);
+        }
+      }
       console.warn(`[LocalFirst Triage] Cloud model "${modelName}" failed:`, lastError);
     }
   }
