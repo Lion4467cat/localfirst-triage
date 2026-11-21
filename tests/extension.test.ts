@@ -62,6 +62,16 @@ describe("Chrome Extension MV3 companion", () => {
     const handoffUrl = buildSanitizedHandoffUrl("GitHub Issue", sanitizedText);
     expect(handoffUrl).toContain("https://para-1-2e22b.web.app/#handoff=");
     expect(handoffUrl).not.toContain("AKIAIOSFODNN7EXAMPLE");
+
+    // Verify 100% contextual & entropy rule parity with src/firewall/regexScrubber.ts
+    const paritySample =
+      "MRN: 994812 | admin password=SuperSecretMixed123456! | Customer (Jane Doe at 42 MG Road) | token=AbCdEfGhIjKlMnOp1234";
+    const paritySpans = runLocalDeterministicScan(paritySample, true);
+    const categories = paritySpans.map((s: { category: string }) => s.category);
+    expect(categories).toContain("CONTEXTUAL_PHI");
+    expect(categories).toContain("NATURAL_SECRET");
+    expect(categories).toContain("PERSONAL_PII_LOCATION");
+    expect(categories).toContain("HIGH_ENTROPY_SECRET");
   });
 
   it("handles Unicode characters in Chrome Extension -> Web PWA handoff encoding", async () => {

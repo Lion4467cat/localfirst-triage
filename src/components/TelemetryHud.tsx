@@ -12,6 +12,7 @@ import {
   Shield,
   Wifi,
 } from "lucide-react";
+import { getLastNanoDiagnostic } from "../firewall/nanoExtractor";
 import type { HybridTelemetry, TriageResult } from "../types/triage";
 
 interface TelemetryHudProps {
@@ -185,6 +186,11 @@ export function TelemetryHud({
               Deterministic Regex + Shannon Entropy + Heuristic Guard active with Fail-Closed
               Quarantine before Cloud Escalation (
               <code className="font-mono">{telemetry.activeCloudModel}</code>).
+              {getLastNanoDiagnostic() && (
+                <span className="ml-2 inline-block rounded border border-amber-400/40 bg-amber-900/50 px-1.5 py-0.5 font-mono text-[10px] text-amber-100">
+                  {getLastNanoDiagnostic()}
+                </span>
+              )}
             </span>
             <div className="flex items-center gap-2">
               <button

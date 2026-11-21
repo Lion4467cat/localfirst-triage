@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "LocalFirst Triage — Privacy Firewall",
-  "version": "1.0.0",
+  "version": "3.0.0",
   "description": "Sanitize Jira, GitHub, Zendesk, and PagerDuty incidents locally with Chrome Gemini Nano 4 before escalating to Firebase AI Logic.",
   "icons": {
     "16": "icons/icon-16.png",
@@ -30,6 +30,8 @@
     "https://*.zendesk.com/*",
     "https://*.pagerduty.com/*",
     "https://*.linear.app/*",
-    "https://para-1-2e22b.web.app/*"
+    "https://para-1-2e22b.web.app/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
   ]
 }

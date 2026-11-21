@@ -32,7 +32,7 @@ export interface RuntimeConfigValues {
 
 export const DEFAULT_RUNTIME_CONFIG: RuntimeConfigValues = {
   cloudModel: "gemini-3.5-flash-lite",
-  cloudFallbackModel: "gemini-3.8-flash",
+  cloudFallbackModel: "gemini-2.5-flash",
   enableCloudEscalation: true,
   source: "DEFAULT_FALLBACK",
 };
@@ -279,17 +279,21 @@ export async function warmupOnDeviceModel(
       };
     };
     if (g.LanguageModel?.create) {
-      const session = await g.LanguageModel.create({
-        ...TEXT_ONLY_ON_DEVICE_CREATE_OPTIONS,
-        monitor(m) {
-          m.addEventListener("downloadprogress", (e) => {
-            onProgress?.(Math.max(0, Math.min(100, Math.round(e.loaded * 100))));
-          });
-        },
-      });
-      session?.destroy?.();
-      onProgress?.(100);
-      return { ok: true };
+      let session: { destroy?: () => void } | undefined;
+      try {
+        session = await g.LanguageModel.create({
+          ...TEXT_ONLY_ON_DEVICE_CREATE_OPTIONS,
+          monitor(m) {
+            m.addEventListener("downloadprogress", (e) => {
+              onProgress?.(Math.max(0, Math.min(100, Math.round(e.loaded * 100))));
+            });
+          },
+        });
+        onProgress?.(100);
+        return { ok: true };
+      } finally {
+        session?.destroy?.();
+      }
     }
 
     return {

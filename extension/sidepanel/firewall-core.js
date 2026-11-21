@@ -101,7 +101,7 @@ const CONTEXTUAL_RULES = [
     category: "CONTEXTUAL_PHI",
     detector: "HEURISTIC_GUARD",
     pattern:
-      /\b(?:(?:admitted to|discharged from|diagnosed with|treated at|hospitalized at|undergoing)\s+[^.\n;]{3,70}|(?:patient|daughter|son|wife|husband|mother|father)\b[^.\n;]{0,55}\b(?:ICU|ER|NICU|ward|hospital|clinic|chemo|chemotherapy|surgery|seizure|oncology|cardiology|biopsy|MRN|prescription)\b[^.\n;]{0,40})/gi,
+      /\b(?:(?:admitted to|discharged from|diagnosed with|treated at|hospitalized at|undergoing)\s+[^.\n;]{3,70}|(?:patient|daughter|son|wife|husband|mother|father)\b[^.\n;]{0,55}\b(?:ICU|ER|NICU|ward|hospital|clinic|chemo|chemotherapy|surgery|seizure|oncology|cardiology|biopsy|MRN|prescription)\b[^.\n;]{0,40}|(?:MRN|DOB|diagnosis)\s*[:#]\s*[^\n,;]+)/gi,
   },
   {
     category: "M_AND_A_SECRET",
@@ -113,7 +113,13 @@ const CONTEXTUAL_RULES = [
     category: "NATURAL_SECRET",
     detector: "HEURISTIC_GUARD",
     pattern:
-      /\b(?:(?:log\s*in|sign\s*in|unlock|authenticate)\s+using\s+[^.\n'"]{4,80}|(?:password|passcode|passphrase|pin|credentials?)\s+(?:is|was|are|:)\s+[^.\n'"]{3,80})/gi,
+      /\b(?:(?:log\s*in|sign\s*in|unlock|authenticate)\s+using\s+[^.\n'"]{4,80}|(?:password|passcode|passphrase|pin|credentials?)\s+(?:is|was|are|:)\s+[^.\n'"]{3,80}|(?:admin|root|prod)\s+(?:password|passphrase)\s*[:=]\s*[^\s,;]+)/gi,
+  },
+  {
+    category: "PERSONAL_PII_LOCATION",
+    detector: "HEURISTIC_GUARD",
+    pattern:
+      /(?:\b(?:lives?\s+(?:near|at|on|in)|home\s+address|resides?\s+at)\s+[A-Z0-9][^.\n;)]{3,60}|\b(?:VP|CEO|CFO|CTO|Director|Customer|Client|Patient)\s+(?:of\s+[A-Za-z]+\s+)?\([A-Z][a-z]+\s+[A-Z][a-z]+[^)\n]{0,60}\))/g,
   },
 ];
 
@@ -150,7 +156,11 @@ export function runLocalDeterministicScan(text, includeHeuristics = true) {
   let eMatch;
   while ((eMatch = assignmentRegex.exec(text)) !== null) {
     const val = eMatch[1];
-    if (val && shannonEntropy(val) >= 3.25) {
+    if (!val || val.startsWith("[REDACTED:")) continue;
+    const entropy = shannonEntropy(val);
+    const hasMixedClasses =
+      /[a-z]/.test(val) && (/[A-Z0-9_-]/.test(val) || /[^a-zA-Z0-9]/.test(val));
+    if (entropy >= 3.25 || (val.length >= 16 && hasMixedClasses)) {
       const start = eMatch.index + Math.max(0, eMatch[0].lastIndexOf(val));
       spans.push({
         start,

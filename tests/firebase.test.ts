@@ -28,14 +28,14 @@ describe("firebase SDK & App Check config", () => {
 
   it("passes inCloudParams.model (and zero top-level model) to getGenerativeModel in PREFER_IN_CLOUD", () => {
     const fakeAi = {} as AI;
-    createCloudEscalationModel(fakeAi, "gemini-3.8-flash", "System prompt");
+    createCloudEscalationModel(fakeAi, "gemini-2.5-flash", "System prompt");
 
     expect(getGenerativeModelMock).toHaveBeenCalledTimes(1);
     const passedParams = getGenerativeModelMock.mock.calls[0][1] as Record<string, unknown>;
     expect(passedParams.mode).toBe(InferenceMode.PREFER_IN_CLOUD);
     expect(passedParams.model).toBeUndefined();
     expect(passedParams.inCloudParams).toEqual({
-      model: "gemini-3.8-flash",
+      model: "gemini-2.5-flash",
       systemInstruction: "System prompt",
     });
     expect(passedParams.onDeviceParams).toEqual({

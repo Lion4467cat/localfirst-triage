@@ -113,7 +113,7 @@ async function main() {
     await page.waitForSelector("text=Source: LOCAL_FALLBACK");
 
     await page.getByRole("button", { name: /Zero-Leakage Proof/i }).click();
-    await page.waitForSelector("text=LOCAL-ONLY EXECUTION");
+    await page.waitForSelector("text=ZERO-LEAKAGE VERIFIED: 0 /");
 
     await page.getByRole("button", { name: /Export & Handoff/i }).click();
     await page.waitForSelector("text=Download Audit JSON");

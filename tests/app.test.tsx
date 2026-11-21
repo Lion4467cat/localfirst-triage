@@ -91,7 +91,7 @@ describe("App integration", () => {
     await findByText(/Fail-Closed Quarantine/i);
 
     fireEvent.click(getByRole("button", { name: /Zero-Leakage Proof/i }));
-    expect(await findByText(/LOCAL-ONLY EXECUTION/i)).toBeTruthy();
+    expect(await findByText(/ZERO-LEAKAGE VERIFIED: 0 \//i)).toBeTruthy();
 
     fireEvent.click(getByRole("button", { name: /Export & Handoff/i }));
     expect(await findByText(/Download Audit JSON/i)).toBeTruthy();

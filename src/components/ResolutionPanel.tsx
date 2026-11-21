@@ -17,6 +17,8 @@ import {
   exportAuditReportJson,
   exportAuditReportMarkdown,
 } from "../storage/ticketStore";
+import { buildOutboundCloudPrompt } from "../firewall/pipeline";
+import { verifyZeroLeakage } from "../firewall/spanMerger";
 import type { TriageResult } from "../types/triage";
 
 interface ResolutionPanelProps {
@@ -345,34 +347,45 @@ export function ResolutionPanel({
         </>
       )}
 
-      {currentResult && activeTab === "proof" && (
-        <div className="space-y-3 text-xs">
-          <div className="flex items-center justify-between rounded-lg border border-emerald-500/40 bg-emerald-950/30 p-3 text-emerald-200">
-            <span className="inline-flex items-center gap-2 font-semibold">
-              <ShieldCheck className="h-4 w-4 text-emerald-400" />
-              <span>
-                {currentResult.zeroLeakageAudit
-                  ? currentResult.zeroLeakageAudit.verified
-                    ? `ZERO-LEAKAGE VERIFIED: 0 / ${currentResult.zeroLeakageAudit.checkedSpansCount} active raw secrets present in outbound Cloud prompt`
-                    : `ALERT: ${currentResult.zeroLeakageAudit.leakedSpansCount} unmasked secrets blocked before Cloud dispatch`
-                  : `LOCAL-ONLY EXECUTION: Stage 2 Cloud was skipped (${currentResult.stage2Source})`}
+      {currentResult && activeTab === "proof" && (() => {
+        const activeMaskCount = currentResult.spans.filter((s) => s.masked !== false).length;
+        const proofAudit =
+          currentResult.zeroLeakageAudit ??
+          verifyZeroLeakage(
+            buildOutboundCloudPrompt(
+              currentResult.severity,
+              currentResult.category,
+              currentResult.sanitizedText,
+            ),
+            currentResult.spans,
+          );
+        return (
+          <div className="space-y-3 text-xs">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-500/40 bg-emerald-950/30 p-3 text-emerald-200">
+              <span className="inline-flex items-center gap-2 font-semibold">
+                <ShieldCheck className="h-4 w-4 text-emerald-400" />
+                <span>
+                  {proofAudit.verified
+                    ? `ZERO-LEAKAGE VERIFIED: 0 / ${proofAudit.checkedSpansCount} raw secrets leaked (${activeMaskCount} active mask(s))`
+                    : `ALERT: ${proofAudit.leakedSpansCount} unmasked secrets blocked before Cloud dispatch`}
+                </span>
               </span>
-            </span>
-            <span className="font-mono text-[11px]">
-              Saved ~{currentResult.estimatedTokensSaved} tokens
-            </span>
-          </div>
+              <span className="font-mono text-[11px]">
+                Stage 2: {currentResult.stage2Source} · Saved ~{currentResult.estimatedTokensSaved} tokens
+              </span>
+            </div>
 
-          <div className="rounded-lg border border-slate-800 bg-slate-950/80 p-3">
-            <p className="mb-1.5 font-semibold text-slate-300">
-              Exact Outbound / Sanitized Payload Preview:
-            </p>
-            <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] text-emerald-200">
-              {currentResult.zeroLeakageAudit?.outboundPromptPreview ?? currentResult.sanitizedText}
-            </pre>
+            <div className="rounded-lg border border-slate-800 bg-slate-950/80 p-3">
+              <p className="mb-1.5 font-semibold text-slate-300">
+                Exact Outbound / Sanitized Payload Preview ({activeMaskCount} active mask(s)):
+              </p>
+              <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] text-emerald-200">
+                {proofAudit.outboundPromptPreview}
+              </pre>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {currentResult && activeTab === "export" && (
         <div className="space-y-3 text-xs">

@@ -51,7 +51,7 @@ export const NANO_EXTRACTION_SCHEMA = {
   type: "object",
   properties: {
     severity: { type: "string", enum: ["P0", "P1", "P2", "P3"] },
-    runbookId: { type: ["string", "null"] },
+    runbookId: { type: "string" },
     entities: {
       type: "array",
       items: {
@@ -64,8 +64,24 @@ export const NANO_EXTRACTION_SCHEMA = {
       },
     },
   },
-  required: ["severity", "runbookId", "entities"],
+  required: ["severity", "entities"],
 };
+
+let activeNanoSessionMutex: Promise<void> = Promise.resolve();
+let lastNanoDiagnostic: string | null = null;
+
+export function getLastNanoDiagnostic(): string | null {
+  return lastNanoDiagnostic;
+}
+
+function serializeNanoSession<T>(work: () => Promise<T>): Promise<T> {
+  const next = activeNanoSessionMutex.then(work, work);
+  activeNanoSessionMutex = next.then(
+    () => undefined,
+    () => undefined,
+  );
+  return next;
+}
 
 export function stripStackFrames(text: string): string {
   // Remove ONLY pure call-site stack frame lines and hex pointer lines;
@@ -170,7 +186,8 @@ export function parseDefensiveSemanticJson(raw: string): ParsedNanoPayload {
     const runbookId =
       typeof parsed.runbookId === "string" &&
       parsed.runbookId.trim() &&
-      parsed.runbookId.trim().toLowerCase() !== "null"
+      parsed.runbookId.trim().toLowerCase() !== "null" &&
+      parsed.runbookId.trim().toLowerCase() !== "none"
         ? parsed.runbookId.trim()
         : null;
 
@@ -237,20 +254,53 @@ export async function checkChromeNanoAvailability(): Promise<ChromeRawAvailabili
 }
 
 async function defaultCallNanoOnDevice(prompt: string): Promise<string> {
-  const ai = getHybridAI();
-  if (!ai) {
-    throw new Error("Firebase AI not configured");
-  }
-  try {
-    const model = createOnDeviceFirewallModel(ai, NANO_EXTRACTION_SCHEMA);
-    const result = await model.generateContent(prompt);
-    return result.response.text();
-  } catch {
-    // Fallback for Chrome builds rejecting responseConstraint while staying strictly ONLY_ON_DEVICE
-    const model = createOnDeviceFirewallModel(ai);
-    const result = await model.generateContent(prompt);
-    return result.response.text();
-  }
+  return serializeNanoSession(async () => {
+    const g = globalThis as unknown as {
+      LanguageModel?: {
+        create?: (options?: unknown) => Promise<{
+          prompt: (input: string) => Promise<string>;
+          destroy?: () => void;
+        }>;
+      };
+    };
+
+    const ai = getHybridAI();
+    if (ai) {
+      try {
+        // Call without complex union schema constraint first to prevent Chrome 154
+        // LiteRtWebGpuAccelerator grammar constraint crashes while staying strictly ONLY_ON_DEVICE
+        const model = createOnDeviceFirewallModel(ai);
+        const result = await model.generateContent(prompt);
+        lastNanoDiagnostic = null;
+        return result.response.text();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (/crashed too many times|unable to create a session|NotSupportedError/i.test(msg)) {
+          lastNanoDiagnostic =
+            "Chrome On-Device GPU worker reset required (chrome://on-device-internals) — Fail-Closed Guard Active";
+          throw err;
+        }
+        if (!g.LanguageModel?.create) {
+          throw err;
+        }
+      }
+    }
+
+    if (!g.LanguageModel?.create) {
+      throw new Error("Firebase AI not configured");
+    }
+
+    let session: { prompt: (input: string) => Promise<string>; destroy?: () => void } | null =
+      null;
+    try {
+      session = await g.LanguageModel.create(TEXT_ONLY_ON_DEVICE_CREATE_OPTIONS);
+      const output = await session.prompt(prompt);
+      lastNanoDiagnostic = null;
+      return output;
+    } finally {
+      session?.destroy?.();
+    }
+  });
 }
 
 function heuristicSeverity(text: string): Severity {
@@ -381,6 +431,7 @@ export async function extractSemanticSecretsWithNano(
     const finalRunbookId =
       bestSeverity === "P2" || bestSeverity === "P3" ? candidateRunbookId : null;
 
+    lastNanoDiagnostic = null;
     return {
       nanoStatus: "READY",
       inferenceSource: "ON_DEVICE",
@@ -389,7 +440,12 @@ export async function extractSemanticSecretsWithNano(
       category: finalRunbookId ?? "GENERAL_INCIDENT",
       spans: buildSemanticSpans(text, allItems),
     };
-  } catch {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/crashed too many times|unable to create a session|NotSupportedError/i.test(msg)) {
+      lastNanoDiagnostic =
+        "Chrome On-Device GPU worker reset required (chrome://on-device-internals) — Fail-Closed Guard Active";
+    }
     return {
       nanoStatus: "UNAVAILABLE",
       inferenceSource: "LOCAL_REGEX_FALLBACK",
