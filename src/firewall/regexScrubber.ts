@@ -167,8 +167,12 @@ export function detectRegexSpans(text: string): RedactionSpan[] {
   return runRules(text, DETERMINISTIC_REGEX_RULES, 1);
 }
 
-export function detectHighEntropySecrets(text: string): RedactionSpan[] {
+export function detectHighEntropySecrets(
+  text: string,
+  entropyThreshold = 3.25,
+): RedactionSpan[] {
   const spans: RedactionSpan[] = [];
+  const normalizedThreshold = Number.isFinite(entropyThreshold) ? entropyThreshold : 3.25;
   const assignmentRegex =
     /\b(?:api[_-]?key|x[_-]?api[_-]?key|secret|token|access[_-]?token|refresh[_-]?token|session[_-]?token|id[_-]?token|password|passwd|pwd|client[_-]?secret|signing[_-]?key|webhook[_-]?secret|private[_-]?key|auth[_-]?secret)\\?["']?\s*(?:[:=]|%3D)\s*\\?["']?([^\s"',;\\]{12,})\\?["']?/gi;
   let counter = 50;
@@ -179,9 +183,14 @@ export function detectHighEntropySecrets(text: string): RedactionSpan[] {
     if (!secretValue || secretValue.startsWith("[REDACTED:")) continue;
     const entropy = shannonEntropy(secretValue);
     const hasMixedClasses =
-      /[a-z]/.test(secretValue) && (/[A-Z0-9_-]/.test(secretValue) || /[^a-zA-Z0-9]/.test(secretValue));
+      /[a-z]/.test(secretValue) &&
+      (/[A-Z0-9_-]/.test(secretValue) || /[^a-zA-Z0-9]/.test(secretValue));
 
-    if (entropy >= 3.25 || (secretValue.length >= 16 && hasMixedClasses)) {
+    const meetsThreshold =
+      entropy >= normalizedThreshold ||
+      (normalizedThreshold <= 3.25 && secretValue.length >= 16 && hasMixedClasses);
+
+    if (meetsThreshold) {
       const valueOffset = match[0].lastIndexOf(secretValue);
       const start = match.index + Math.max(0, valueOffset);
       const end = start + secretValue.length;
@@ -204,10 +213,15 @@ export function detectContextualHeuristicSpans(text: string): RedactionSpan[] {
   return runRules(text, CONTEXTUAL_HEURISTIC_RULES, 100);
 }
 
-export function detectPolicyTermSpans(text: string, customTerms: string[]): RedactionSpan[] {
+export function detectPolicyTermSpans(
+  text: string,
+  customTerms: string[],
+  category = "POLICY_TERM",
+  startCounter = 200,
+): RedactionSpan[] {
   if (!customTerms || customTerms.length === 0) return [];
   const spans: RedactionSpan[] = [];
-  let counter = 200;
+  let counter = startCounter;
 
   for (const rawTerm of customTerms) {
     const term = rawTerm.trim();
@@ -222,9 +236,9 @@ export function detectPolicyTermSpans(text: string, customTerms: string[]): Reda
       spans.push({
         start: match.index,
         end: match.index + match[0].length,
-        category: "POLICY_TERM",
+        category,
         detector: "POLICY_TERM",
-        placeholder: `[REDACTED:POLICY_TERM_${counter++}]`,
+        placeholder: `[REDACTED:${category}_${counter++}]`,
         matchedText: match[0],
         masked: true,
       });
@@ -237,13 +251,15 @@ export function detectPolicyTermSpans(text: string, customTerms: string[]): Reda
 export interface LocalFirewallScanOptions {
   includeHeuristics?: boolean;
   enableEntropyScanner?: boolean;
+  entropyThreshold?: number;
   customTerms?: string[];
+  remoteBlockedTerms?: string[];
   extraSpans?: RedactionSpan[];
 }
 
 /**
  * Deepened LocalFirewall interface: executes all deterministic on-device detectors
- * (Regex + Luhn, Shannon Entropy, Policy Terms, optional Contextual Heuristics)
+ * (Regex + Luhn, Shannon Entropy, Policy Terms, Remote Policy Terms, optional Contextual Heuristics)
  * and merges overlapping intervals behind a single module seam.
  */
 export function scanAndRedactLocal(
@@ -252,9 +268,14 @@ export function scanAndRedactLocal(
 ): { sanitizedText: string; mergedSpans: RedactionSpan[] } {
   const regexSpans = detectRegexSpans(rawText);
   const entropySpans =
-    options.enableEntropyScanner === false ? [] : detectHighEntropySecrets(rawText);
+    options.enableEntropyScanner === false
+      ? []
+      : detectHighEntropySecrets(rawText, options.entropyThreshold ?? 3.25);
   const policySpans = options.customTerms?.length
-    ? detectPolicyTermSpans(rawText, options.customTerms)
+    ? detectPolicyTermSpans(rawText, options.customTerms, "POLICY_TERM", 200)
+    : [];
+  const remotePolicySpans = options.remoteBlockedTerms?.length
+    ? detectPolicyTermSpans(rawText, options.remoteBlockedTerms, "REMOTE_POLICY", 300)
     : [];
   const heuristicSpans = options.includeHeuristics ? detectContextualHeuristicSpans(rawText) : [];
   const extraSpans = options.extraSpans ?? [];
@@ -263,6 +284,7 @@ export function scanAndRedactLocal(
     ...regexSpans,
     ...entropySpans,
     ...policySpans,
+    ...remotePolicySpans,
     ...heuristicSpans,
     ...extraSpans,
   ]);

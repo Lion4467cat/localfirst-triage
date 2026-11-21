@@ -425,4 +425,49 @@ describe("pipeline", () => {
     const secondEsc = recordCloudEscalationTelemetry(firstEsc, cloudResult, escalatedIds);
     expect(secondEsc.cloudEscalatedCount).toBe(1);
   });
+
+  it("tags imported extension tickets with sourcePlatform CHROME_EXTENSION, preserves immutable createdAt, and redacts Remote Config terms", async () => {
+    const extResult = await runTriagePipeline(
+      {
+        id: "t-ext-1",
+        title: "Extension Capture",
+        rawText: "P0 alert touching Project-Apollo and secret AKIAIOSFODNN7EXAMPLE",
+        offlineMode: false,
+        importedFromExtension: true,
+        runtimeConfig: {
+          cloudModel: "gemini-3.5-flash-lite",
+          cloudFallbackModel: "gemini-2.5-flash",
+          enableCloudEscalation: true,
+          entropyThreshold: 3.1,
+          enterpriseBlockedTerms: ["Project-Apollo"],
+        },
+      },
+      {
+        extractWithNano: async () => ({
+          nanoStatus: "UNAVAILABLE",
+          inferenceSource: "LOCAL_REGEX_FALLBACK",
+          severity: "P0",
+          runbookId: null,
+          category: "SECURITY",
+          spans: [],
+        }),
+      },
+    );
+
+    expect(extResult.sourcePlatform).toBe("CHROME_EXTENSION");
+    expect(extResult.sanitizedText).toContain("[REDACTED:REMOTE_POLICY_");
+    expect(extResult.sanitizedText).not.toContain("Project-Apollo");
+
+    const escalated = await escalateApprovedTicket(extResult, extResult.spans, {
+      callCloud: async () => ({
+        ok: true,
+        text: "Escalated cleanly.",
+        inferenceSource: "IN_CLOUD",
+        modelUsed: "gemini-3.5-flash-lite",
+      }),
+    });
+
+    expect(escalated.createdAt).toBe(extResult.createdAt);
+    expect(escalated.sourcePlatform).toBe("CHROME_EXTENSION");
+  });
 });

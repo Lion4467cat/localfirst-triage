@@ -66,6 +66,14 @@ async function main() {
       throw new Error(`Unexpected H1: ${heading}`);
     }
 
+    // 0. Verify Remote Config provenance pill & Cloud Sync (Zero-PII) controls
+    await page.waitForSelector("text=Cloud Sync (Zero-PII):");
+    await page.waitForSelector("text=Local-Only (IndexedDB)");
+    await page.getByRole("button", { name: /Enable Cloud Sync \(Guest\)/i }).waitFor();
+    await page.getByRole("button", { name: /Sign In with Google/i }).waitFor();
+    await page.waitForSelector("text=entropy>=3.25");
+    await page.getByRole("button", { name: /Refresh Policy/i }).click();
+
     // 1. Verify PWA manifest & icons return 200 OK
     for (const assetPath of ["manifest.json", "icons/icon-192.png", "icons/icon-512.png"]) {
       const status = await page.evaluate(async (p) => {
@@ -118,7 +126,7 @@ async function main() {
     await page.getByRole("button", { name: /Export & Handoff/i }).click();
     await page.waitForSelector("text=Download Audit JSON");
 
-    // 7. Test Chrome Extension #handoff import clears URL hash
+    // 7. Test Chrome Extension #handoff import clears URL hash and tags EXT platform badge
     const handoffPayload = Buffer.from(
       JSON.stringify({
         title: "Extension Capture",
@@ -130,6 +138,8 @@ async function main() {
     if (new URL(page.url()).hash) {
       throw new Error(`Expected URL hash to be cleared, got ${page.url()}`);
     }
+    await page.getByRole("button", { name: /Run Hybrid Triage/i }).click();
+    await page.waitForSelector("text=EXT");
 
     // 8. Verify XSS immunity (<script> and javascript: payloads render as inert text)
     await page.locator("#ticket-body").fill(

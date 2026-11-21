@@ -163,4 +163,26 @@ describe("regexScrubber", () => {
     expect(decoded?.sanitizedText).not.toContain("AKIAIOSFODNN7EXAMPLE");
     expect(decoded?.sanitizedText).toContain("[REDACTED:AWS_ACCESS_KEY_");
   });
+
+  it("applies dynamic Remote Config entropyThreshold and enterprise remoteBlockedTerms", () => {
+    const lowEntropyPayload =
+      "api_key=aaabbbcccdddeeefffgg\nAffected internal initiative: Project-Apollo and Project-Valkyrie.";
+
+    // Default entropyThreshold (3.25) skips the repetitive 20-char lowercase string (entropy ~2.78)
+    const defaultScan = scanAndRedactLocal(lowEntropyPayload, {
+      entropyThreshold: 3.25,
+    });
+    expect(defaultScan.sanitizedText).toContain("aaabbbcccdddeeefffgg");
+
+    // Hardened Remote Config (entropyThreshold: 2.5 + remoteBlockedTerms) catches both without redeploying
+    const hardenedScan = scanAndRedactLocal(lowEntropyPayload, {
+      entropyThreshold: 2.5,
+      remoteBlockedTerms: ["Project-Apollo", "Project-Valkyrie"],
+    });
+    expect(hardenedScan.sanitizedText).not.toContain("aaabbbcccdddeeefffgg");
+    expect(hardenedScan.sanitizedText).toContain("[REDACTED:HIGH_ENTROPY_SECRET_");
+    expect(hardenedScan.sanitizedText).not.toContain("Project-Apollo");
+    expect(hardenedScan.sanitizedText).not.toContain("Project-Valkyrie");
+    expect(hardenedScan.sanitizedText).toContain("[REDACTED:REMOTE_POLICY_");
+  });
 });

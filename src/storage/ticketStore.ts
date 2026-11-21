@@ -91,8 +91,17 @@ export function sanitizeStoredTicket(raw: unknown): TriageResult | null {
     zeroLeakageAudit: candidate.zeroLeakageAudit ?? null,
     hybridBrief: candidate.hybridBrief ?? null,
     importedFromExtension: Boolean(candidate.importedFromExtension),
+    sourcePlatform:
+      candidate.sourcePlatform === "WEB" ||
+      candidate.sourcePlatform === "CHROME_EXTENSION" ||
+      candidate.sourcePlatform === "ANDROID"
+        ? candidate.sourcePlatform
+        : candidate.importedFromExtension
+          ? "CHROME_EXTENSION"
+          : "WEB",
     queuedForReconnect: Boolean(candidate.queuedForReconnect),
     loadedFromZeroPiiStore: true,
+    updatedAt: typeof candidate.updatedAt === "number" ? candidate.updatedAt : undefined,
   };
 }
 
@@ -320,6 +329,8 @@ export function exportAuditReportJson(result: TriageResult): string {
       title: zeroPii.title,
       severity: zeroPii.severity,
       category: zeroPii.category,
+      sourcePlatform:
+        zeroPii.sourcePlatform ?? (zeroPii.importedFromExtension ? "CHROME_EXTENSION" : "WEB"),
       resolutionMode: zeroPii.resolutionMode,
       inferenceSource: zeroPii.inferenceSource,
       stage1Source: zeroPii.stage1Source,

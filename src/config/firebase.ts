@@ -4,6 +4,7 @@ import {
   ReCaptchaEnterpriseProvider,
   ReCaptchaV3Provider,
 } from "firebase/app-check";
+import { getAuth, type Auth } from "firebase/auth";
 import {
   getAI,
   getGenerativeModel,
@@ -14,9 +15,11 @@ import {
   type GenerativeModel,
   type LanguageModelCreateOptions,
 } from "firebase/ai";
+import { getFirestore, type Firestore } from "firebase/firestore";
 import {
   fetchAndActivate,
   getBoolean,
+  getNumber,
   getRemoteConfig,
   getString,
   type RemoteConfig,
@@ -27,6 +30,8 @@ export interface RuntimeConfigValues {
   cloudModel: string;
   cloudFallbackModel: string;
   enableCloudEscalation: boolean;
+  entropyThreshold?: number;
+  enterpriseBlockedTerms?: string[];
   source?: RemoteConfigSource;
 }
 
@@ -34,6 +39,8 @@ export const DEFAULT_RUNTIME_CONFIG: RuntimeConfigValues = {
   cloudModel: "gemini-3.5-flash-lite",
   cloudFallbackModel: "gemini-2.5-flash",
   enableCloudEscalation: true,
+  entropyThreshold: 3.25,
+  enterpriseBlockedTerms: ["Project-Apollo", "Project-Valkyrie"],
   source: "DEFAULT_FALLBACK",
 };
 
@@ -57,6 +64,8 @@ const firebaseConfig = {
 
 let cachedApp: FirebaseApp | null = null;
 let cachedAI: AI | null = null;
+let cachedAuth: Auth | null = null;
+let cachedFirestore: Firestore | null = null;
 let cachedRemoteConfig: RemoteConfig | null = null;
 let appCheckInitialized = false;
 let activeAppCheckProvider: AppCheckProviderKind = "UNCONFIGURED";
@@ -192,6 +201,30 @@ export function getHybridAI(): AI | null {
   return cachedAI;
 }
 
+export function getFirebaseAuth(): Auth | null {
+  const app = getFirebaseApp();
+  if (!app) {
+    return null;
+  }
+  initAppCheckIfConfigured(app);
+  if (!cachedAuth) {
+    cachedAuth = getAuth(app);
+  }
+  return cachedAuth;
+}
+
+export function getFirebaseFirestore(): Firestore | null {
+  const app = getFirebaseApp();
+  if (!app) {
+    return null;
+  }
+  initAppCheckIfConfigured(app);
+  if (!cachedFirestore) {
+    cachedFirestore = getFirestore(app);
+  }
+  return cachedFirestore;
+}
+
 export function createOnDeviceFirewallModel(
   ai: AI,
   responseConstraint?: object,
@@ -308,33 +341,99 @@ export async function warmupOnDeviceModel(
   }
 }
 
-export async function loadRuntimeConfig(timeoutMs = 3500): Promise<RuntimeConfigValues> {
-  const app = getFirebaseApp();
-  if (!app) {
+export function clampEntropyThreshold(raw: number): number {
+  if (!Number.isFinite(raw) || raw < 2.0 || raw > 5.5) {
+    return DEFAULT_RUNTIME_CONFIG.entropyThreshold ?? 3.25;
+  }
+  return Math.round(raw * 100) / 100;
+}
+
+export function parseEnterpriseBlockedTerms(raw: string): string[] {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return [...(DEFAULT_RUNTIME_CONFIG.enterpriseBlockedTerms ?? [])];
+  }
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    if (!Array.isArray(parsed)) {
+      return [...(DEFAULT_RUNTIME_CONFIG.enterpriseBlockedTerms ?? [])];
+    }
+    const clean = parsed
+      .filter((item): item is string => typeof item === "string")
+      .map((item) => item.trim())
+      .filter((item) => item.length >= 3);
+    return Array.from(new Set(clean)).slice(0, 200);
+  } catch {
+    return [...(DEFAULT_RUNTIME_CONFIG.enterpriseBlockedTerms ?? [])];
+  }
+}
+
+export interface RuntimeConfigReaderDeps {
+  getRemoteConfigInstance?: () => RemoteConfig;
+  fetchAndActivateFn?: (rc: RemoteConfig) => Promise<boolean>;
+  getStringFn?: (rc: RemoteConfig, key: string) => string;
+  getBooleanFn?: (rc: RemoteConfig, key: string) => boolean;
+  getNumberFn?: (rc: RemoteConfig, key: string) => number;
+  isOnline?: boolean;
+}
+
+export async function loadRuntimeConfig(
+  timeoutMs = 3500,
+  forceRefresh = false,
+  deps?: RuntimeConfigReaderDeps,
+): Promise<RuntimeConfigValues> {
+  const isOnline =
+    deps?.isOnline ?? (typeof navigator !== "undefined" ? navigator.onLine !== false : true);
+  if (!isOnline) {
     return { ...DEFAULT_RUNTIME_CONFIG, source: "DEFAULT_FALLBACK" };
   }
-  initAppCheckIfConfigured(app);
-  if (typeof navigator !== "undefined" && navigator.onLine === false) {
-    return { ...DEFAULT_RUNTIME_CONFIG, source: "DEFAULT_FALLBACK" };
+
+  let rc: RemoteConfig;
+  if (deps?.getRemoteConfigInstance) {
+    rc = deps.getRemoteConfigInstance();
+  } else {
+    const app = getFirebaseApp();
+    if (!app) {
+      return { ...DEFAULT_RUNTIME_CONFIG, source: "DEFAULT_FALLBACK" };
+    }
+    initAppCheckIfConfigured(app);
+    try {
+      if (!cachedRemoteConfig) {
+        cachedRemoteConfig = getRemoteConfig(app);
+        cachedRemoteConfig.settings.minimumFetchIntervalMillis = 60_000;
+        cachedRemoteConfig.defaultConfig = {
+          cloud_primary_model: DEFAULT_RUNTIME_CONFIG.cloudModel,
+          cloud_model: DEFAULT_RUNTIME_CONFIG.cloudModel,
+          cloud_fallback_model: DEFAULT_RUNTIME_CONFIG.cloudFallbackModel,
+          enable_cloud_escalation: DEFAULT_RUNTIME_CONFIG.enableCloudEscalation,
+          entropy_threshold: DEFAULT_RUNTIME_CONFIG.entropyThreshold ?? 3.25,
+          enterprise_blocked_terms: JSON.stringify(
+            DEFAULT_RUNTIME_CONFIG.enterpriseBlockedTerms ?? [],
+          ),
+        };
+      }
+      rc = cachedRemoteConfig;
+    } catch {
+      return { ...DEFAULT_RUNTIME_CONFIG, source: "DEFAULT_FALLBACK" };
+    }
   }
+
+  const fetchActivate = deps?.fetchAndActivateFn ?? fetchAndActivate;
+  const readString = deps?.getStringFn ?? getString;
+  const readBoolean = deps?.getBooleanFn ?? getBoolean;
+  const readNumber = deps?.getNumberFn ?? getNumber;
+
+  const prevInterval = rc.settings.minimumFetchIntervalMillis;
+  if (forceRefresh) {
+    rc.settings.minimumFetchIntervalMillis = 0;
+  }
+
+  let timedOut = false;
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
 
   try {
-    if (!cachedRemoteConfig) {
-      cachedRemoteConfig = getRemoteConfig(app);
-      cachedRemoteConfig.settings.minimumFetchIntervalMillis = 60_000;
-      cachedRemoteConfig.defaultConfig = {
-        cloud_model: DEFAULT_RUNTIME_CONFIG.cloudModel,
-        cloud_fallback_model: DEFAULT_RUNTIME_CONFIG.cloudFallbackModel,
-        enable_cloud_escalation: DEFAULT_RUNTIME_CONFIG.enableCloudEscalation,
-      };
-    }
-
-    const rc = cachedRemoteConfig;
-    let timedOut = false;
-    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-
     await Promise.race([
-      fetchAndActivate(rc).finally(() => {
+      fetchActivate(rc).finally(() => {
         if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
       }),
       new Promise<boolean>((resolve) => {
@@ -345,21 +444,36 @@ export async function loadRuntimeConfig(timeoutMs = 3500): Promise<RuntimeConfig
       }),
     ]);
 
+    const primary = readString(rc, "cloud_primary_model").trim();
+    const legacy = readString(rc, "cloud_model").trim();
+
     return {
-      cloudModel: getString(rc, "cloud_model") || DEFAULT_RUNTIME_CONFIG.cloudModel,
+      cloudModel: primary || legacy || DEFAULT_RUNTIME_CONFIG.cloudModel,
       cloudFallbackModel:
-        getString(rc, "cloud_fallback_model") || DEFAULT_RUNTIME_CONFIG.cloudFallbackModel,
-      enableCloudEscalation: getBoolean(rc, "enable_cloud_escalation"),
+        readString(rc, "cloud_fallback_model").trim() ||
+        DEFAULT_RUNTIME_CONFIG.cloudFallbackModel,
+      enableCloudEscalation: readBoolean(rc, "enable_cloud_escalation"),
+      entropyThreshold: clampEntropyThreshold(readNumber(rc, "entropy_threshold")),
+      enterpriseBlockedTerms: parseEnterpriseBlockedTerms(
+        readString(rc, "enterprise_blocked_terms"),
+      ),
       source: timedOut ? "TIMEOUT" : "LOADED",
     };
   } catch {
     return { ...DEFAULT_RUNTIME_CONFIG, source: "DEFAULT_FALLBACK" };
+  } finally {
+    if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
+    if (forceRefresh) {
+      rc.settings.minimumFetchIntervalMillis = prevInterval || 60_000;
+    }
   }
 }
 
 export function resetFirebaseCachesForTests(): void {
   cachedApp = null;
   cachedAI = null;
+  cachedAuth = null;
+  cachedFirestore = null;
   cachedRemoteConfig = null;
   appCheckInitialized = false;
   activeAppCheckProvider = "UNCONFIGURED";

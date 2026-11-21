@@ -1,0 +1,198 @@
+rules_version = '2';
+
+// Assumed Firestore Data Models (Zero-PII Multi-Device Sync):
+//
+// 1. workspaces/{uid}/tickets/{ticketId}
+//    Strict sanitized triage records synced across Web, Chrome Extension, and Android.
+//    NEVER stores rawText, matchedText, or constituentTexts.
+//    Required fields (hasOnly):
+//      id (string == ticketId), uid (string == uid), title (string <= 200),
+//      sanitizedText (string <= 50000, verified secret-free),
+//      severity ('P0'|'P1'|'P2'|'P3'), category (string), runbookId (string|null),
+//      resolution (string <= 50000, verified secret-free), resolutionMode (string),
+//      inferenceSource (string), stage1Source (string), stage1LatencyMs (number >= 0),
+//      stage2Source (string), stage2LatencyMs (number >= 0), nanoStatus (string),
+//      latencyMs (number >= 0), estimatedTokensSaved (number >= 0),
+//      activeCloudModel (string|null), sourcePlatform ('WEB'|'CHROME_EXTENSION'|'ANDROID'),
+//      zeroLeakageVerified (bool == true), activeMaskCount (number >= 0),
+//      redactedCategories (list <= 100), queuedForReconnect (bool),
+//      createdAt (number > 0, immutable), updatedAt (number >= createdAt)
+//
+// 2. workspaces/{uid}/policies/default
+//    User's synchronized workspace privacy policy (custom terms, entropy toggle, countdown).
+//    Required fields (hasOnly):
+//      uid (string == uid), customTerms (list <= 200), enableEntropyScanner (bool),
+//      autoCountdownSeconds (number 0..60), createdAt (number > 0, immutable),
+//      updatedAt (number >= createdAt)
+//
+// 3. workspaces/{uid}/runbooks/{runbookId}
+//    User-defined local P2/P3 runbooks synced across devices.
+//    Required fields (hasOnly):
+//      id (string == runbookId), uid (string == uid), title (string <= 200),
+//      category (string <= 100), severity ('P2'|'P3'), keywords (list 1..50),
+//      resolution (string <= 50000, verified secret-free), builtIn (bool),
+//      createdAt (number > 0, immutable), updatedAt (number >= createdAt)
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+
+    function hasOnlyAllowedFields(allowedFields) {
+      return request.resource.data.keys().hasOnly(allowedFields);
+    }
+
+    function hasNoRawPiiFields(data) {
+      return !('rawText' in data)
+        && !('matchedText' in data)
+        && !('constituentTexts' in data);
+    }
+
+    // RE2 full-string matches guarding against unredacted AWS, Google/Firebase, and PEM secrets
+    function hasNoRawSecrets(text) {
+      return !text.matches('(?s).*AKIA[0-9A-Z]{16}.*')
+        && !text.matches('(?s).*AIza[0-9A-Za-z_-]{35}.*')
+        && !text.matches('(?s).*-----BEGIN [A-Z ]*PRIVATE KEY-----.*');
+    }
+
+    function areImmutableFieldsUnchanged() {
+      return request.resource.data.uid == resource.data.uid
+        && request.resource.data.createdAt == resource.data.createdAt;
+    }
+
+    function isValidTicket(data, uid, ticketId) {
+      return hasOnlyAllowedFields([
+          'id',
+          'uid',
+          'title',
+          'sanitizedText',
+          'severity',
+          'category',
+          'runbookId',
+          'resolution',
+          'resolutionMode',
+          'inferenceSource',
+          'stage1Source',
+          'stage1LatencyMs',
+          'stage2Source',
+          'stage2LatencyMs',
+          'nanoStatus',
+          'latencyMs',
+          'estimatedTokensSaved',
+          'activeCloudModel',
+          'sourcePlatform',
+          'zeroLeakageVerified',
+          'activeMaskCount',
+          'redactedCategories',
+          'queuedForReconnect',
+          'createdAt',
+          'updatedAt'
+        ])
+        && hasNoRawPiiFields(data)
+        && data.id is string && data.id == ticketId && data.id.size() > 0 && data.id.size() <= 128
+        && data.uid is string && data.uid == uid
+        && data.title is string && data.title.size() > 0 && data.title.size() <= 200
+        && data.sanitizedText is string
+        && data.sanitizedText.size() > 0
+        && data.sanitizedText.size() <= 50000
+        && hasNoRawSecrets(data.sanitizedText)
+        && data.severity in ['P0', 'P1', 'P2', 'P3']
+        && data.category is string && data.category.size() > 0 && data.category.size() <= 100
+        && (!('runbookId' in data) || data.runbookId == null || (data.runbookId is string && data.runbookId.size() <= 100))
+        && data.resolution is string
+        && data.resolution.size() <= 50000
+        && hasNoRawSecrets(data.resolution)
+        && data.resolutionMode is string && data.resolutionMode.size() > 0 && data.resolutionMode.size() <= 64
+        && data.inferenceSource is string && data.inferenceSource.size() > 0 && data.inferenceSource.size() <= 64
+        && data.stage1Source is string && data.stage1Source.size() > 0 && data.stage1Source.size() <= 64
+        && data.stage1LatencyMs is number && data.stage1LatencyMs >= 0
+        && data.stage2Source is string && data.stage2Source.size() > 0 && data.stage2Source.size() <= 64
+        && data.stage2LatencyMs is number && data.stage2LatencyMs >= 0
+        && data.nanoStatus is string && data.nanoStatus.size() > 0 && data.nanoStatus.size() <= 32
+        && data.latencyMs is number && data.latencyMs >= 0
+        && data.estimatedTokensSaved is number && data.estimatedTokensSaved >= 0
+        && (!('activeCloudModel' in data) || data.activeCloudModel == null || (data.activeCloudModel is string && data.activeCloudModel.size() <= 100))
+        && data.sourcePlatform in ['WEB', 'CHROME_EXTENSION', 'ANDROID']
+        && data.zeroLeakageVerified is bool && data.zeroLeakageVerified == true
+        && data.activeMaskCount is number && data.activeMaskCount >= 0 && data.activeMaskCount <= 5000
+        && data.redactedCategories is list && data.redactedCategories.size() <= 100
+        && (!('queuedForReconnect' in data) || data.queuedForReconnect is bool)
+        && data.createdAt is number && data.createdAt > 0
+        && data.updatedAt is number && data.updatedAt >= data.createdAt;
+    }
+
+    function isValidPolicy(data, uid) {
+      return hasOnlyAllowedFields([
+          'uid',
+          'customTerms',
+          'enableEntropyScanner',
+          'autoCountdownSeconds',
+          'createdAt',
+          'updatedAt'
+        ])
+        && hasNoRawPiiFields(data)
+        && data.uid is string && data.uid == uid
+        && data.customTerms is list && data.customTerms.size() <= 200
+        && data.enableEntropyScanner is bool
+        && data.autoCountdownSeconds is number && data.autoCountdownSeconds >= 0 && data.autoCountdownSeconds <= 60
+        && data.createdAt is number && data.createdAt > 0
+        && data.updatedAt is number && data.updatedAt >= data.createdAt;
+    }
+
+    function isValidRunbook(data, uid, runbookId) {
+      return hasOnlyAllowedFields([
+          'id',
+          'uid',
+          'title',
+          'category',
+          'severity',
+          'keywords',
+          'resolution',
+          'builtIn',
+          'createdAt',
+          'updatedAt'
+        ])
+        && hasNoRawPiiFields(data)
+        && data.id is string && data.id == runbookId && data.id.size() > 0 && data.id.size() <= 100
+        && data.uid is string && data.uid == uid
+        && data.title is string && data.title.size() > 0 && data.title.size() <= 200
+        && data.category is string && data.category.size() > 0 && data.category.size() <= 100
+        && data.severity in ['P2', 'P3']
+        && data.keywords is list && data.keywords.size() > 0 && data.keywords.size() <= 50
+        && data.resolution is string && data.resolution.size() > 0 && data.resolution.size() <= 50000 && hasNoRawSecrets(data.resolution)
+        && (!('builtIn' in data) || data.builtIn is bool)
+        && data.createdAt is number && data.createdAt > 0
+        && data.updatedAt is number && data.updatedAt >= data.createdAt;
+    }
+
+    match /workspaces/{uid}/tickets/{ticketId} {
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid) && isValidTicket(request.resource.data, uid, ticketId);
+      allow update: if isOwner(uid) && isValidTicket(request.resource.data, uid, ticketId) && areImmutableFieldsUnchanged();
+      allow delete: if isOwner(uid);
+    }
+
+    match /workspaces/{uid}/policies/default {
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid) && isValidPolicy(request.resource.data, uid);
+      allow update: if isOwner(uid) && isValidPolicy(request.resource.data, uid) && areImmutableFieldsUnchanged();
+      allow delete: if isOwner(uid);
+    }
+
+    match /workspaces/{uid}/runbooks/{runbookId} {
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid) && isValidRunbook(request.resource.data, uid, runbookId);
+      allow update: if isOwner(uid) && isValidRunbook(request.resource.data, uid, runbookId) && areImmutableFieldsUnchanged();
+      allow delete: if isOwner(uid);
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

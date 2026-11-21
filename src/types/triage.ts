@@ -41,6 +41,17 @@ export type AppCheckProviderKind = "RECAPTCHA_V3" | "RECAPTCHA_ENTERPRISE" | "UN
 
 export type RemoteConfigSource = "LOADED" | "DEFAULT_FALLBACK" | "TIMEOUT";
 
+export type SourcePlatform = "WEB" | "CHROME_EXTENSION" | "ANDROID";
+
+export type CloudSyncStatus = "DISCONNECTED" | "SIGNING_IN" | "SYNCED" | "OFFLINE" | "ERROR";
+
+export interface AuthUserSummary {
+  uid: string;
+  isAnonymous: boolean;
+  displayName: string | null;
+  email: string | null;
+}
+
 export interface RedactionSpan {
   start: number;
   end: number;
@@ -115,8 +126,10 @@ export interface TriageResult {
   zeroLeakageAudit?: ZeroLeakageAudit | null;
   hybridBrief?: HybridBriefResult | null;
   importedFromExtension?: boolean;
+  sourcePlatform?: SourcePlatform;
   queuedForReconnect?: boolean;
   loadedFromZeroPiiStore?: boolean;
+  updatedAt?: number;
 }
 
 export interface HybridTelemetry {
@@ -133,6 +146,11 @@ export interface HybridTelemetry {
   appCheckProvider: AppCheckProviderKind;
   downloadProgress: number | null;
   queuedOfflineCount: number;
+  entropyThreshold?: number;
+  enterpriseBlockedTermsCount?: number;
+  cloudSyncStatus?: CloudSyncStatus;
+  authUser?: AuthUserSummary | null;
+  cloudSyncError?: string | null;
 }
 
 export interface DemoScenario {

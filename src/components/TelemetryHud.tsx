@@ -4,12 +4,16 @@ import {
   ChevronDown,
   ChevronUp,
   Cloud,
+  CloudOff,
   Cpu,
   Download,
+  LogIn,
+  LogOut,
   Plane,
   RefreshCw,
   Settings,
   Shield,
+  UserCheck,
   Wifi,
 } from "lucide-react";
 import { getLastNanoDiagnostic } from "../firewall/nanoExtractor";
@@ -18,10 +22,15 @@ import type { HybridTelemetry, TriageResult } from "../types/triage";
 interface TelemetryHudProps {
   telemetry: HybridTelemetry;
   currentResult: TriageResult | null;
+  isRefreshingPolicy?: boolean;
   onToggleOffline: () => void;
   onOpenPolicyModal: () => void;
   onWarmupNano: () => void;
   onRecheckNano: () => void;
+  onRefreshRemoteConfig: () => void;
+  onSignInAnonymous: () => void;
+  onSignInGoogle: () => void;
+  onSignOut: () => void;
 }
 
 function formatStage2Label(result: TriageResult | null): string {
@@ -59,13 +68,63 @@ function formatAppCheckLabel(provider: HybridTelemetry["appCheckProvider"]): str
   }
 }
 
+function formatCloudSyncBadge(telemetry: HybridTelemetry): {
+  label: string;
+  toneClass: string;
+} {
+  const user = telemetry.authUser;
+  const status = telemetry.cloudSyncStatus ?? "DISCONNECTED";
+  if (status === "SIGNING_IN") {
+    return {
+      label: "Connecting...",
+      toneClass: "border-cyan-500/40 bg-cyan-950/40 text-cyan-200",
+    };
+  }
+  if (!user) {
+    if (status === "ERROR") {
+      return {
+        label: "Auth / Sync Error (Local-Only Active)",
+        toneClass: "border-rose-500/40 bg-rose-950/40 text-rose-200",
+      };
+    }
+    return {
+      label: "Local-Only (IndexedDB)",
+      toneClass: "border-slate-700 bg-slate-900 text-slate-300",
+    };
+  }
+  const identityLabel = user.isAnonymous
+    ? `Guest (${user.uid.slice(0, 6)})`
+    : (user.displayName ?? user.email ?? `Google (${user.uid.slice(0, 6)})`);
+  if (telemetry.offlineMode || status === "OFFLINE") {
+    return {
+      label: `Offline (Local IndexedDB · ${identityLabel})`,
+      toneClass: "border-amber-500/40 bg-amber-950/40 text-amber-200",
+    };
+  }
+  if (status === "ERROR") {
+    return {
+      label: `Sync Error (${identityLabel})`,
+      toneClass: "border-rose-500/40 bg-rose-950/40 text-rose-200",
+    };
+  }
+  return {
+    label: `Synced (${identityLabel})`,
+    toneClass: "border-emerald-500/40 bg-emerald-950/40 text-emerald-200",
+  };
+}
+
 export function TelemetryHud({
   telemetry,
   currentResult,
+  isRefreshingPolicy = false,
   onToggleOffline,
   onOpenPolicyModal,
   onWarmupNano,
   onRecheckNano,
+  onRefreshRemoteConfig,
+  onSignInAnonymous,
+  onSignInGoogle,
+  onSignOut,
 }: TelemetryHudProps) {
   const [showNanoGuide, setShowNanoGuide] = useState(false);
 
@@ -74,6 +133,14 @@ export function TelemetryHud({
       ? `${Math.round((telemetry.localResolvedCount / telemetry.totalRuns) * 100)}% (${telemetry.localResolvedCount}/${telemetry.totalRuns})`
       : "— (0 runs)";
 
+  const syncBadge = formatCloudSyncBadge(telemetry);
+  const remoteConfigStatusLabel =
+    telemetry.remoteConfigStatus === "DEFAULT_FALLBACK"
+      ? "DEFAULT"
+      : telemetry.remoteConfigStatus;
+  const entropyLabel = (telemetry.entropyThreshold ?? 3.25).toFixed(2);
+  const blockedTermsCount = telemetry.enterpriseBlockedTermsCount ?? 0;
+
   return (
     <header className="rounded-xl border border-slate-800 bg-slate-900/80 p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -81,7 +148,7 @@ export function TelemetryHud({
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-lg font-bold tracking-tight text-white">LocalFirst Triage</h1>
             <span className="rounded-full border border-indigo-500/40 bg-indigo-500/15 px-2 py-0.5 font-mono text-[10px] font-semibold text-indigo-300">
-              v3.0 · #BuildHybridAI
+              v4.0 · #BuildHybridAI
             </span>
             <span
               className={`rounded-full border px-2 py-0.5 font-mono text-[10px] ${
@@ -129,6 +196,74 @@ export function TelemetryHud({
               </>
             )}
           </button>
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs">
+        <div className="flex flex-wrap items-center gap-2 min-w-0">
+          {telemetry.authUser ? (
+            <Cloud className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+          ) : (
+            <CloudOff className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+          )}
+          <span className="font-semibold text-slate-300">Cloud Sync (Zero-PII):</span>
+          <span
+            className={`rounded-full border px-2 py-0.5 font-mono text-[11px] ${syncBadge.toneClass}`}
+          >
+            {syncBadge.label}
+          </span>
+          {telemetry.cloudSyncError && (
+            <span className="truncate font-mono text-[10px] text-rose-300">
+              {telemetry.cloudSyncError}
+            </span>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1.5">
+          {!telemetry.authUser ? (
+            <>
+              <button
+                type="button"
+                disabled={telemetry.offlineMode || telemetry.cloudSyncStatus === "SIGNING_IN"}
+                onClick={onSignInAnonymous}
+                className="inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1 text-[11px] font-semibold text-slate-200 transition hover:border-cyan-500/60 hover:text-white disabled:opacity-50"
+              >
+                <UserCheck className="h-3 w-3 text-cyan-400" />
+                <span>Enable Cloud Sync (Guest)</span>
+              </button>
+              <button
+                type="button"
+                disabled={telemetry.offlineMode || telemetry.cloudSyncStatus === "SIGNING_IN"}
+                onClick={onSignInGoogle}
+                className="inline-flex items-center gap-1 rounded-md border border-indigo-500/40 bg-indigo-500/15 px-2.5 py-1 text-[11px] font-semibold text-indigo-200 transition hover:bg-indigo-500/25 disabled:opacity-50"
+              >
+                <LogIn className="h-3 w-3" />
+                <span>Sign In with Google</span>
+              </button>
+            </>
+          ) : (
+            <>
+              {telemetry.authUser.isAnonymous && (
+                <button
+                  type="button"
+                  disabled={telemetry.offlineMode}
+                  onClick={onSignInGoogle}
+                  className="inline-flex items-center gap-1 rounded-md border border-indigo-500/40 bg-indigo-500/15 px-2.5 py-1 text-[11px] font-semibold text-indigo-200 transition hover:bg-indigo-500/25 disabled:opacity-50"
+                >
+                  <LogIn className="h-3 w-3" />
+                  <span>Link Google</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onSignOut}
+                className="inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1 text-[11px] font-semibold text-slate-300 transition hover:border-rose-500/50 hover:text-rose-200"
+              >
+                <LogOut className="h-3 w-3" />
+                <span>Sign Out</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -180,7 +315,9 @@ export function TelemetryHud({
         <div className="mt-3 rounded-lg border border-amber-500/40 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span>
-              {typeof navigator !== "undefined" && /Firefox|Safari/i.test(navigator.userAgent) && !/Chrome|Chromium|Edg/i.test(navigator.userAgent)
+              {typeof navigator !== "undefined" &&
+              /Firefox|Safari/i.test(navigator.userAgent) &&
+              !/Chrome|Chromium|Edg/i.test(navigator.userAgent)
                 ? "Non-Chrome browser detected (Built-in Gemini Nano 4 is a Chrome Desktop API) — "
                 : "Nano 4 unavailable in this browser — "}
               Deterministic Regex + Shannon Entropy + Heuristic Guard active with Fail-Closed
@@ -286,6 +423,23 @@ export function TelemetryHud({
           <p className="mt-0.5 font-mono text-[10px] text-slate-500">
             Model: {telemetry.activeCloudModel} ({telemetry.remoteConfigStatus})
           </p>
+          <div className="mt-1 flex flex-wrap items-center justify-between gap-1.5">
+            <span className="font-mono text-[10px] text-slate-400">
+              Remote Config: {remoteConfigStatusLabel} · entropy&gt;={entropyLabel} · +
+              {blockedTermsCount} org terms
+            </span>
+            <button
+              type="button"
+              disabled={isRefreshingPolicy}
+              onClick={onRefreshRemoteConfig}
+              className="inline-flex items-center gap-1 rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-indigo-200 transition hover:border-indigo-500/60 hover:text-white disabled:opacity-50"
+            >
+              <RefreshCw
+                className={`h-2.5 w-2.5 ${isRefreshingPolicy ? "animate-spin" : ""}`}
+              />
+              <span>Refresh Policy</span>
+            </button>
+          </div>
         </div>
       </div>
     </header>

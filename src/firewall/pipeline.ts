@@ -1,6 +1,7 @@
 import {
   createCloudEscalationModel,
   createHybridBriefModel,
+  DEFAULT_RUNTIME_CONFIG,
   getHybridAI,
   loadRuntimeConfig,
   normalizeSdkInferenceSource,
@@ -14,6 +15,7 @@ import type {
   InferenceSource,
   PrivacyPolicy,
   RedactionSpan,
+  SourcePlatform,
   TriageResult,
   ZeroLeakageAudit,
 } from "../types/triage";
@@ -40,7 +42,9 @@ export interface PipelineInput {
   approveCloudEscalation?: boolean;
   customRunbooks?: CustomRunbook[];
   policy?: PrivacyPolicy;
+  runtimeConfig?: RuntimeConfigValues;
   importedFromExtension?: boolean;
+  sourcePlatform?: SourcePlatform;
 }
 
 export interface PipelineDeps {
@@ -218,6 +222,10 @@ export async function runTriagePipeline(
     ((text: string) => extractSemanticSecretsWithNano(text, { availableRunbooks: runbooks }));
   const loadConfig = deps.loadConfig ?? loadRuntimeConfig;
   const callCloud = deps.callCloud ?? defaultCallCloud;
+  const stage1Config =
+    input.runtimeConfig ?? (deps.loadConfig ? await deps.loadConfig() : DEFAULT_RUNTIME_CONFIG);
+  const sourcePlatform: SourcePlatform =
+    input.sourcePlatform ?? (input.importedFromExtension ? "CHROME_EXTENSION" : "WEB");
 
   const nanoResult = await extractNano(input.rawText);
 
@@ -227,13 +235,18 @@ export async function runTriagePipeline(
   const { sanitizedText, mergedSpans } = scanAndRedactLocal(input.rawText, {
     includeHeuristics: nanoResult.nanoStatus !== "READY",
     enableEntropyScanner: input.policy?.enableEntropyScanner !== false,
+    entropyThreshold:
+      stage1Config.entropyThreshold ?? DEFAULT_RUNTIME_CONFIG.entropyThreshold ?? 3.25,
     customTerms: input.policy?.customTerms,
+    remoteBlockedTerms:
+      stage1Config.enterpriseBlockedTerms ?? DEFAULT_RUNTIME_CONFIG.enterpriseBlockedTerms,
     extraSpans: nanoResult.spans,
   });
 
   const stage1LatencyMs = Math.max(1, Math.round(performance.now() - startedAt));
   const approxTokens = Math.max(40, Math.ceil(input.rawText.length / 4));
   const ticketId = input.id ?? `ticket-${Date.now()}`;
+  const createdAt = Date.now();
 
   // Local P2/P3 Runbook check (0 cloud tokens — works even when offline!)
   const runbook =
@@ -263,7 +276,9 @@ export async function runTriagePipeline(
       latencyMs: stage1LatencyMs,
       estimatedTokensSaved: approxTokens,
       importedFromExtension: input.importedFromExtension,
-      createdAt: Date.now(),
+      sourcePlatform,
+      createdAt,
+      updatedAt: createdAt,
     };
   }
 
@@ -291,7 +306,9 @@ export async function runTriagePipeline(
       estimatedTokensSaved: approxTokens,
       queuedForReconnect: true,
       importedFromExtension: input.importedFromExtension,
-      createdAt: Date.now(),
+      sourcePlatform,
+      createdAt,
+      updatedAt: createdAt,
     };
   }
 
@@ -318,7 +335,9 @@ export async function runTriagePipeline(
       latencyMs: stage1LatencyMs,
       estimatedTokensSaved: approxTokens,
       importedFromExtension: input.importedFromExtension,
-      createdAt: Date.now(),
+      sourcePlatform,
+      createdAt,
+      updatedAt: createdAt,
     };
   }
 
@@ -345,7 +364,9 @@ export async function runTriagePipeline(
       latencyMs: stage1LatencyMs,
       estimatedTokensSaved: approxTokens,
       importedFromExtension: input.importedFromExtension,
-      createdAt: Date.now(),
+      sourcePlatform,
+      createdAt,
+      updatedAt: createdAt,
     };
   }
 
@@ -363,6 +384,8 @@ export async function runTriagePipeline(
       stage1Source,
       stage1LatencyMs,
       importedFromExtension: input.importedFromExtension,
+      sourcePlatform,
+      createdAt,
       startedAt,
     },
     { loadConfig, callCloud, onStreamChunk: deps.onStreamChunk },
@@ -378,12 +401,15 @@ export async function escalateApprovedTicket(
 ): Promise<TriageResult> {
   const startedAt = performance.now();
   const sanitizedText = applyMaskedSpans(ticket.rawText, updatedSpans);
+  const sourcePlatform: SourcePlatform =
+    ticket.sourcePlatform ?? (ticket.importedFromExtension ? "CHROME_EXTENSION" : "WEB");
 
   if (deps.offlineMode) {
     return {
       ...ticket,
       sanitizedText,
       spans: updatedSpans,
+      sourcePlatform,
       resolution:
         "AIRPLANE / OFFLINE QUEUE: Outbound Cloud escalation blocked because Airplane/Offline Mode is enabled. Sanitized ticket queued for reconnect.",
       resolutionMode: "OFFLINE_QUEUED",
@@ -391,6 +417,7 @@ export async function escalateApprovedTicket(
       stage2Source: "OFFLINE_QUEUED",
       stage2LatencyMs: 0,
       queuedForReconnect: true,
+      updatedAt: Date.now(),
     };
   }
 
@@ -408,6 +435,8 @@ export async function escalateApprovedTicket(
       stage1Source: ticket.stage1Source,
       stage1LatencyMs: ticket.stage1LatencyMs,
       importedFromExtension: ticket.importedFromExtension,
+      sourcePlatform,
+      createdAt: ticket.createdAt,
       startedAt,
     },
     deps,
@@ -428,6 +457,8 @@ async function escalateSanitizedResult(
     stage1Source: TriageResult["stage1Source"];
     stage1LatencyMs: number;
     importedFromExtension?: boolean;
+    sourcePlatform?: SourcePlatform;
+    createdAt?: number;
     startedAt: number;
   },
   deps: Pick<PipelineDeps, "loadConfig" | "callCloud" | "onStreamChunk">,
@@ -435,6 +466,9 @@ async function escalateSanitizedResult(
   const loadConfig = deps.loadConfig ?? loadRuntimeConfig;
   const callCloud = deps.callCloud ?? defaultCallCloud;
   const approxTokens = Math.max(40, Math.ceil(ctx.rawText.length / 4));
+  const sourcePlatform: SourcePlatform =
+    ctx.sourcePlatform ?? (ctx.importedFromExtension ? "CHROME_EXTENSION" : "WEB");
+  const createdAt = ctx.createdAt ?? Date.now();
 
   const cloudPrompt = buildOutboundCloudPrompt(ctx.severity, ctx.category, ctx.sanitizedText);
   const audit: ZeroLeakageAudit = verifyZeroLeakage(cloudPrompt, ctx.spans);
@@ -461,7 +495,9 @@ async function escalateSanitizedResult(
       estimatedTokensSaved: approxTokens,
       zeroLeakageAudit: audit,
       importedFromExtension: ctx.importedFromExtension,
-      createdAt: Date.now(),
+      sourcePlatform,
+      createdAt,
+      updatedAt: Date.now(),
     };
   }
 
@@ -490,7 +526,9 @@ async function escalateSanitizedResult(
       activeCloudModel: runtimeConfig.cloudModel,
       zeroLeakageAudit: audit,
       importedFromExtension: ctx.importedFromExtension,
-      createdAt: Date.now(),
+      sourcePlatform,
+      createdAt,
+      updatedAt: Date.now(),
     };
   }
 
@@ -524,8 +562,10 @@ async function escalateSanitizedResult(
       cloudError: cloudResponse.error ?? "Cloud escalation failed",
       zeroLeakageAudit: audit,
       importedFromExtension: ctx.importedFromExtension,
+      sourcePlatform,
       queuedForReconnect: false,
-      createdAt: Date.now(),
+      createdAt,
+      updatedAt: Date.now(),
     };
   }
 
@@ -553,8 +593,10 @@ async function escalateSanitizedResult(
     cloudError: null,
     zeroLeakageAudit: audit,
     importedFromExtension: ctx.importedFromExtension,
+    sourcePlatform,
     queuedForReconnect: false,
-    createdAt: Date.now(),
+    createdAt,
+    updatedAt: Date.now(),
   };
 }
 

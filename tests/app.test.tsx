@@ -85,6 +85,30 @@ describe("App integration", () => {
     expect(window.location.hash).toBe("");
   });
 
+  it("renders Remote Config provenance pill, Refresh Policy button, Cloud Sync status bar, and EXT history badge", async () => {
+    const json = JSON.stringify({
+      title: "Ext Source Attribution Ticket",
+      sanitizedText: "P0 outage involving Project-Apollo",
+    });
+    const b64 = btoa(json).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    window.location.hash = `#handoff=${b64}`;
+
+    const { getByRole, findByText, findAllByText } = render(<App />);
+
+    expect(await findByText(/Remote Config:/i)).toBeTruthy();
+    expect(await findByText(/entropy>=3\.25/i)).toBeTruthy();
+    expect(getByRole("button", { name: /Refresh Policy/i })).toBeTruthy();
+    expect(await findByText(/Cloud Sync \(Zero-PII\):/i)).toBeTruthy();
+    expect(await findByText(/Local-Only \(IndexedDB\)/i)).toBeTruthy();
+    expect(getByRole("button", { name: /Enable Cloud Sync \(Guest\)/i })).toBeTruthy();
+    expect(getByRole("button", { name: /Sign In with Google/i })).toBeTruthy();
+
+    fireEvent.click(getByRole("button", { name: /Run Hybrid Triage/i }));
+    expect(await findByText(/Fail-Closed Quarantine/i)).toBeTruthy();
+    const extBadges = await findAllByText("EXT");
+    expect(extBadges.length).toBeGreaterThanOrEqual(1);
+  });
+
   it("switches to Zero-Leakage Proof and Export & Handoff tabs after triage", async () => {
     const { getByRole, findByText } = render(<App />);
     fireEvent.click(getByRole("button", { name: /Run Hybrid Triage/i }));

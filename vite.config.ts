@@ -14,6 +14,8 @@ export default defineConfig({
             "firebase/app-check",
             "firebase/remote-config",
           ],
+          "firebase-auth": ["firebase/auth"],
+          "firebase-firestore": ["firebase/firestore"],
           vendor: ["react", "react-dom", "lucide-react"],
         },
       },

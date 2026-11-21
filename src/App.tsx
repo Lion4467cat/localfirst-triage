@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DEMO_SCENARIOS, DEFAULT_RUNBOOKS } from "./config/demoScenarios";
 import {
+  DEFAULT_RUNTIME_CONFIG,
   getAppCheckProviderStatus,
   loadRuntimeConfig,
   warmupOnDeviceModel,
+  type RuntimeConfigValues,
 } from "./config/firebase";
 import { checkChromeNanoAvailability } from "./firewall/nanoExtractor";
 import {
@@ -17,6 +19,17 @@ import {
   toggleTicketSpanMask,
 } from "./firewall/pipeline";
 import { decodeHandoffPayload } from "./firewall/regexScrubber";
+import {
+  clearWorkspaceTicketsInFirestore,
+  signInOrLinkWithGoogle,
+  signInWorkspaceAnonymously,
+  signOutWorkspace,
+  subscribeAuthState,
+  subscribeWorkspaceSync,
+  syncCustomRunbooksToFirestore,
+  syncPolicyToFirestore,
+  syncTicketToFirestore,
+} from "./storage/cloudSync";
 import {
   clearSanitizedTickets,
   DEFAULT_PRIVACY_POLICY,
@@ -61,6 +74,7 @@ export function App() {
   const [importedFromExtension, setImportedFromExtension] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [isGeneratingBrief, setIsGeneratingBrief] = useState(false);
+  const [isRefreshingPolicy, setIsRefreshingPolicy] = useState(false);
   const [maskDirtySinceCloud, setMaskDirtySinceCloud] = useState(false);
   const [countdownMs, setCountdownMs] = useState<number | null>(null);
   const [countdownPaused, setCountdownPaused] = useState(false);
@@ -68,12 +82,17 @@ export function App() {
   const [history, setHistory] = useState<TriageResult[]>([]);
   const [runbooks, setRunbooks] = useState<CustomRunbook[]>(DEFAULT_RUNBOOKS);
   const [policy, setPolicy] = useState<PrivacyPolicy>(DEFAULT_PRIVACY_POLICY);
+  const [runtimeConfig, setRuntimeConfig] =
+    useState<RuntimeConfigValues>(DEFAULT_RUNTIME_CONFIG);
   const [policyModalOpen, setPolicyModalOpen] = useState(false);
 
   const volatileSessionMap = useRef<Map<string, TriageResult>>(new Map());
   const escalatedTicketIds = useRef<Set<string>>(new Set());
   const inFlightRef = useRef(false);
   const runGenerationRef = useRef(0);
+  const policyCreatedAtRef = useRef<number>(Date.now());
+  const runbookCreatedAtRef = useRef<Map<string, number>>(new Map());
+  const customRunbookIdsRef = useRef<Set<string>>(new Set());
 
   const initialOnline = typeof navigator !== "undefined" ? navigator.onLine : true;
 
@@ -86,12 +105,22 @@ export function App() {
     lastLatencyMs: 0,
     offlineMode: !initialOnline,
     browserOnline: initialOnline,
-    activeCloudModel: "gemini-3.5-flash-lite",
+    activeCloudModel: DEFAULT_RUNTIME_CONFIG.cloudModel,
     remoteConfigStatus: "DEFAULT_FALLBACK",
     appCheckProvider: getAppCheckProviderStatus(),
     downloadProgress: null,
     queuedOfflineCount: 0,
+    entropyThreshold: DEFAULT_RUNTIME_CONFIG.entropyThreshold ?? 3.25,
+    enterpriseBlockedTermsCount: DEFAULT_RUNTIME_CONFIG.enterpriseBlockedTerms?.length ?? 0,
+    cloudSyncStatus: "DISCONNECTED",
+    authUser: null,
+    cloudSyncError: null,
   });
+
+  const authUidRef = useRef<string | null>(null);
+  authUidRef.current = telemetry.authUser?.uid ?? null;
+  const offlineModeRef = useRef(telemetry.offlineMode);
+  offlineModeRef.current = telemetry.offlineMode;
 
   const refreshNanoStatus = useCallback(async () => {
     const avail = await checkChromeNanoAvailability();
@@ -99,6 +128,45 @@ export function App() {
       ...prev,
       nanoStatus: mapAvailabilityToStatus(avail),
     }));
+  }, []);
+
+  const syncTicketIfSignedIn = useCallback(async (ticket: TriageResult) => {
+    const uid = authUidRef.current;
+    if (!uid || offlineModeRef.current) return;
+    const res = await syncTicketToFirestore(uid, ticket);
+    if (!res.ok) {
+      setTelemetry((prev) => ({
+        ...prev,
+        cloudSyncStatus: "ERROR",
+        cloudSyncError: res.reason ?? "Firestore write blocked",
+      }));
+    } else {
+      setTelemetry((prev) => ({
+        ...prev,
+        cloudSyncStatus: "SYNCED",
+        cloudSyncError: null,
+      }));
+    }
+  }, []);
+
+  const handleRefreshRemoteConfig = useCallback(async () => {
+    setIsRefreshingPolicy(true);
+    try {
+      const cfg = await loadRuntimeConfig(3500, true);
+      setRuntimeConfig(cfg);
+      setTelemetry((prev) => ({
+        ...prev,
+        activeCloudModel: cfg.cloudModel,
+        remoteConfigStatus: cfg.source ?? "DEFAULT_FALLBACK",
+        entropyThreshold: cfg.entropyThreshold ?? DEFAULT_RUNTIME_CONFIG.entropyThreshold ?? 3.25,
+        enterpriseBlockedTermsCount:
+          cfg.enterpriseBlockedTerms?.length ??
+          DEFAULT_RUNTIME_CONFIG.enterpriseBlockedTerms?.length ??
+          0,
+      }));
+    } finally {
+      setIsRefreshingPolicy(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -114,16 +182,48 @@ export function App() {
       setHistory(saved);
       setRunbooks(loadedRunbooks);
       setPolicy(loadedPolicy);
+      setRuntimeConfig(runtimeCfg);
+      for (const rb of loadedRunbooks) {
+        if (!rb.builtIn) customRunbookIdsRef.current.add(rb.id);
+      }
 
       setTelemetry((prev) => ({
         ...prev,
         nanoStatus: mapAvailabilityToStatus(avail),
         activeCloudModel: runtimeCfg.cloudModel,
         remoteConfigStatus: runtimeCfg.source ?? "DEFAULT_FALLBACK",
+        entropyThreshold:
+          runtimeCfg.entropyThreshold ?? DEFAULT_RUNTIME_CONFIG.entropyThreshold ?? 3.25,
+        enterpriseBlockedTermsCount:
+          runtimeCfg.enterpriseBlockedTerms?.length ??
+          DEFAULT_RUNTIME_CONFIG.enterpriseBlockedTerms?.length ??
+          0,
         appCheckProvider: getAppCheckProviderStatus(),
         queuedOfflineCount: saved.filter((t) => t.queuedForReconnect).length,
       }));
     })();
+
+    const unsubAuth = subscribeAuthState(
+      (user) => {
+        setTelemetry((prev) => ({
+          ...prev,
+          authUser: user,
+          cloudSyncStatus: !user
+            ? "DISCONNECTED"
+            : prev.offlineMode
+              ? "OFFLINE"
+              : "SYNCED",
+          cloudSyncError: null,
+        }));
+      },
+      (err) => {
+        setTelemetry((prev) => ({
+          ...prev,
+          cloudSyncStatus: "ERROR",
+          cloudSyncError: err,
+        }));
+      },
+    );
 
     if (typeof window !== "undefined") {
       const applyHandoffFromLocation = () => {
@@ -146,12 +246,86 @@ export function App() {
       window.addEventListener("online", handleOnline);
       window.addEventListener("offline", handleOffline);
       return () => {
+        unsubAuth();
         window.removeEventListener("hashchange", applyHandoffFromLocation);
         window.removeEventListener("online", handleOnline);
         window.removeEventListener("offline", handleOffline);
       };
     }
+
+    return () => {
+      unsubAuth();
+    };
   }, []);
+
+  useEffect(() => {
+    const uid = telemetry.authUser?.uid;
+    if (!uid) {
+      return;
+    }
+    if (telemetry.offlineMode) {
+      setTelemetry((prev) => ({ ...prev, cloudSyncStatus: "OFFLINE" }));
+      return;
+    }
+
+    const unsubSync = subscribeWorkspaceSync(uid, {
+      onTickets: (remoteTickets) => {
+        void (async () => {
+          for (const rt of remoteTickets) {
+            await saveSanitizedTicket(rt);
+          }
+          const localList = await listSanitizedTickets();
+          const mergedMap = new Map<string, TriageResult>();
+          for (const lt of localList) {
+            mergedMap.set(lt.id, lt);
+          }
+          for (const rt of remoteTickets) {
+            const existing = mergedMap.get(rt.id);
+            if (!existing || (rt.updatedAt ?? rt.createdAt) >= (existing.updatedAt ?? existing.createdAt)) {
+              mergedMap.set(rt.id, rt);
+            }
+          }
+          const merged = Array.from(mergedMap.values())
+            .sort((a, b) => b.createdAt - a.createdAt)
+            .slice(0, 50);
+          setHistory(merged);
+          setTelemetry((prev) => ({
+            ...prev,
+            cloudSyncStatus: "SYNCED",
+            cloudSyncError: null,
+            queuedOfflineCount: merged.filter((t) => t.queuedForReconnect).length,
+          }));
+        })();
+      },
+      onPolicy: (remotePolicy, createdAt) => {
+        policyCreatedAtRef.current = createdAt;
+        setPolicy(remotePolicy);
+        void savePrivacyPolicy(remotePolicy);
+      },
+      onRunbooks: (remoteCustomRunbooks, createdAtMap) => {
+        runbookCreatedAtRef.current = createdAtMap;
+        customRunbookIdsRef.current = new Set(remoteCustomRunbooks.map((r) => r.id));
+        const customIds = new Set(remoteCustomRunbooks.map((r) => r.id));
+        const merged = [
+          ...remoteCustomRunbooks,
+          ...DEFAULT_RUNBOOKS.filter((r) => !customIds.has(r.id)),
+        ];
+        setRunbooks(merged);
+        void saveCustomRunbooks(merged);
+      },
+      onError: (message) => {
+        setTelemetry((prev) => ({
+          ...prev,
+          cloudSyncStatus: "ERROR",
+          cloudSyncError: message,
+        }));
+      },
+    });
+
+    return () => {
+      unsubSync();
+    };
+  }, [telemetry.authUser?.uid, telemetry.offlineMode]);
 
   const syncHistoryAndQueueCount = useCallback(async () => {
     const updatedHistory = await listSanitizedTickets();
@@ -161,6 +335,63 @@ export function App() {
       queuedOfflineCount: updatedHistory.filter((t) => t.queuedForReconnect).length,
     }));
   }, []);
+
+  const handleSignInAnonymous = async () => {
+    if (telemetry.offlineMode) return;
+    setTelemetry((prev) => ({ ...prev, cloudSyncStatus: "SIGNING_IN", cloudSyncError: null }));
+    const res = await signInWorkspaceAnonymously();
+    if (!res.ok) {
+      setTelemetry((prev) => ({
+        ...prev,
+        cloudSyncStatus: "ERROR",
+        cloudSyncError: res.error ?? "Anonymous sign-in failed",
+      }));
+      return;
+    }
+    if (res.user) {
+      for (const item of history.slice(0, 20)) {
+        await syncTicketToFirestore(res.user.uid, item);
+      }
+      setTelemetry((prev) => ({
+        ...prev,
+        authUser: res.user ?? prev.authUser,
+        cloudSyncStatus: "SYNCED",
+        cloudSyncError: null,
+      }));
+    }
+  };
+
+  const handleSignInGoogle = async () => {
+    if (telemetry.offlineMode) return;
+    setTelemetry((prev) => ({ ...prev, cloudSyncStatus: "SIGNING_IN", cloudSyncError: null }));
+    const res = await signInOrLinkWithGoogle();
+    if (!res.ok) {
+      setTelemetry((prev) => ({
+        ...prev,
+        cloudSyncStatus: prev.authUser ? "SYNCED" : "DISCONNECTED",
+        cloudSyncError: res.error ?? "Google sign-in failed",
+      }));
+      return;
+    }
+    if (res.user) {
+      setTelemetry((prev) => ({
+        ...prev,
+        authUser: res.user ?? prev.authUser,
+        cloudSyncStatus: "SYNCED",
+        cloudSyncError: null,
+      }));
+    }
+  };
+
+  const handleSignOut = async () => {
+    const res = await signOutWorkspace();
+    setTelemetry((prev) => ({
+      ...prev,
+      authUser: null,
+      cloudSyncStatus: "DISCONNECTED",
+      cloudSyncError: res.ok ? null : (res.error ?? "Sign out failed"),
+    }));
+  };
 
   const handleApproveOrRerunCloud = useCallback(async () => {
     if (!currentResult || isRunning || inFlightRef.current) return;
@@ -187,6 +418,7 @@ export function App() {
       setMaskDirtySinceCloud(false);
       await saveSanitizedTicket(escalated);
       await syncHistoryAndQueueCount();
+      void syncTicketIfSignedIn(escalated);
 
       setTelemetry((prev) =>
         recordCloudEscalationTelemetry(prev, escalated, escalatedTicketIds.current),
@@ -197,7 +429,7 @@ export function App() {
         setIsRunning(false);
       }
     }
-  }, [currentResult, isRunning, telemetry.offlineMode, syncHistoryAndQueueCount]);
+  }, [currentResult, isRunning, telemetry.offlineMode, syncHistoryAndQueueCount, syncTicketIfSignedIn]);
 
   // 3.0s cancelable pre-cloud countdown timer when Nano 4 is READY
   useEffect(() => {
@@ -252,7 +484,9 @@ export function App() {
         offlineMode: telemetry.offlineMode,
         customRunbooks: runbooks,
         policy,
+        runtimeConfig,
         importedFromExtension,
+        sourcePlatform: importedFromExtension ? "CHROME_EXTENSION" : "WEB",
       });
       if (gen !== runGenerationRef.current) return;
 
@@ -260,6 +494,7 @@ export function App() {
       setCurrentResult(result);
       await saveSanitizedTicket(result);
       await syncHistoryAndQueueCount();
+      void syncTicketIfSignedIn(result);
 
       if (result.resolutionMode === "PRE_CLOUD_COUNTDOWN") {
         setCountdownMs((policy.autoCountdownSeconds ?? 3) * 1000);
@@ -313,7 +548,9 @@ export function App() {
     setTitle(selected.title);
     // Security fix: never leave previous ticket's unredacted rawText sitting in the editor when opening a purged disk record
     setRawText(selected.loadedFromZeroPiiStore ? selected.sanitizedText : selected.rawText);
-    setImportedFromExtension(Boolean(selected.importedFromExtension));
+    setImportedFromExtension(
+      Boolean(selected.importedFromExtension || selected.sourcePlatform === "CHROME_EXTENSION"),
+    );
     setMaskDirtySinceCloud(false);
     setCountdownMs(null);
     setCountdownPaused(false);
@@ -326,9 +563,13 @@ export function App() {
     setIsRunning(false);
     setCountdownMs(null);
     setCountdownPaused(false);
+    const idsToDelete = history.map((h) => h.id);
     volatileSessionMap.current.clear();
     escalatedTicketIds.current.clear();
     await clearSanitizedTickets();
+    if (authUidRef.current && !offlineModeRef.current && idsToDelete.length > 0) {
+      void clearWorkspaceTicketsInFirestore(authUidRef.current, idsToDelete);
+    }
     setHistory([]);
     setTelemetry((prev) => ({ ...prev, queuedOfflineCount: 0 }));
   };
@@ -393,6 +634,7 @@ export function App() {
         if (gen !== runGenerationRef.current) break;
         volatileSessionMap.current.set(escalated.id, escalated);
         await saveSanitizedTicket(escalated);
+        void syncTicketIfSignedIn(escalated);
         if (escalated.resolutionMode === "CLOUD_ESCALATION") {
           setCurrentResult(escalated);
         }
@@ -416,6 +658,7 @@ export function App() {
         <TelemetryHud
           telemetry={telemetry}
           currentResult={currentResult}
+          isRefreshingPolicy={isRefreshingPolicy}
           onToggleOffline={() => {
             setTelemetry((prev) => {
               const nextOffline = !prev.offlineMode;
@@ -425,12 +668,24 @@ export function App() {
                 setIsRunning(false);
                 setCountdownPaused(true);
               }
-              return { ...prev, offlineMode: nextOffline };
+              return {
+                ...prev,
+                offlineMode: nextOffline,
+                cloudSyncStatus: prev.authUser
+                  ? nextOffline
+                    ? "OFFLINE"
+                    : "SYNCED"
+                  : "DISCONNECTED",
+              };
             });
           }}
           onOpenPolicyModal={() => setPolicyModalOpen(true)}
           onWarmupNano={() => void handleWarmupNano()}
           onRecheckNano={() => void refreshNanoStatus()}
+          onRefreshRemoteConfig={() => void handleRefreshRemoteConfig()}
+          onSignInAnonymous={() => void handleSignInAnonymous()}
+          onSignInGoogle={() => void handleSignInGoogle()}
+          onSignOut={() => void handleSignOut()}
         />
 
         <PipelineStepper currentResult={currentResult} isRunning={isRunning} />
@@ -442,6 +697,7 @@ export function App() {
             rawText={rawText}
             isRunning={isRunning}
             offlineMode={telemetry.offlineMode}
+            cloudSyncEnabled={Boolean(telemetry.authUser)}
             history={history}
             queuedTickets={queuedTickets}
             importedFromExtension={importedFromExtension}
@@ -496,10 +752,25 @@ export function App() {
         onSaveRunbooks={(updated) => {
           setRunbooks(updated);
           void saveCustomRunbooks(updated);
+          if (authUidRef.current && !offlineModeRef.current) {
+            void syncCustomRunbooksToFirestore(
+              authUidRef.current,
+              updated,
+              customRunbookIdsRef.current,
+              runbookCreatedAtRef.current,
+            );
+          }
         }}
         onSavePolicy={(updated) => {
           setPolicy(updated);
           void savePrivacyPolicy(updated);
+          if (authUidRef.current && !offlineModeRef.current) {
+            void syncPolicyToFirestore(
+              authUidRef.current,
+              updated,
+              policyCreatedAtRef.current,
+            );
+          }
         }}
       />
     </div>

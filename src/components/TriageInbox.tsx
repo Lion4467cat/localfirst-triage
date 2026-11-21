@@ -8,6 +8,7 @@ interface TriageInboxProps {
   rawText: string;
   isRunning: boolean;
   offlineMode: boolean;
+  cloudSyncEnabled?: boolean;
   history: TriageResult[];
   queuedTickets: TriageResult[];
   importedFromExtension?: boolean;
@@ -27,12 +28,34 @@ const SEVERITY_BADGE: Record<DemoScenario["expectedSeverity"], string> = {
   P3: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40",
 };
 
+function formatPlatformBadge(item: TriageResult): { label: string; toneClass: string } {
+  const platform =
+    item.sourcePlatform ?? (item.importedFromExtension ? "CHROME_EXTENSION" : "WEB");
+  if (platform === "CHROME_EXTENSION") {
+    return {
+      label: "EXT",
+      toneClass: "border-cyan-500/40 bg-cyan-950/60 text-cyan-300",
+    };
+  }
+  if (platform === "ANDROID") {
+    return {
+      label: "ANDROID",
+      toneClass: "border-emerald-500/40 bg-emerald-950/60 text-emerald-300",
+    };
+  }
+  return {
+    label: "WEB",
+    toneClass: "border-slate-700 bg-slate-900 text-slate-300",
+  };
+}
+
 export function TriageInbox({
   scenarios,
   title,
   rawText,
   isRunning,
   offlineMode,
+  cloudSyncEnabled = false,
   history,
   queuedTickets,
   importedFromExtension = false,
@@ -193,9 +216,11 @@ export function TriageInbox({
       )}
 
       <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-        <div className="mb-2 flex items-center justify-between">
+        <div className="mb-2 flex items-center justify-between gap-2">
           <h3 className="text-xs font-semibold tracking-wide text-slate-300 uppercase">
-            Sanitized Local History (IndexedDB)
+            {cloudSyncEnabled
+              ? "Sanitized History (IndexedDB + Cloud Sync)"
+              : "Sanitized Local History (IndexedDB)"}
           </h3>
           {history.length > 0 && (
             <button
@@ -212,19 +237,31 @@ export function TriageInbox({
           <p className="text-xs text-slate-500">No sanitized tickets stored yet.</p>
         ) : (
           <div className="flex max-h-44 flex-col gap-1.5 overflow-auto">
-            {history.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => onSelectHistory(item)}
-                className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/60 px-2.5 py-2 text-left text-xs hover:border-slate-600"
-              >
-                <span className="truncate font-medium text-slate-200">{item.title}</span>
-                <span className="ml-2 shrink-0 rounded bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] text-emerald-300">
-                  {item.severity} · {item.inferenceSource}
-                </span>
-              </button>
-            ))}
+            {history.map((item) => {
+              const platformBadge = formatPlatformBadge(item);
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => onSelectHistory(item)}
+                  className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-950/60 px-2.5 py-2 text-left text-xs hover:border-slate-600"
+                >
+                  <span className="min-w-0 flex-1 truncate font-medium text-slate-200">
+                    {item.title}
+                  </span>
+                  <span className="flex shrink-0 items-center gap-1">
+                    <span
+                      className={`rounded border px-1 py-0.5 font-mono text-[9px] font-semibold ${platformBadge.toneClass}`}
+                    >
+                      {platformBadge.label}
+                    </span>
+                    <span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] text-emerald-300">
+                      {item.severity} · {item.inferenceSource}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
           </div>
         )}
       </div>

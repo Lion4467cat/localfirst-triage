@@ -11,12 +11,17 @@ vi.mock("firebase/ai", async (importOriginal) => {
 });
 
 import { InferenceMode, InferenceSource as SDKInferenceSource, type AI } from "firebase/ai";
+import type { RemoteConfig } from "firebase/remote-config";
 import {
+  clampEntropyThreshold,
   configureLocalhostAppCheckDebugToken,
   createCloudEscalationModel,
   createHybridBriefModel,
   createOnDeviceFirewallModel,
+  DEFAULT_RUNTIME_CONFIG,
+  loadRuntimeConfig,
   normalizeSdkInferenceSource,
+  parseEnterpriseBlockedTerms,
   selectAppCheckProvider,
   TEXT_ONLY_ON_DEVICE_CREATE_OPTIONS,
 } from "../src/config/firebase";
@@ -106,10 +111,48 @@ describe("firebase SDK & App Check config", () => {
   });
 
   it("loads DEFAULT_RUNTIME_CONFIG safely when Firebase env vars are absent", async () => {
-    const { DEFAULT_RUNTIME_CONFIG, loadRuntimeConfig } = await import("../src/config/firebase");
     const cfg = await loadRuntimeConfig(100);
     expect(cfg.cloudModel).toBe(DEFAULT_RUNTIME_CONFIG.cloudModel);
     expect(cfg.cloudFallbackModel).toBe(DEFAULT_RUNTIME_CONFIG.cloudFallbackModel);
     expect(cfg.enableCloudEscalation).toBe(true);
+    expect(cfg.entropyThreshold).toBe(3.25);
+    expect(cfg.enterpriseBlockedTerms).toEqual(["Project-Apollo", "Project-Valkyrie"]);
+  });
+
+  it("forces minimumFetchIntervalMillis = 0 on live Refresh Policy, restores 60000 afterward, and parses new Remote Config keys", async () => {
+    expect(clampEntropyThreshold(2.754)).toBe(2.75);
+    expect(clampEntropyThreshold(9.9)).toBe(3.25);
+    expect(parseEnterpriseBlockedTerms('["Project-Zero", "a", "Project-Zero", "Vault-7"]')).toEqual([
+      "Project-Zero",
+      "Vault-7",
+    ]);
+
+    const fakeRc = {
+      settings: { minimumFetchIntervalMillis: 60_000 },
+    } as unknown as RemoteConfig;
+
+    let observedIntervalDuringFetch = -1;
+    const cfg = await loadRuntimeConfig(1000, true, {
+      isOnline: true,
+      getRemoteConfigInstance: () => fakeRc,
+      fetchAndActivateFn: async (rc) => {
+        observedIntervalDuringFetch = rc.settings.minimumFetchIntervalMillis;
+        return true;
+      },
+      getStringFn: (_rc, key) => {
+        if (key === "cloud_primary_model") return "gemini-3.5-flash-lite";
+        if (key === "cloud_fallback_model") return "gemini-2.5-flash";
+        if (key === "enterprise_blocked_terms") return '["Project-Apollo","Project-Helios"]';
+        return "";
+      },
+      getBooleanFn: () => true,
+      getNumberFn: () => 2.8,
+    });
+
+    expect(observedIntervalDuringFetch).toBe(0);
+    expect(fakeRc.settings.minimumFetchIntervalMillis).toBe(60_000);
+    expect(cfg.source).toBe("LOADED");
+    expect(cfg.entropyThreshold).toBe(2.8);
+    expect(cfg.enterpriseBlockedTerms).toEqual(["Project-Apollo", "Project-Helios"]);
   });
 });
