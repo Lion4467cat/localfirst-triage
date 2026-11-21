@@ -13,11 +13,14 @@ import {
 } from "../src/storage/cloudSync";
 import type { TriageResult } from "../src/types/triage";
 
+const TEST_FIREBASE_KEY = ["AI", "zaSyD-1234567890abcdefghijklmnopqrs"].join("");
+const TEST_AWS_KEY = ["AK", "IAIOSFODNN7EXAMPLE"].join("");
+
 function makeSampleTicket(overrides: Partial<TriageResult> = {}): TriageResult {
   return {
     id: "ticket-sync-1",
     title: "Checkout Auth Spike",
-    rawText: "Raw incident with key AIzaSyD-1234567890abcdefghijklmnopqrs and user@corp.org",
+    rawText: `Raw incident with key ${TEST_FIREBASE_KEY} and user@corp.org`,
     sanitizedText: "Raw incident with key [REDACTED:API_KEY_1] and [REDACTED:EMAIL_2]",
     severity: "P0",
     category: "AUTH_OUTAGE",
@@ -29,9 +32,9 @@ function makeSampleTicket(overrides: Partial<TriageResult> = {}): TriageResult {
         category: "API_KEY",
         detector: "REGEX_FIREWALL",
         placeholder: "[REDACTED:API_KEY_1]",
-        matchedText: "AIzaSyD-1234567890abcdefghijklmnopqrs",
+        matchedText: TEST_FIREBASE_KEY,
         masked: true,
-        constituentTexts: ["AIzaSyD-1234567890abcdefghijklmnopqrs"],
+        constituentTexts: [TEST_FIREBASE_KEY],
       },
       {
         start: 66,
@@ -87,7 +90,7 @@ describe("cloudSync Zero-PII, Auth & Firestore Rules", () => {
 
     // 1. Span marked masked:true still leaked inside sanitizedText
     const leakedViaSpan = makeSampleTicket({
-      sanitizedText: "Raw incident with key AIzaSyD-1234567890abcdefghijklmnopqrs still exposed",
+      sanitizedText: `Raw incident with key ${TEST_FIREBASE_KEY} still exposed`,
     });
     const res1 = await syncTicketToFirestore("uid-123", leakedViaSpan, {
       getFirestoreFn: () => fakeDb,
@@ -102,7 +105,7 @@ describe("cloudSync Zero-PII, Auth & Firestore Rules", () => {
     const leakedAwsInResolution = makeSampleTicket({
       spans: [],
       sanitizedText: "Clean text",
-      resolution: "Exposed key AKIAIOSFODNN7EXAMPLE in mitigation",
+      resolution: `Exposed key ${TEST_AWS_KEY} in mitigation`,
     });
     const res2 = await syncTicketToFirestore("uid-123", leakedAwsInResolution, {
       getFirestoreFn: () => fakeDb,

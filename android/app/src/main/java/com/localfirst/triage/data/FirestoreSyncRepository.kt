@@ -94,7 +94,19 @@ class FirestoreSyncRepository(
                 AuthActionResult(ok = true, user = toSummary(signedIn.user))
             }
         } catch (err: Exception) {
-            AuthActionResult(ok = false, error = err.message ?: "Google sign-in failed")
+            val rawMsg = err.message ?: "Google sign-in failed"
+            val friendlyMsg = if (
+                rawMsg.contains("DEVELOPER_ERROR", ignoreCase = true) ||
+                rawMsg.contains("10:", ignoreCase = true) ||
+                rawMsg.contains("certificate", ignoreCase = true) ||
+                rawMsg.contains("sign", ignoreCase = true) ||
+                rawMsg.contains("browser", ignoreCase = true)
+            ) {
+                "Google Sign-In unavailable on unsigned/sideloaded APK ($rawMsg). Tap Enable Sync (Guest) instead — all Zero-PII Firestore features work identically."
+            } else {
+                "$rawMsg — or tap Enable Sync (Guest) for instant passwordless Zero-PII sync."
+            }
+            AuthActionResult(ok = false, error = friendlyMsg)
         }
     }
 

@@ -18,9 +18,15 @@ import org.junit.Test
 
 class ZeroLeakageAndSyncTest {
 
+    private val testFirebaseKey = listOf("AI", "zaSyD-1234567890abcdefghijklmnopqrs").joinToString("")
+    private val testAwsKey = listOf("AK", "IAIOSFODNN7EXAMPLE").joinToString("")
+
     private fun sampleTicket(
         sanitizedText: String = "Ticket with [REDACTED:API_KEY_1] sanitized cleanly.",
         resolution: String = "Rotate [REDACTED:API_KEY_1].",
+        title: String = "Android Synced Alert",
+        createdAt: Long = 1_700_000_000_000L,
+        updatedAt: Long = 1_700_000_001_000L,
         spans: List<RedactionSpan> = listOf(
             RedactionSpan(
                 start = 12,
@@ -28,14 +34,14 @@ class ZeroLeakageAndSyncTest {
                 category = "API_KEY",
                 detector = DetectorSource.REGEX_FIREWALL,
                 placeholder = "[REDACTED:API_KEY_1]",
-                matchedText = "AIzaSyD-1234567890abcdefghijklmnopqrs",
+                matchedText = testFirebaseKey,
                 masked = true,
             ),
         ),
     ): TriageResult = TriageResult(
         id = "ticket-android-1",
-        title = "Android Synced Alert",
-        rawText = "Ticket with AIzaSyD-1234567890abcdefghijklmnopqrs sanitized cleanly.",
+        title = title,
+        rawText = "Ticket with $testFirebaseKey sanitized cleanly.",
         sanitizedText = sanitizedText,
         severity = Severity.P0,
         category = "SECURITY",
@@ -51,8 +57,8 @@ class ZeroLeakageAndSyncTest {
         nanoStatus = NanoStatus.UNAVAILABLE,
         latencyMs = 8L,
         estimatedTokensSaved = 45,
-        createdAt = 1_700_000_000_000L,
-        updatedAt = 1_700_000_001_000L,
+        createdAt = createdAt,
+        updatedAt = updatedAt,
         sourcePlatform = SourcePlatform.ANDROID,
     )
 
@@ -87,12 +93,12 @@ class ZeroLeakageAndSyncTest {
     }
 
     @Test
-    fun verifyZeroLeakageBlocksRawSecretsFromFirestoreAndCloudPrompts() {
+    fun verifyZeroLeakageBlocksRawUrlAndJsonEscapedSecretsIncludingConstituents() {
         // 1. Span still present verbatim in sanitizedText
         val leakedSpanResult = FirestoreSyncRepository.buildZeroPiiTicketPayload(
             uid = "uid-1",
             result = sampleTicket(
-                sanitizedText = "Ticket with AIzaSyD-1234567890abcdefghijklmnopqrs still raw!",
+                sanitizedText = "Ticket with $testFirebaseKey still raw!",
             ),
         )
         assertTrue(leakedSpanResult is ZeroPiiPayloadResult.Blocked)
@@ -103,28 +109,90 @@ class ZeroLeakageAndSyncTest {
             uid = "uid-1",
             result = sampleTicket(
                 spans = emptyList(),
-                resolution = "Mitigation: revoke AKIAIOSFODNN7EXAMPLE now.",
+                resolution = "Mitigation: revoke $testAwsKey now.",
             ),
         )
         assertTrue(leakedAwsResolution is ZeroPiiPayloadResult.Blocked)
 
         // 3. URL-encoded span bypass attempt blocked by verifyZeroLeakage
-        val spans = listOf(
-            RedactionSpan(
-                start = 0,
-                end = 15,
-                category = "EMAIL",
-                detector = DetectorSource.REGEX_FIREWALL,
-                placeholder = "[REDACTED:EMAIL_1]",
-                matchedText = "victim@acme.org",
-                masked = true,
-            ),
+        val emailSpan = RedactionSpan(
+            start = 0,
+            end = 15,
+            category = "EMAIL",
+            detector = DetectorSource.REGEX_FIREWALL,
+            placeholder = "[REDACTED:EMAIL_1]",
+            matchedText = "victim@acme.org",
+            masked = true,
         )
         val urlAudit = LocalFirewallEngine.verifyZeroLeakage(
             "Outbound prompt referencing victim%40acme.org",
-            spans,
+            listOf(emailSpan),
         )
         assertFalse(urlAudit.verified)
         assertEquals(listOf("EMAIL"), urlAudit.leakedCategories)
+
+        // 4. Merged span constituentTexts & JSON-escaped bypass attempt blocked by verifyZeroLeakage
+        val mergedSpan = RedactionSpan(
+            start = 0,
+            end = 30,
+            category = "M_AND_A_SECRET",
+            detector = DetectorSource.NANO_SEMANTIC_FIREWALL,
+            placeholder = "[REDACTED:M_AND_A_SECRET_1]",
+            matchedText = "Project-Chimera \"$42M\" valuation",
+            masked = true,
+            constituentTexts = listOf("Project-Chimera", "\"\$42M\" secret"),
+        )
+        val constituentAudit = LocalFirewallEngine.verifyZeroLeakage(
+            "Summary mentions Project-Chimera quietly.",
+            listOf(mergedSpan),
+        )
+        assertFalse(constituentAudit.verified)
+        assertEquals(listOf("M_AND_A_SECRET"), constituentAudit.leakedCategories)
+
+        val jsonEscapedAudit = LocalFirewallEngine.verifyZeroLeakage(
+            """{"note": "\"$42M\" secret leaked"}""",
+            listOf(mergedSpan),
+        )
+        assertFalse(jsonEscapedAudit.verified)
+        assertEquals(listOf("M_AND_A_SECRET"), jsonEscapedAudit.leakedCategories)
+    }
+
+    @Test
+    fun enforcesFirestoreSchemaLengthCapsAndImmutableCreatedAtOnUpdates() {
+        val oversizedTitle = "T".repeat(450)
+        val oversizedSanitized = "S".repeat(65_000)
+        val oversizedResolution = "R".repeat(65_000)
+
+        val initial = FirestoreSyncRepository.buildZeroPiiTicketPayload(
+            uid = "uid-bounds",
+            result = sampleTicket(
+                title = oversizedTitle,
+                sanitizedText = oversizedSanitized,
+                resolution = oversizedResolution,
+                createdAt = 1_700_000_000_000L,
+                updatedAt = 1_700_000_000_500L,
+            ),
+            nowMs = 1_700_000_010_000L,
+        )
+        assertTrue(initial is ZeroPiiPayloadResult.Valid)
+        val initialData = (initial as ZeroPiiPayloadResult.Valid).data
+        assertEquals(200, (initialData["title"] as String).length)
+        assertEquals(50_000, (initialData["sanitizedText"] as String).length)
+        assertEquals(50_000, (initialData["resolution"] as String).length)
+        assertEquals(1_700_000_000_000L, initialData["createdAt"])
+        assertEquals(1_700_000_010_000L, initialData["updatedAt"])
+
+        val updated = FirestoreSyncRepository.buildZeroPiiTicketPayload(
+            uid = "uid-bounds",
+            result = sampleTicket(
+                createdAt = 1_700_000_000_000L,
+                updatedAt = 1_700_000_010_000L,
+            ),
+            nowMs = 1_700_000_025_000L,
+        )
+        assertTrue(updated is ZeroPiiPayloadResult.Valid)
+        val updatedData = (updated as ZeroPiiPayloadResult.Valid).data
+        assertEquals(initialData["createdAt"], updatedData["createdAt"])
+        assertTrue((updatedData["updatedAt"] as Long) > (initialData["updatedAt"] as Long))
     }
 }

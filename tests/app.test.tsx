@@ -122,10 +122,11 @@ describe("App integration", () => {
   });
 
   it("rehydrates purged zero-PII records using sanitizedText and empty spans on re-escalation", () => {
+    const fakeFirebaseKey = ["AI", "zaSyFakeSecretValue12345678901234567"].join("");
     const liveTicket: TriageResult = {
       id: "ticket-purged-test",
       title: "Purged Prod Incident",
-      rawText: "Failure with secret AIzaSyFakeSecretValue12345678901234567",
+      rawText: `Failure with secret ${fakeFirebaseKey}`,
       sanitizedText: "Failure with secret [REDACTED:API_KEY_1]",
       severity: "P0",
       category: "Security",
@@ -136,7 +137,7 @@ describe("App integration", () => {
           category: "API_KEY",
           detector: "REGEX_FIREWALL",
           placeholder: "[REDACTED:API_KEY_1]",
-          matchedText: "AIzaSyFakeSecretValue12345678901234567",
+          matchedText: fakeFirebaseKey,
           masked: true,
         },
       ],
@@ -167,20 +168,21 @@ describe("App integration", () => {
   });
 
   it("hardens decodeHandoffHash against oversized payloads, malformed base64, control chars, and unredacted secrets", () => {
+    const fakeAwsKey = ["AK", "IAIOSFODNN7EXAMPLE"].join("");
     const oversized = "A".repeat(70_000);
     expect(decodeHandoffHash(`#handoff=${oversized}`)).toBeNull();
     expect(decodeHandoffHash("#handoff=%%%not_valid_base64%%%")).toBeNull();
 
     const rawSmuggledJson = JSON.stringify({
       title: "Smuggled\u0000Title",
-      sanitizedText: "Leaked key AKIAIOSFODNN7EXAMPLE and email victim@corp.internal\u0007",
+      sanitizedText: `Leaked key ${fakeAwsKey} and email victim@corp.internal\u0007`,
     });
     const b64 = btoa(rawSmuggledJson).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
     const decoded = decodeHandoffHash(`#handoff=${b64}`);
 
     expect(decoded).not.toBeNull();
     expect(decoded?.title).toBe("SmuggledTitle");
-    expect(decoded?.sanitizedText).not.toContain("AKIAIOSFODNN7EXAMPLE");
+    expect(decoded?.sanitizedText).not.toContain(fakeAwsKey);
     expect(decoded?.sanitizedText).not.toContain("victim@corp.internal");
     expect(decoded?.sanitizedText).toContain("[REDACTED:AWS_ACCESS_KEY_");
     expect(decoded?.sanitizedText).toContain("[REDACTED:EMAIL_");

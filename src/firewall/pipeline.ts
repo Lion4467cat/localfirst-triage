@@ -24,7 +24,7 @@ import { scanAndRedactLocal } from "./regexScrubber";
 import { addManualSpan, applyMaskedSpans, verifyZeroLeakage } from "./spanMerger";
 
 const SRE_SYSTEM_INSTRUCTION =
-  "You are a Principal SRE Incident Triage Assistant. Produce concise Markdown with sections: ### Root Cause Hypothesis, ### Immediate Mitigation, and ### Verification Checklist. Never ask for or echo redacted PII.";
+  "You are a Principal SRE Incident Triage Assistant. Produce concise Markdown with sections: ### Root Cause Hypothesis, ### Immediate Mitigation, and ### Verification Checklist. Never ask for or echo redacted PII. Preserve exact [REDACTED:...] tokens verbatim and omit horizontal --- rules.";
 
 export interface CloudCallResponse {
   ok: boolean;
@@ -233,7 +233,10 @@ export async function runTriagePipeline(
     nanoResult.nanoStatus === "READY" ? "ON_DEVICE (Nano 4)" : "HEURISTIC_GUARD";
 
   const { sanitizedText, mergedSpans } = scanAndRedactLocal(input.rawText, {
-    includeHeuristics: nanoResult.nanoStatus !== "READY",
+    // Defense-in-Depth Union: ALWAYS run HEURISTIC_GUARD alongside Nano 4.
+    // spanMerger keeps NANO_SEMANTIC_FIREWALL priority (4 > 1) on overlapping phrases,
+    // while HEURISTIC_GUARD guarantees 0 clinical/M&A/password leakage if Nano 4 under-extracts.
+    includeHeuristics: true,
     enableEntropyScanner: input.policy?.enableEntropyScanner !== false,
     entropyThreshold:
       stage1Config.entropyThreshold ?? DEFAULT_RUNTIME_CONFIG.entropyThreshold ?? 3.25,
@@ -614,8 +617,8 @@ export async function generateSanitizedHybridBrief(
 ): Promise<HybridBriefResult> {
   const startedAt = performance.now();
   const prompt = [
-    "Draft a concise 2-sentence executive summary and a 1-paragraph Slack incident update from this sanitized incident report.",
-    "Preserve all [REDACTED:...] placeholders strictly.",
+    "Start directly with **Executive Summary:** (2 concise sentences, no conversational intro or ---/*** horizontal rules) followed by **Slack Incident Update:** (1 short paragraph).",
+    "Preserve exact [REDACTED:...] placeholders verbatim without stripping category suffixes.",
     `Title: ${result.title} | Severity: ${result.severity}`,
     `Sanitized Input:\n${result.sanitizedText.slice(0, 1200)}`,
     `Triage Resolution:\n${result.resolution.slice(0, 1200)}`,

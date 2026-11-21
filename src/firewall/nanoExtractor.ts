@@ -332,7 +332,8 @@ export function buildNanoExtractionPrompt(
 
   return [
     'Return ONLY valid JSON: {"severity":"P0|P1|P2|P3","runbookId":string|null,"entities":[{"type":"CONTEXTUAL_PHI|M_AND_A_SECRET|NATURAL_SECRET|PERSON_PII","value":"exact verbatim substring"}]}',
-    "Do NOT generate prose replies. Only copy exact verbatim sensitive substrings present in Text.",
+    "Do NOT generate prose replies. Extract EVERY sensitive substring across ALL four categories (medical/ICU/diagnosis PHI, password hints/login secrets, M&A codenames/valuations/deals, person names/addresses) — never stop after the first person name.",
+    "Only copy exact verbatim sensitive substrings present in Text.",
     "Valid local runbookId values (ONLY assign one if severity is P2 or P3 and it clearly matches):",
     runbookList,
     "Text:",

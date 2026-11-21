@@ -1,18 +1,27 @@
-# LocalFirst Triage (`v3.0`) — Domain & Architecture Glossary
+# LocalFirst Triage (`v4.0`) — Domain Glossary
 
-This glossary defines the ubiquitous domain language for **LocalFirst Triage** and pairs with the `/codebase-design` vocabulary (**module**, **interface**, **implementation**, **depth**, **seam**, **adapter**, **leverage**, **locality**).
+## Architectural & Hybrid AI Terms
+- **Defense-in-Depth Union:** Stage 1 architectural guarantee across Web ([`pipeline.ts`](./src/firewall/pipeline.ts)) and Android ([`HybridAiClient.kt`](./android/app/src/main/java/com/localfirst/triage/ai/HybridAiClient.kt)) where deterministic `REGEX_FIREWALL`, `ENTROPY_SCANNER`, `POLICY_TERM`, and `HEURISTIC_GUARD` **always** execute in union with Gemini Nano 4 (`includeHeuristics = true`), preventing semantic leaks if Nano 4 under-extracts.
+- **InferenceMode.ONLY_ON_DEVICE:** Firebase AI Logic mode strictly mandating local on-device execution (Gemini Nano 4 / AICore) with zero silent cloud fallback during sensitive Stage 1 PII extraction.
+- **InferenceMode.PREFER_ON_DEVICE:** Firebase AI Logic mode used **exclusively after** `verifyZeroLeakage()` passes on already-sanitized text to draft stakeholder briefs on-device when available (`Source: ON_DEVICE`) and seamlessly fall back to Cloud Gemini when unavailable.
+- **Pre-Cloud Countdown (`PRE_CLOUD_COUNTDOWN`):** Cancelable review window entered on P0/P1 incidents when Nano 4 is active, allowing interactive mask adjustments before Stage 2 Cloud streaming.
+- **Fail-Closed Quarantine (`QUARANTINED_PENDING_APPROVAL`):** Safe hold state entered automatically when on-device Nano 4 is unavailable/downloading; zero outbound Cloud requests execute until an engineer explicitly clicks **Approve & Escalate**.
+- **Hybrid Stakeholder Brief:** Executive Summary + Slack Incident Update generated from already-sanitized ticket payloads using `InferenceMode.PREFER_ON_DEVICE` (falling back cleanly to local deterministic fallback in Offline Mode).
 
-## Domain Terms
+## Redaction & Verification Primitives
+- **RedactionSpan:** Typed range (`start`, `end`, `category`, `detector`, `placeholder`, `matchedText`, `masked`, `constituentTexts`). Stripped cleanly before disk/Firestore persistence.
+- **Detector Priority Hierarchy:** Conflict-resolution precedence when merging overlapping spans in [`spanMerger.ts`](./src/firewall/spanMerger.ts) / [`LocalFirewallEngine.kt`](./android/app/src/main/java/com/localfirst/triage/firewall/LocalFirewallEngine.kt):
+  `MANUAL_MASK (5)` > `NANO_SEMANTIC_FIREWALL (4)` > `POLICY_TERM (3)` > `REGEX_FIREWALL (2)` = `ENTROPY_SCANNER (2)` > `HEURISTIC_GUARD (1)`.
+- **`constituentTexts`:** Audit array retained in memory on merged spans so `verifyZeroLeakage()` still rejects every underlying secret substring even after adjacent spans merge.
+- **Zero-Leakage Proof (`verifyZeroLeakage`):** Outbound safety gate verifying zero active masked spans (including `constituentTexts`, URL-encoded, and JSON-escaped variants) and zero raw credential patterns appear in Cloud prompts or Firestore documents.
+- **Purged Disk Marker (`[PURGED_FROM_DISK_FOR_PRIVACY]`):** Sentinel replacing `rawText` on every ticket persisted to IndexedDB or synced from Firestore.
 
-- **RawPayload (`rawText`)**: Unredacted incident log, stack trace, or customer support message held strictly in volatile browser session memory and never persisted to disk or sent to the cloud.
-- **SanitizedPayload (`sanitizedText`)**: Incident text after all active `RedactionSpan` intervals have been replaced right-to-left with numbered `[REDACTED:<CATEGORY>_<N>]` placeholders.
-- **RedactionSpan**: A UTF-16 `[start, end)` interval in `RawPayload` identified by a `DetectorSource`, carrying its replacement `placeholder`, `masked` toggle state, and `constituentTexts` for merged overlapping intervals.
-- **LocalFirewall (Stage 1)**: The on-device privacy scrub combining deterministic `scanAndRedactLocal()` (`REGEX_FIREWALL` across 9 rules + Luhn check, `ENTROPY_SCANNER` at `shannonEntropy >= 3.25 bits/char`, `HEURISTIC_GUARD` across 4 contextual rules, `POLICY_TERM`) with Chrome Built-in Gemini Nano 4 / Gemma 4 (`NANO_SEMANTIC_FIREWALL` via `InferenceMode.ONLY_ON_DEVICE`).
-- **LocalRunbook**: One of the **5** built-in offline Markdown resolution guides (`RB_CERT_EXPIRED`, `RB_OAUTH_CLOCK_SKEW`, `RB_NPM_ERESOLVE`, `RB_CORS_ORIGIN`, `RB_INDEXEDDB_QUOTA`) or user-created custom runbooks (`P2`/`P3`) matched on-device so routine dev/client incidents resolve with `$0` cloud tokens.
-- **DemoScenario**: One of the **4** built-in incident presets spanning all 4 severity tiers (`P0`, `P3`, `P1`, `P2`) in `src/config/demoScenarios.ts`.
-- **FailClosedQuarantine (`QUARANTINED_PENDING_APPROVAL`)**: Security hold triggered whenever Gemini Nano 4 is not `READY` on a `P0`/`P1` ticket, requiring explicit human review of the inline diff before cloud dispatch.
-- **ZeroLeakageGate (`verifyZeroLeakage`)**: Programmatic pre-cloud assertion verifying that `0` active masked substrings (including constituent overlapped secrets and URL/JSON-encoded variants) appear in the outbound cloud prompt.
-- **CloudEscalation (Stage 2)**: Streaming root-cause analysis via Firebase AI Logic (`InferenceMode.PREFER_IN_CLOUD`, `inCloudParams.model: "gemini-3.5-flash-lite"` with unary retry and `"gemini-2.5-flash"` fallback) protected by Firebase App Check (`ReCaptchaEnterpriseProvider`).
-- **HybridBrief**: Executive summary and Slack/Jira stakeholder update generated from `SanitizedPayload` via `InferenceMode.PREFER_ON_DEVICE`.
-- **ZeroPiiStore**: Browser `IndexedDB` v2 store where `stripRawTextForStorage()` permanently replaces `rawText` with `"[PURGED_FROM_DISK_FOR_PRIVACY]"` and strips `matchedText`/`constituentTexts` before disk write.
-- **ExtensionHandoff (`#handoff=<base64url>`)**: Strict UTF-8 base64url envelope transferring sanitized captures from the Manifest V3 Chrome Extension Side Panel (`extension/`) to `https://para-1-2e22b.web.app/` with automatic deterministic re-scrubbing on import.
+## Runbooks & Policies
+- **Built-in Local Runbooks (6):** On-device P2/P3 diagnostic playbooks resolved at `$0` cloud cost across Web and Android:
+  `RB_LOCAL_TLS_CERT`, `RB_LOCAL_DEPENDENCY_CONFLICT`, `RB_LOCAL_CORS_DEV`, `RB_OAUTH_CLOCK_SKEW`, `RB_PORT_IN_USE`, `RB_OFFLINE_SW_CACHE`.
+- **Firebase Remote Config Knobs:** Dynamic runtime settings (`cloudModel`, `cloudFallbackModel`, `enableCloudEscalation`, `entropyThreshold`, `enterpriseBlockedTerms`) fetched via `fetchAndActivate` without redeploying client builds.
+
+## Multi-Platform Surfaces
+- **SourcePlatform (`WEB` | `CHROME_EXTENSION` | `ANDROID`):** Origin badge stored on each Zero-PII ticket so synced feeds display which device triaged the incident.
+- **Volatile RAM Session Map (`volatileSessionMap` / `volatileRawMap`):** In-memory-only map allowing immediate interactive unmasking/re-masking on live current-session tickets without ever touching IndexedDB, Logcat, `SavedStateHandle`, or Firestore.
+- **Lazy Firestore Transport:** Code-split module ([`firestoreTransport.ts`](./src/storage/firestoreTransport.ts)) loaded strictly after Anonymous Guest or Google Sign-In, keeping initial unauthenticated PWA visits lighter and side-effect free.

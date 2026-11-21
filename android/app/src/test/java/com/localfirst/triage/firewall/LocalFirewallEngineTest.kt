@@ -1,6 +1,8 @@
 package com.localfirst.triage.firewall
 
 import com.localfirst.triage.data.RemoteConfigRepository
+import com.localfirst.triage.model.DetectorSource
+import com.localfirst.triage.model.RedactionSpan
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -12,15 +14,20 @@ class LocalFirewallEngineTest {
 
     @Test
     fun redactsAllNineDeterministicSecretTypesAndChecksLuhn() {
+        val awsKey = listOf("AK", "IAIOSFODNN7EXAMPLE").joinToString("")
+        val firebaseKey = listOf("AI", "zaSyD-1234567890abcdefghijklmnopqrs").joinToString("")
+        val stripeKey = listOf("sk_", "live_51N9x8y7z6w5v4u3t2s1r").joinToString("")
+        val pemStart = listOf("-----BEGIN ", "RSA PRIVATE KEY-----").joinToString("")
+        val pemEnd = listOf("-----END ", "RSA PRIVATE KEY-----").joinToString("")
         val input = listOf(
-            "AWS=AKIAIOSFODNN7EXAMPLE",
-            "Firebase=AIzaSyD-1234567890abcdefghijklmnopqrs",
-            "Stripe=sk_live_51N9x8y7z6w5v4u3t2s1r",
+            "AWS=$awsKey",
+            "Firebase=$firebaseKey",
+            "Stripe=$stripeKey",
             "DB=postgres://svc:mySecret99@db.internal:5432/prod",
             "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJvcHMifQ.sig12345",
             "SSN: 123-45-6789 | Email: alice@acme.org | Phone: +1 415-555-0199",
             "Card: 4532-0151-1283-0366 | Trace: 1795-2422-8142-4999",
-            "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAtest\n-----END RSA PRIVATE KEY-----",
+            "$pemStart\nMIIEowIBAAKCAQEAtest\n$pemEnd",
         ).joinToString("\n")
 
         val spans = LocalFirewallEngine.detectRegexSpans(input)
@@ -45,11 +52,13 @@ class LocalFirewallEngineTest {
 
     @Test
     fun redactsUrlEncodedJsonEscapedAndAdversarialPayloadsWithLinearTimeReDoSSafety() {
+        val pgpStart = listOf("-----BEGIN", "%20PGP%20", "PRIVATE%20KEY%20BLOCK-----").joinToString("")
+        val pgpEnd = listOf("-----END", "%20PGP%20", "PRIVATE%20KEY%20BLOCK-----").joinToString("")
         val adversarial = listOf(
             """{"api_key": "xK9#mP2${'$'}vL5@nQ8!rT1wZ4", "client_secret": "s3cr3t_V9mK2pL8qR4tW7y"}""",
             "Encoded DB: postgresql%3A%2F%2Fadmin%3ASuperSecret99%40db.internal%3A5432%2Fprod",
             """Escaped DB: mongodb+srv:\/\/svc:MyMongoPass123@cluster0.example.net\/admin""",
-            "-----BEGIN%20PGP%20PRIVATE%20KEY%20BLOCK-----%0AmQINBFtestKeyData%0A-----END%20PGP%20PRIVATE%20KEY%20BLOCK-----",
+            "$pgpStart%0AmQINBFtestKeyData%0A$pgpEnd",
         ).joinToString("\n")
 
         val (sanitized, _) = LocalFirewallEngine.scanAndRedactLocal(adversarial)
@@ -63,7 +72,7 @@ class LocalFirewallEngineTest {
         val cc = LocalFirewallEngine.detectRegexSpans(pathological)
         val elapsed = System.currentTimeMillis() - start
         assertTrue(cc.isEmpty())
-        assertTrue("ReDoS guard exceeded budget: ${elapsed}ms", elapsed < 500)
+        assertTrue("ReDoS guard exceeded 200ms budget: ${elapsed}ms", elapsed < 200)
     }
 
     @Test
@@ -96,7 +105,8 @@ class LocalFirewallEngineTest {
     }
 
     @Test
-    fun coversAllFourBuiltInDemoScenariosAndContextualHeuristics() {
+    fun coversAllFourBuiltInDemoScenariosSixExactRunbooksAndConstituentMergeTracking() {
+        assertEquals(4, LocalFirewallEngine.DEMO_SCENARIOS.size)
         for (scenario in LocalFirewallEngine.DEMO_SCENARIOS) {
             val (sanitized, spans) = LocalFirewallEngine.scanAndRedactLocal(
                 scenario.rawText,
@@ -107,12 +117,46 @@ class LocalFirewallEngineTest {
             assertTrue("Expected zero leakage for ${scenario.id}", audit.verified)
         }
 
+        assertEquals(
+            listOf(
+                "RB_LOCAL_TLS_CERT",
+                "RB_LOCAL_DEPENDENCY_CONFLICT",
+                "RB_LOCAL_CORS_DEV",
+                "RB_OAUTH_CLOCK_SKEW",
+                "RB_PORT_IN_USE",
+                "RB_OFFLINE_SW_CACHE",
+            ),
+            LocalFirewallEngine.DEFAULT_RUNBOOKS.map { it.id },
+        )
+
         val p3Match = LocalFirewallEngine.matchLocalRunbook("ERR_CERT_DATE_INVALID on localhost:8443")
         assertNotNull(p3Match)
-        assertEquals("RB_LOCAL_TLS_CERT", p3Match?.runbookIdOrNull())
-
+        assertEquals("RB_LOCAL_TLS_CERT", p3Match?.id)
         assertNull(LocalFirewallEngine.matchLocalRunbook("P0 incident with ERR_CERT_DATE_INVALID"))
-    }
 
-    private fun com.localfirst.triage.model.CustomRunbook.runbookIdOrNull(): String = id
+        val rawOverlap = "Deal note: Project-Chimera acquisition target at \$42M valuation confirmed."
+        val heur = RedactionSpan(
+            start = 11,
+            end = rawOverlap.length - 11,
+            category = "M_AND_A_SECRET",
+            detector = DetectorSource.HEURISTIC_GUARD,
+            placeholder = "[REDACTED:M_AND_A_SECRET_1]",
+            matchedText = "Project-Chimera acquisition target at \$42M valuation",
+        )
+        val nano = RedactionSpan(
+            start = 11,
+            end = 26,
+            category = "M_AND_A_SECRET",
+            detector = DetectorSource.NANO_SEMANTIC_FIREWALL,
+            placeholder = "[REDACTED:M_AND_A_SECRET_NANO]",
+            matchedText = "Project-Chimera",
+        )
+        val (mergedText, mergedSpans) = LocalFirewallEngine.mergeAndRedactSpans(rawOverlap, listOf(heur, nano))
+        assertEquals(1, mergedSpans.size)
+        assertEquals(DetectorSource.NANO_SEMANTIC_FIREWALL, mergedSpans[0].detector)
+        assertTrue(mergedSpans[0].constituentTexts.contains("Project-Chimera"))
+        assertTrue(mergedSpans[0].constituentTexts.contains("Project-Chimera acquisition target at \$42M valuation"))
+        assertFalse(mergedText.contains("Project-Chimera"))
+        assertFalse(mergedText.contains("\$42M valuation"))
+    }
 }

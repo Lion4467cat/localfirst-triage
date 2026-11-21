@@ -18,6 +18,7 @@ import com.localfirst.triage.model.RedactionSpan
 import com.localfirst.triage.model.ResolutionMode
 import com.localfirst.triage.model.RuntimeConfigValues
 import com.localfirst.triage.model.TriageResult
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -58,12 +59,24 @@ class TriageViewModel(
     private val volatileRawMap = HashMap<String, TriageResult>()
     private var unsubscribeAuth: (() -> Unit)? = null
     private var unsubscribeFirestore: (() -> Unit)? = null
+    private var activeTriageJob: Job? = null
+    private var activeBriefJob: Job? = null
+    private var runGeneration: Long = 0L
     private var policyCreatedAt: Long = System.currentTimeMillis()
 
     init {
         refreshNanoStatus()
         refreshRemoteConfig(force = false)
         observeAuthentication()
+    }
+
+    private fun cancelActiveWork() {
+        runGeneration++
+        activeTriageJob?.cancel()
+        activeTriageJob = null
+        activeBriefJob?.cancel()
+        activeBriefJob = null
+        _uiState.update { it.copy(isRunning = false, isGeneratingBrief = false) }
     }
 
     private fun observeAuthentication() {
@@ -167,6 +180,7 @@ class TriageViewModel(
     }
 
     fun selectScenario(scenario: DemoScenario) {
+        cancelActiveWork()
         _uiState.update {
             it.copy(
                 titleInput = scenario.title,
@@ -200,6 +214,9 @@ class TriageViewModel(
 
     fun toggleOfflineMode() {
         val nextOffline = !_uiState.value.offlineMode
+        if (nextOffline) {
+            cancelActiveWork()
+        }
         _uiState.update { state ->
             state.copy(
                 offlineMode = nextOffline,
@@ -221,8 +238,10 @@ class TriageViewModel(
 
     fun runHybridTriage() {
         val state = _uiState.value
-        if (state.isRunning || state.rawTextInput.isBlank()) return
-        viewModelScope.launch {
+        if (state.rawTextInput.isBlank()) return
+        cancelActiveWork()
+        val gen = ++runGeneration
+        activeTriageJob = viewModelScope.launch {
             _uiState.update { it.copy(isRunning = true) }
             val result = aiClient.runStage1AndTriage(
                 title = state.titleInput.trim().ifEmpty { "Untitled Incident" },
@@ -232,6 +251,7 @@ class TriageViewModel(
                 policy = state.policy,
                 runtimeConfig = state.runtimeConfig,
             )
+            if (gen != runGeneration) return@launch
             volatileRawMap[result.id] = result
             val nextFeed = (listOf(result) + _uiState.value.syncedTickets.filter { it.id != result.id }).take(50)
             _uiState.update {
@@ -267,10 +287,11 @@ class TriageViewModel(
 
     fun approveAndEscalateToCloud() {
         val ticket = _uiState.value.currentResult ?: return
-        if (_uiState.value.isRunning) return
         val sourceTicket = volatileRawMap[ticket.id] ?: ticket
+        cancelActiveWork()
+        val gen = ++runGeneration
 
-        viewModelScope.launch {
+        activeTriageJob = viewModelScope.launch {
             _uiState.update { it.copy(isRunning = true) }
             val escalated = aiClient.escalateApprovedTicket(
                 ticket = sourceTicket,
@@ -280,7 +301,7 @@ class TriageViewModel(
                 onStreamChunk = { partial ->
                     _uiState.update { cur ->
                         val active = cur.currentResult
-                        if (active != null && active.id == sourceTicket.id) {
+                        if (gen == runGeneration && active != null && active.id == sourceTicket.id) {
                             cur.copy(currentResult = active.copy(resolution = partial))
                         } else {
                             cur
@@ -288,6 +309,7 @@ class TriageViewModel(
                     }
                 },
             )
+            if (gen != runGeneration) return@launch
             volatileRawMap[escalated.id] = escalated
             val nextFeed = (listOf(escalated) + _uiState.value.syncedTickets.filter { it.id != escalated.id }).take(50)
             _uiState.update {
@@ -302,14 +324,16 @@ class TriageViewModel(
 
     fun generateHybridBrief() {
         val ticket = _uiState.value.currentResult ?: return
-        if (_uiState.value.isGeneratingBrief) return
-        viewModelScope.launch {
+        activeBriefJob?.cancel()
+        val gen = runGeneration
+        activeBriefJob = viewModelScope.launch {
             _uiState.update { it.copy(isGeneratingBrief = true) }
             val brief = aiClient.generateSanitizedHybridBrief(
                 ticket = ticket,
                 runtimeConfig = _uiState.value.runtimeConfig,
                 offlineMode = _uiState.value.offlineMode,
             )
+            if (gen != runGeneration || _uiState.value.currentResult?.id != ticket.id) return@launch
             val updated = ticket.copy(hybridBrief = brief)
             volatileRawMap[updated.id] = updated
             val nextFeed = _uiState.value.syncedTickets.map { if (it.id == updated.id) updated else it }
@@ -346,6 +370,7 @@ class TriageViewModel(
     }
 
     fun openSyncedTicket(item: TriageResult) {
+        cancelActiveWork()
         val selected = volatileRawMap[item.id] ?: item
         _uiState.update {
             it.copy(
@@ -388,6 +413,7 @@ class TriageViewModel(
     }
 
     fun signOut() {
+        cancelActiveWork()
         unsubscribeFirestore?.invoke()
         unsubscribeFirestore = null
         syncRepo.signOut()
@@ -402,6 +428,7 @@ class TriageViewModel(
 
     override fun onCleared() {
         super.onCleared()
+        cancelActiveWork()
         unsubscribeAuth?.invoke()
         unsubscribeFirestore?.invoke()
     }

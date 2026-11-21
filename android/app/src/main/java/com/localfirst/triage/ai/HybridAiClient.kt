@@ -232,7 +232,8 @@ class HybridAiClient(
         val (sanitizedText, mergedSpans) = LocalFirewallEngine.scanAndRedactLocal(
             rawText = rawText,
             options = LocalFirewallEngine.ScanOptions(
-                includeHeuristics = !usedNano,
+                // Defense-in-Depth Union: keep HEURISTIC_GUARD enabled even when Nano 4 is READY
+                includeHeuristics = true,
                 enableEntropyScanner = policy.enableEntropyScanner,
                 entropyThreshold = runtimeConfig.entropyThreshold,
                 customTerms = policy.customTerms,
@@ -607,6 +608,7 @@ class HybridAiClient(
         "### Root Cause Hypothesis (Local Deterministic SRE Fallback)",
         "- **Zero-Leakage Guarantee Held:** Stage 1 scrubbed all secrets locally (`0` raw PII bytes left device).",
         "- **Cloud Status:** Outbound Cloud Gemini call reported `$errorReason`.",
+        "- **Sideload / Debug APK Tip:** If Cloud Gemini fails with App Check/403 on a sideloaded debug APK, copy the UUID printed in Logcat (`DebugAppCheckProvider`) and register it in Firebase Console -> App Check -> Apps -> Android -> Manage debug tokens.",
         "### Immediate Mitigation",
         "1. Rotate any exposed API keys, tokens, or private keys flagged by Stage 1.",
         "2. Verify network & App Check connectivity, then tap Retry Cloud Escalation.",
@@ -630,7 +632,7 @@ class HybridAiClient(
         return listOf(
             "You are an on-device privacy & incident classifier.",
             "Line 1: SEVERITY|CATEGORY|RUNBOOK_ID (where SEVERITY is P0..P3; RUNBOOK_ID from [$rbList] or NONE).",
-            "Subsequent lines (optional): PHRASE|CATEGORY for any implicit PHI, secret hints, or codenames in the text.",
+            "Subsequent lines: PHRASE|CATEGORY — extract EVERY sensitive substring across ALL categories (CONTEXTUAL_PHI medical/ICU/diagnosis, NATURAL_SECRET password hints/login phrases, M_AND_A_SECRET codenames/acquisitions/valuations, PERSON_PII names/addresses); never stop after the first person name.",
             "Text:\n${rawText.take(2500)}",
         ).joinToString("\n")
     }
@@ -658,8 +660,8 @@ class HybridAiClient(
 
     companion object {
         const val SRE_SYSTEM_INSTRUCTION =
-            "You are a Principal SRE Incident Triage Assistant. Produce concise Markdown with sections: ### Root Cause Hypothesis, ### Immediate Mitigation, and ### Verification Checklist. Never ask for or echo redacted PII."
+            "You are a Principal SRE Incident Triage Assistant. Produce concise Markdown with sections: ### Root Cause Hypothesis, ### Immediate Mitigation, and ### Verification Checklist. Never ask for or echo redacted PII. Preserve exact [REDACTED:...] tokens verbatim and omit horizontal --- rules."
         const val BRIEF_SYSTEM_INSTRUCTION =
-            "Draft a concise 2-sentence executive summary and 1-paragraph Slack update without altering [REDACTED:...] tokens."
+            "Start directly with **Executive Summary:** (2 sentences, no conversational intro or ---/*** rules) followed by **Slack Incident Update:** (1 paragraph), preserving exact [REDACTED:...] tokens verbatim."
     }
 }

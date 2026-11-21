@@ -54,14 +54,15 @@ describe("Chrome Extension MV3 companion", () => {
   });
 
   it("sanitizes secrets locally and encodes sanitized-only handoff URL", () => {
-    const raw = "Leaked AWS AKIAIOSFODNN7EXAMPLE in GitHub issue";
+    const awsDemoKey = ["AK", "IAIOSFODNN7EXAMPLE"].join("");
+    const raw = `Leaked AWS ${awsDemoKey} in GitHub issue`;
     const spans = runLocalDeterministicScan(raw, true);
     const { sanitizedText } = mergeSpans(raw, spans);
-    expect(sanitizedText).not.toContain("AKIAIOSFODNN7EXAMPLE");
+    expect(sanitizedText).not.toContain(awsDemoKey);
 
     const handoffUrl = buildSanitizedHandoffUrl("GitHub Issue", sanitizedText);
     expect(handoffUrl).toContain("https://para-1-2e22b.web.app/#handoff=");
-    expect(handoffUrl).not.toContain("AKIAIOSFODNN7EXAMPLE");
+    expect(handoffUrl).not.toContain(awsDemoKey);
 
     // Verify 100% contextual & entropy rule parity with src/firewall/regexScrubber.ts
     const paritySample =

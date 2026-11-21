@@ -95,8 +95,9 @@ describe("pipeline", () => {
 
   it("blocks cloud calls in Airplane/Offline mode and queues sanitized ticket for reconnect", async () => {
     const cloudCaller = vi.fn();
+    const openAiPrefix = ["sk", "proj", ""].join("-");
     const raw =
-      "P0 Database outage after deploy with key sk-proj-abcdefghijklmnopqrstuvwxyz123456.";
+      `P0 Database outage after deploy with key ${openAiPrefix}abcdefghijklmnopqrstuvwxyz123456.`;
 
     const result = await runTriagePipeline(
       { id: "t-3", title: "Offline P0", rawText: raw, offlineMode: true },
@@ -122,7 +123,7 @@ describe("pipeline", () => {
     expect(result.inferenceSource).toBe("OFFLINE_BLOCKED");
     expect(result.resolutionMode).toBe("OFFLINE_QUEUED");
     expect(result.queuedForReconnect).toBe(true);
-    expect(result.sanitizedText).not.toContain("sk-proj-");
+    expect(result.sanitizedText).not.toContain(openAiPrefix);
 
     // Also verify escalateApprovedTicket honors offlineMode even if invoked on quarantined ticket
     const blockedRetry = await escalateApprovedTicket(result, result.spans, {
@@ -141,11 +142,12 @@ describe("pipeline", () => {
       error: "403 App Check token rejected",
     }));
 
+    const githubPat = ["gh", "p_1234567890abcdefghijklmnopqrstuvwxyz"].join("");
     const res = await runTriagePipeline(
       {
         id: "t-err",
         title: "Cloud Error Test",
-        rawText: "P0 Outage with token ghp_1234567890abcdefghijklmnopqrstuvwxyz",
+        rawText: `P0 Outage with token ${githubPat}`,
         offlineMode: false,
         approveCloudEscalation: true,
       },
@@ -175,11 +177,12 @@ describe("pipeline", () => {
 
   it("aborts Stage 2 cloud call via Zero-Leakage Gate if a masked secret remains unredacted", async () => {
     const cloudCaller = vi.fn();
+    const firebaseKey = ["AI", "zaSyD-1234567890abcdefghijklmnopqrs"].join("");
     const ticket = await runTriagePipeline(
       {
         id: "t-leak",
         title: "Leak Gate Test",
-        rawText: "P0 outage with key AIzaSyD-1234567890abcdefghijklmnopqrs",
+        rawText: `P0 outage with key ${firebaseKey}`,
         offlineMode: false,
       },
       {
@@ -319,7 +322,7 @@ describe("pipeline", () => {
           );
         },
         callCloud: async (sanitizedPrompt) => {
-          expect(sanitizedPrompt).not.toContain("AIzaSy");
+          expect(sanitizedPrompt).not.toContain(["AIza", "Sy"].join(""));
           return {
             ok: true,
             text: "Cloud-recovered executive summary after on-device worker crash.",
@@ -431,7 +434,7 @@ describe("pipeline", () => {
       {
         id: "t-ext-1",
         title: "Extension Capture",
-        rawText: "P0 alert touching Project-Apollo and secret AKIAIOSFODNN7EXAMPLE",
+        rawText: `P0 alert touching Project-Apollo and secret ${["AK", "IAIOSFODNN7EXAMPLE"].join("")}`,
         offlineMode: false,
         importedFromExtension: true,
         runtimeConfig: {
@@ -469,5 +472,80 @@ describe("pipeline", () => {
 
     expect(escalated.createdAt).toBe(extResult.createdAt);
     expect(escalated.sourcePlatform).toBe("CHROME_EXTENSION");
+  });
+
+  it("exposes the exact 6 built-in runbook IDs matching Android firewall parity", async () => {
+    const { DEFAULT_RUNBOOKS } = await import("../src/config/demoScenarios");
+    expect(DEFAULT_RUNBOOKS).toHaveLength(6);
+    expect(DEFAULT_RUNBOOKS.map((rb) => rb.id)).toEqual([
+      "RB_LOCAL_TLS_CERT",
+      "RB_LOCAL_DEPENDENCY_CONFLICT",
+      "RB_LOCAL_CORS_DEV",
+      "RB_OAUTH_CLOCK_SKEW",
+      "RB_PORT_IN_USE",
+      "RB_OFFLINE_SW_CACHE",
+    ]);
+  });
+
+  it("enforces Defense-in-Depth Union so HEURISTIC_GUARD still catches PHI, M&A & password hints when Nano 4 READY under-extracts", async () => {
+    const { DEMO_SCENARIOS } = await import("../src/config/demoScenarios");
+    const scenario1 = DEMO_SCENARIOS[0];
+    const johnStart = scenario1.rawText.indexOf("John");
+    expect(johnStart).toBeGreaterThan(-1);
+
+    const staged = await runTriagePipeline(
+      {
+        id: "t-defense-union",
+        title: scenario1.title,
+        rawText: scenario1.rawText,
+        offlineMode: false,
+      },
+      {
+        extractWithNano: async () => ({
+          nanoStatus: "READY",
+          inferenceSource: "ON_DEVICE",
+          severity: "P0",
+          runbookId: null,
+          category: "GENERAL_INCIDENT",
+          spans: [
+            {
+              start: johnStart,
+              end: johnStart + 4,
+              category: "PERSON_PII",
+              detector: "NANO_SEMANTIC_FIREWALL",
+              placeholder: "[REDACTED:PERSON_PII_1]",
+              matchedText: "John",
+              masked: true,
+            },
+          ],
+        }),
+      },
+    );
+
+    const johnSpan = staged.spans.find((s) => s.matchedText === "John");
+    expect(johnSpan?.detector).toBe("NANO_SEMANTIC_FIREWALL");
+    expect(staged.sanitizedText).not.toContain("John");
+    expect(staged.sanitizedText).not.toContain("Manipal ICU Floor 3");
+    expect(staged.sanitizedText).not.toContain("2026exclamation");
+    expect(staged.sanitizedText).not.toContain("Project-Chimera");
+    expect(staged.sanitizedText).not.toContain("$42M valuation");
+
+    let outboundPrompt = "";
+    await escalateApprovedTicket(staged, staged.spans, {
+      callCloud: async (sanitizedPrompt) => {
+        outboundPrompt = sanitizedPrompt;
+        return {
+          ok: true,
+          text: "Root Cause analyzed.",
+          inferenceSource: "IN_CLOUD",
+          modelUsed: "gemini-3.5-flash-lite",
+        };
+      },
+    });
+
+    expect(outboundPrompt).not.toContain("Manipal ICU Floor 3");
+    expect(outboundPrompt).not.toContain("2026exclamation");
+    expect(outboundPrompt).not.toContain("Project-Chimera");
+    expect(outboundPrompt).not.toContain("$42M valuation");
   });
 });

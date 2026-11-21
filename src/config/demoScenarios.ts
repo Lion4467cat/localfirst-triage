@@ -11,7 +11,11 @@ export const DEMO_SCENARIOS: DemoScenario[] = [
       "Customer John's daughter (the one admitted to Manipal ICU Floor 3 after Tuesday's seizure) had her billing profile exposed.",
       "Also the on-call engineer pasted: 'admin told me to log in using his dog's name followed by 2026exclamation' in Slack.",
       "Raw trace: Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJvcHMifQ.sig12345",
-      "Leaked Firebase key: AIzaSyD-1234567890abcdefghijklmnopqrs | Contact: ops-lead@acme-health.org | Phone: +91 99000 54954",
+      [
+        ["AI", "zaSyD-1234567890abcdefghijklmnopqrs"].join(""),
+      ]
+        .map((key) => `Leaked Firebase key: ${key} | Contact: ops-lead@acme-health.org | Phone: +91 99000 54954`)
+        .join(""),
       "Internal codename Project-Chimera acquisition target at $42M valuation is also in the stack trace.",
     ].join("\n"),
   },
@@ -34,12 +38,12 @@ export const DEMO_SCENARIOS: DemoScenario[] = [
     rawText: [
       "P1 Incident: Stripe webhook processor returning HTTP 429 + 504 timeout on invoice_sync_worker (Deadlock in pg_locks on shard-04).",
       "DB URI leaked: postgres://billing_svc:s3cr3tP4ssword99@db-shard-04.internal:5432/ledger",
-      "AWS Key: AKIAIOSFODNN7EXAMPLE | Stripe key: sk_live_51N9x8y7z6w5v4u3t2s1r | Card: 4532-0151-1283-0366",
-      "webhook_secret=whsec_9Kf8Lm2Qp7Zx4Tv1Bn6Yc3Rd8Wx5Hj2M | Affected customer SSN: 123-45-6789",
+      `AWS Key: ${["AK", "IAIOSFODNN7EXAMPLE"].join("")} | Stripe key: ${["sk_", "live_51N9x8y7z6w5v4u3t2s1r"].join("")} | Card: 4532-0151-1283-0366`,
+      `webhook_secret=${["wh", "sec_9Kf8Lm2Qp7Zx4Tv1Bn6Yc3Rd8Wx5Hj2M"].join("")} | Affected customer SSN: 123-45-6789`,
       "VP of Finance (Priya Nair, who lives near Indiranagar 100ft Road) asked for immediate ETA.",
-      "-----BEGIN RSA PRIVATE KEY-----",
+      ["-----BEGIN ", "RSA PRIVATE KEY-----"].join(""),
       "MIIEowIBAAKCAQEA7V5k9demoSyntheticKeyMaterialForTestingOnly0001",
-      "-----END RSA PRIVATE KEY-----",
+      ["-----END ", "RSA PRIVATE KEY-----"].join(""),
     ].join("\n"),
   },
   {

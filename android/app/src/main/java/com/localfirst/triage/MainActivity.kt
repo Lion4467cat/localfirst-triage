@@ -7,7 +7,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CompareArrows
+import androidx.compose.material.icons.automirrored.filled.CompareArrows
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -83,7 +83,7 @@ class MainActivity : ComponentActivity() {
                             NavigationBarItem(
                                 selected = activeTab == 1,
                                 onClick = { activeTab = 1 },
-                                icon = { Icon(Icons.Default.CompareArrows, contentDescription = null) },
+                                icon = { Icon(Icons.AutoMirrored.Filled.CompareArrows, contentDescription = null) },
                                 label = { Text("Diff & Proof", fontSize = 11.sp) },
                             )
                             NavigationBarItem(

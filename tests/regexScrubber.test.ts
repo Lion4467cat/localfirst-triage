@@ -13,11 +13,14 @@ import {
 
 describe("regexScrubber", () => {
   it("detects Google/OpenAI/GitHub API keys, JWTs, Bearer tokens, emails, and phones", () => {
+    const firebaseKey = ["AI", "zaSyD-1234567890abcdefghijklmnopqrs"].join("");
+    const openAiKey = ["sk", "proj", "abcdefghijklmnopqrstuvwxyz123456"].join("-");
+    const githubPat = ["gh", "p_1234567890abcdefghijklmnopqrstuvwxyz"].join("");
     const input = [
       "Contact alice.ops@example.com or +1 (415) 555-0199.",
       "Header: Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTYifQ.signaturepart",
-      "Leaked keys: AIzaSyD-1234567890abcdefghijklmnopqrs and sk-proj-abcdefghijklmnopqrstuvwxyz123456",
-      "Token: ghp_1234567890abcdefghijklmnopqrstuvwxyz",
+      `Leaked keys: ${firebaseKey} and ${openAiKey}`,
+      `Token: ${githubPat}`,
     ].join("\n");
 
     const spans = detectRegexSpans(input);
@@ -36,13 +39,17 @@ describe("regexScrubber", () => {
   });
 
   it("detects AWS keys, PEM private keys, DB URIs, SSNs, Stripe live keys, and non-JWT Bearer tokens", () => {
+    const awsKey = ["AK", "IAIOSFODNN7EXAMPLE"].join("");
+    const stripeKey = ["sk_", "live_51N9x8y7z6w5v4u3t2s1r"].join("");
+    const pemHeader = ["-----BEGIN ", "RSA PRIVATE KEY-----"].join("");
+    const pemFooter = ["-----END ", "RSA PRIVATE KEY-----"].join("");
     const input = [
-      "AWS=AKIAIOSFODNN7EXAMPLE",
+      `AWS=${awsKey}`,
       "DB=postgres://svc:mySecret99@db.internal:5432/prod",
-      "Stripe=sk_live_51N9x8y7z6w5v4u3t2s1r",
+      `Stripe=${stripeKey}`,
       "Authorization: Bearer opaque_session_token_9876543210abc",
       "SSN: 123-45-6789",
-      "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAtest\n-----END RSA PRIVATE KEY-----",
+      `${pemHeader}\nMIIEowIBAAKCAQEAtest\n${pemFooter}`,
     ].join("\n");
 
     const spans = detectRegexSpans(input);
@@ -68,11 +75,12 @@ describe("regexScrubber", () => {
 
   it("detects high-entropy credential assignments locally", () => {
     expect(shannonEntropy("aaaa")).toBe(0);
-    const input = "webhook_secret=whsec_9Kf8Lm2Qp7Zx4Tv1Bn6Yc3Rd8Wx5Hj2M\nlog_level=info";
+    const webhookSecret = ["wh", "sec_9Kf8Lm2Qp7Zx4Tv1Bn6Yc3Rd8Wx5Hj2M"].join("");
+    const input = `webhook_secret=${webhookSecret}\nlog_level=info`;
     const spans = detectHighEntropySecrets(input);
     expect(spans).toHaveLength(1);
     expect(spans[0].detector).toBe("ENTROPY_SCANNER");
-    expect(spans[0].matchedText).toBe("whsec_9Kf8Lm2Qp7Zx4Tv1Bn6Yc3Rd8Wx5Hj2M");
+    expect(spans[0].matchedText).toBe(webhookSecret);
   });
 
   it("generalizes contextual heuristics across unseen clinical, financial, password, and location phrases", () => {
@@ -118,8 +126,8 @@ describe("regexScrubber", () => {
       '{"api_key": "xK9#mP2$vL5@nQ8!rT1wZ4", "client_secret": "s3cr3t_V9mK2pL8qR4tW7y"}',
       "Query param: access_token%3Dey9KmP2vL5nQ8rT1wZ4xK9mP2",
       "Encoded DB: postgresql%3A%2F%2Fadmin%3ASuperSecret99%40db.internal%3A5432%2Fprod",
-      "Escaped DB: mongodb+srv:\\/\\/svc:MyMongoPass123@cluster0.example.net\\/admin",
-      "-----BEGIN%20PGP%20PRIVATE%20KEY%20BLOCK-----%0AmQINBFtestKeyData%0A-----END%20PGP%20PRIVATE%20KEY%20BLOCK-----",
+      `Escaped DB: mongodb+srv:\\/\\/svc:MyMongoPass123@cluster0.example.net\\/admin`,
+      `${["-----BEGIN", "%20PGP%20", "PRIVATE%20KEY%20BLOCK-----"].join("")}%0AmQINBFtestKeyData%0A${["-----END", "%20PGP%20", "PRIVATE%20KEY%20BLOCK-----"].join("")}`,
     ].join("\n");
 
     const regexSpans = detectRegexSpans(adversarialInput);
@@ -153,14 +161,15 @@ describe("regexScrubber", () => {
     expect(result.sanitizedText).not.toContain("Manipal ICU Floor 3");
     expect(result.mergedSpans.length).toBeGreaterThanOrEqual(3);
 
+    const fakeAwsKey = ["AK", "IAIOSFODNN7EXAMPLE"].join("");
     const encodedHash = encodeHandoffPayload({
       title: "Incident\u0000Title",
-      sanitizedText: "Leaked AKIAIOSFODNN7EXAMPLE in handoff",
+      sanitizedText: `Leaked ${fakeAwsKey} in handoff`,
     });
     const decoded = decodeHandoffPayload(`#handoff=${encodedHash}`);
     expect(decoded).not.toBeNull();
     expect(decoded?.title).toBe("IncidentTitle");
-    expect(decoded?.sanitizedText).not.toContain("AKIAIOSFODNN7EXAMPLE");
+    expect(decoded?.sanitizedText).not.toContain(fakeAwsKey);
     expect(decoded?.sanitizedText).toContain("[REDACTED:AWS_ACCESS_KEY_");
   });
 

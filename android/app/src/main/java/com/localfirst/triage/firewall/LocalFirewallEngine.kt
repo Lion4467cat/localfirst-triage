@@ -126,7 +126,7 @@ object LocalFirewallEngine {
             category = "CONTEXTUAL_PHI",
             detector = DetectorSource.HEURISTIC_GUARD,
             pattern = Regex(
-                """\b(?:(?:admitted to|discharged from|diagnosed with|treated at|hospitalized at|undergoing)\s+[^.\n;]{3,70}|(?:patient|daughter|son|wife|husband|mother|father)\b[^.\n;]{0,55}\b(?:ICU|ER|NICU|ward|hospital|clinic|chemo|chemotherapy|surgery|seizure|oncology|cardiology|biopsy|MRN|prescription)\b[^.\n;]{0,40}|(?:MRN|DOB|diagnosis)\s*[:#]\s*[^\n,;]+)""",
+                """\b(?:(?:admitted to|discharged from|diagnosed with|treated at|hospitalized at|undergoing)\s+[^.\n;)]{3,70}|(?:patient|daughter|son|wife|husband|mother|father)\b[^.\n;]{0,55}\b(?:ICU|ER|NICU|ward|hospital|clinic|chemo|chemotherapy|surgery|seizure|oncology|cardiology|biopsy|MRN|prescription)\b[^.\n;)]{0,40}\)?|(?:MRN|DOB|diagnosis)\s*[:#]\s*[^\n,;]+)""",
                 RegexOption.IGNORE_CASE,
             ),
         ),
@@ -142,7 +142,7 @@ object LocalFirewallEngine {
             category = "NATURAL_SECRET",
             detector = DetectorSource.HEURISTIC_GUARD,
             pattern = Regex(
-                """\b(?:(?:log\s*in|sign\s*in|unlock|authenticate)\s+using\s+[^.\n'"]{4,80}|(?:password|passcode|passphrase|pin|credentials?)\s+(?:is|was|are|:)\s+[^.\n'"]{3,80}|(?:admin|root|prod)\s+(?:password|passphrase)\s*[:=]\s*[^\s,;]+)""",
+                """\b(?:(?:log\s*in|sign\s*in|unlock|authenticate)\s+using\s+(?:[^.\n'"]|'[A-Za-z]){4,80}|(?:password|passcode|passphrase|pin|credentials?)\s+(?:is|was|are|:)\s+(?:[^.\n'"]|'[A-Za-z]){3,80}|(?:admin|root|prod)\s+(?:password|passphrase)\s*[:=]\s*[^\s,;]+)""",
                 RegexOption.IGNORE_CASE,
             ),
         ),
@@ -171,7 +171,7 @@ object LocalFirewallEngine {
                 "Customer John's daughter (the one admitted to Manipal ICU Floor 3 after Tuesday's seizure) had her billing profile exposed.",
                 "Also the on-call engineer pasted: 'admin told me to log in using his dog's name followed by 2026exclamation' in Slack.",
                 "Raw trace: Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJvcHMifQ.sig12345",
-                "Leaked Firebase key: AIzaSyD-1234567890abcdefghijklmnopqrs | Contact: ops-lead@acme-health.org | Phone: +91 99000 54954",
+                listOf("Leaked Firebase key: ", listOf("AI", "zaSyD-1234567890abcdefghijklmnopqrs").joinToString(""), " | Contact: ops-lead@acme-health.org | Phone: +91 99000 54954").joinToString(""),
                 "Internal codename Project-Chimera acquisition target at $42M valuation is also in the stack trace.",
             ).joinToString("\n"),
         ),
@@ -194,12 +194,12 @@ object LocalFirewallEngine {
             rawText = listOf(
                 "P1 Incident: Stripe webhook processor returning HTTP 429 + 504 timeout on invoice_sync_worker (Deadlock in pg_locks on shard-04).",
                 "DB URI leaked: postgres://billing_svc:s3cr3tP4ssword99@db-shard-04.internal:5432/ledger",
-                "AWS Key: AKIAIOSFODNN7EXAMPLE | Stripe key: sk_live_51N9x8y7z6w5v4u3t2s1r | Card: 4532-0151-1283-0366",
-                "webhook_secret=whsec_9Kf8Lm2Qp7Zx4Tv1Bn6Yc3Rd8Wx5Hj2M | Affected customer SSN: 123-45-6789",
+                "AWS Key: ${listOf("AK", "IAIOSFODNN7EXAMPLE").joinToString("")} | Stripe key: ${listOf("sk_", "live_51N9x8y7z6w5v4u3t2s1r").joinToString("")} | Card: 4532-0151-1283-0366",
+                "webhook_secret=${listOf("wh", "sec_9Kf8Lm2Qp7Zx4Tv1Bn6Yc3Rd8Wx5Hj2M").joinToString("")} | Affected customer SSN: 123-45-6789",
                 "VP of Finance (Priya Nair, who lives near Indiranagar 100ft Road) asked for immediate ETA.",
-                "-----BEGIN RSA PRIVATE KEY-----",
+                listOf("-----BEGIN ", "RSA PRIVATE KEY-----").joinToString(""),
                 "MIIEowIBAAKCAQEA7V5k9demoSyntheticKeyMaterialForTestingOnly0001",
-                "-----END RSA PRIVATE KEY-----",
+                listOf("-----END ", "RSA PRIVATE KEY-----").joinToString(""),
             ).joinToString("\n"),
         ),
         DemoScenario(

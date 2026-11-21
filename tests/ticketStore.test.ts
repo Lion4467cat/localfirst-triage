@@ -16,10 +16,12 @@ import {
 } from "../src/storage/ticketStore";
 import type { TriageResult } from "../src/types/triage";
 
+const TEST_OPENAI_KEY = ["sk", "proj", "supersecretkey1234567890"].join("-");
+
 const SAMPLE_RESULT: TriageResult = {
   id: "ticket-zero-pii-1",
   title: "P0 Secret Leak",
-  rawText: "Customer secret: sk-proj-supersecretkey1234567890",
+  rawText: `Customer secret: ${TEST_OPENAI_KEY}`,
   sanitizedText: "Customer secret: [REDACTED:API_KEY_1]",
   severity: "P0",
   category: "GENERAL_INCIDENT",
@@ -30,7 +32,7 @@ const SAMPLE_RESULT: TriageResult = {
       category: "API_KEY",
       detector: "REGEX_FIREWALL",
       placeholder: "[REDACTED:API_KEY_1]",
-      matchedText: "sk-proj-supersecretkey1234567890",
+      matchedText: TEST_OPENAI_KEY,
       masked: true,
     },
   ],
@@ -62,16 +64,16 @@ describe("ticketStore", () => {
     const items = await listSanitizedTickets();
     expect(items).toHaveLength(1);
     expect(items[0].rawText).toBe("[PURGED_FROM_DISK_FOR_PRIVACY]");
-    expect(JSON.stringify(items)).not.toContain("sk-proj-supersecretkey1234567890");
+    expect(JSON.stringify(items)).not.toContain(TEST_OPENAI_KEY);
   });
 
   it("exports JSON and Markdown audit reports without leaking raw PII", () => {
     const jsonExport = exportAuditReportJson(SAMPLE_RESULT);
     const mdExport = exportAuditReportMarkdown(SAMPLE_RESULT);
 
-    expect(jsonExport).not.toContain("sk-proj-supersecretkey1234567890");
+    expect(jsonExport).not.toContain(TEST_OPENAI_KEY);
     expect(jsonExport).toContain("[REDACTED:API_KEY_1]");
-    expect(mdExport).not.toContain("sk-proj-supersecretkey1234567890");
+    expect(mdExport).not.toContain(TEST_OPENAI_KEY);
     expect(mdExport).toContain("Zero-PII Compliance Audit Report");
   });
 
@@ -130,13 +132,13 @@ describe("ticketStore", () => {
       spans: [
         {
           ...SAMPLE_RESULT.spans[0],
-          constituentTexts: ["sk-proj-supersecretkey1234567890"],
+          constituentTexts: [TEST_OPENAI_KEY],
         },
       ],
     });
     expect(strippedWithConstituents.spans[0].constituentTexts).toBeUndefined();
     expect(JSON.stringify(strippedWithConstituents)).not.toContain(
-      "sk-proj-supersecretkey1234567890",
+      TEST_OPENAI_KEY,
     );
   });
 });

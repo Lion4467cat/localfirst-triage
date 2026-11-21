@@ -1,0 +1,63 @@
+1
+00:00:00,000 --> 00:00:07,500
+Pasting a live incident log into a cloud LLM leaks API keys, medical notes, password hints, and M&A secrets before anyone notices.
+
+2
+00:00:07,500 --> 00:00:15,500
+LocalFirst Triage v4 is a zero-leakage hybrid AI incident copilot built on the $0 Firebase Spark tier across Web PWA, a Chrome Extension, and Native Android.
+
+3
+00:00:15,500 --> 00:00:25,000
+Let's inspect the architecture end to end on Chrome 158 with GPU-accelerated Gemini Nano 4 and live Firebase AI Logic.
+
+4
+00:00:25,000 --> 00:00:35,000
+Here in Scenario 1, Stage 1 runs Gemini Nano 4 via InferenceMode.ONLY_ON_DEVICE alongside our deterministic Defense-in-Depth Union.
+
+5
+00:00:35,000 --> 00:00:46,000
+Even when an on-device model extracts only the first person name, our regex, Shannon entropy, policy term, and heuristic guards always run in union underneath.
+
+6
+00:00:46,000 --> 00:00:56,000
+Clinical ICU notes, apostrophe-containing password hints, M&A valuations, JWTs, and API keys are all masked locally before anything reaches the network.
+
+7
+00:00:56,000 --> 00:01:05,000
+Interactive diff pills and text selection let engineers audit every mask during a cancelable pre-cloud window—or fail closed into Quarantine on standard browsers.
+
+8
+00:01:05,000 --> 00:01:16,000
+In Zero-Leakage Proof, verifyZeroLeakage audits raw, URL-encoded, JSON-escaped, and merged constituent spans before Cloud Gemini streams Root Cause Analysis.
+
+9
+00:01:16,000 --> 00:01:26,000
+For leadership updates, Hybrid Stakeholder Brief uses InferenceMode.PREFER_ON_DEVICE—generating briefs on Nano 4 when ready or falling back cleanly to Cloud.
+
+10
+00:01:26,000 --> 00:01:35,000
+Every step enforces zero raw PII retention in IndexedDB or Firestore, purging source strings to [PURGED_FROM_DISK_FOR_PRIVACY].
+
+11
+00:01:35,000 --> 00:01:46,500
+Toggle Airplane Mode and all six built-in P2 and P3 runbooks resolve completely offline at zero cloud token cost while blocking outbound escalation.
+
+12
+00:01:46,500 --> 00:01:58,000
+Firebase Remote Config updates cloud models, Shannon entropy thresholds, and enterprise blocked codenames live without redeploying the app.
+
+13
+00:01:58,000 --> 00:02:10,000
+Engineers on GitHub or Jira can also highlight logs in our Manifest V3 Extension Side Panel, sanitizing locally before safe #handoff= transfer.
+
+14
+00:02:10,000 --> 00:02:23,000
+On Native Android, Jetpack Compose runs the exact same Defense-in-Depth firewall, six runbooks, firebase-ai-ondevice client, and Play Integrity App Check.
+
+15
+00:02:23,000 --> 00:02:35,000
+Guest or Google Sign-In lazy-loads Cloud Firestore to sync strictly Zero-PII tickets across Web and Android, guarded by RE2 Firestore Security Rules.
+
+16
+00:02:35,000 --> 00:02:45,000
+LocalFirst Triage v4—tested across 72 Web tests, 9 Playwright E2E flows, and 10 Android JUnit suites. Privacy first, on-device first.

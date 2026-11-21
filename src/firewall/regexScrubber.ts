@@ -111,7 +111,7 @@ const CONTEXTUAL_HEURISTIC_RULES: RegexRule[] = [
     category: "CONTEXTUAL_PHI",
     detector: "HEURISTIC_GUARD",
     pattern:
-      /\b(?:(?:admitted to|discharged from|diagnosed with|treated at|hospitalized at|undergoing)\s+[^.\n;]{3,70}|(?:patient|daughter|son|wife|husband|mother|father)\b[^.\n;]{0,55}\b(?:ICU|ER|NICU|ward|hospital|clinic|chemo|chemotherapy|surgery|seizure|oncology|cardiology|biopsy|MRN|prescription)\b[^.\n;]{0,40}|(?:MRN|DOB|diagnosis)\s*[:#]\s*[^\n,;]+)/gi,
+      /\b(?:(?:admitted to|discharged from|diagnosed with|treated at|hospitalized at|undergoing)\s+[^.\n;)]{3,70}|(?:patient|daughter|son|wife|husband|mother|father)\b[^.\n;]{0,55}\b(?:ICU|ER|NICU|ward|hospital|clinic|chemo|chemotherapy|surgery|seizure|oncology|cardiology|biopsy|MRN|prescription)\b[^.\n;)]{0,40}\)?|(?:MRN|DOB|diagnosis)\s*[:#]\s*[^\n,;]+)/gi,
   },
   {
     category: "M_AND_A_SECRET",
@@ -123,7 +123,7 @@ const CONTEXTUAL_HEURISTIC_RULES: RegexRule[] = [
     category: "NATURAL_SECRET",
     detector: "HEURISTIC_GUARD",
     pattern:
-      /\b(?:(?:log\s*in|sign\s*in|unlock|authenticate)\s+using\s+[^.\n'"]{4,80}|(?:password|passcode|passphrase|pin|credentials?)\s+(?:is|was|are|:)\s+[^.\n'"]{3,80}|(?:admin|root|prod)\s+(?:password|passphrase)\s*[:=]\s*[^\s,;]+)/gi,
+      /\b(?:(?:log\s*in|sign\s*in|unlock|authenticate)\s+using\s+(?:[^.\n'"]|'[A-Za-z]){4,80}|(?:password|passcode|passphrase|pin|credentials?)\s+(?:is|was|are|:)\s+(?:[^.\n'"]|'[A-Za-z]){3,80}|(?:admin|root|prod)\s+(?:password|passphrase)\s*[:=]\s*[^\s,;]+)/gi,
   },
   {
     category: "PERSONAL_PII_LOCATION",
