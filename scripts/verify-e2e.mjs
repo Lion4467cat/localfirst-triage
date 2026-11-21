@@ -101,28 +101,34 @@ async function main() {
       }
     }
 
-    // 2. Run Scenario 1 via Ctrl+Enter / Cmd+Enter -> Paused for Review + Proof & SDK tab
+    // 2. Run Scenario 1 via Ctrl+Enter / Cmd+Enter -> Paused for Review + Approve & Get Safe AI Solution + Proof & SDK tab
     await page.locator("#ticket-body").focus();
     await page.keyboard.press("Control+Enter");
     await page.waitForSelector("text=Paused for Review");
-    await page.getByRole("button", { name: /Approve & Get Safe AI Solution/i }).waitFor();
+    const approveBtn = page.getByRole("button", { name: /Approve & Get Safe AI Solution/i });
+    await approveBtn.waitFor();
+    if (await approveBtn.isDisabled()) {
+      throw new Error("Expected Approve & Get Safe AI Solution button to be enabled after Stage 1");
+    }
+    await approveBtn.click();
+    await page.waitForSelector("text=AI Solution");
 
     await page.getByRole("tab", { name: /Proof & SDK/i }).click();
     await page.waitForSelector("text=ZERO-LEAKAGE VERIFIED:");
     await page.getByRole("button", { name: /Refresh Policy/i }).click();
     await page.waitForSelector("text=Export Audit JSON");
 
-    // 3. Run Scenario 2 (Build Error) -> Local Runbook ($0 Cloud)
-    await page.getByText(/Build Error/i).click();
+    // 3. Run Scenario 2 (Build / TLS Fix) -> Local Runbook ($0 Cloud)
+    await page.getByText(/Build \/ TLS Fix/i).click();
     await page.getByRole("button", { name: /Scrub & Analyze/i }).click();
     await page.waitForSelector("text=RB_LOCAL_TLS_CERT");
 
-    // 4. Toggle Offline Mode ON via Cloud Sync popover & test Medical PHI -> Queued Offline ($0)
+    // 4. Toggle Offline Mode ON via Cloud Sync popover & test P0 Outage + PHI -> Queued Offline ($0)
     await page.getByRole("button", { name: /Cloud Sync/i }).click();
     await page.getByRole("switch", { name: /Toggle Offline Mode/i }).click();
     await page.keyboard.press("Escape");
 
-    await page.getByText(/Medical PHI/i).first().click();
+    await page.getByText(/P0 Outage \+ PHI/i).first().click();
     await page.getByRole("button", { name: /Scrub & Fix Offline/i }).click();
     await page.waitForSelector("text=Queued Offline ($0)");
 

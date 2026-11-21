@@ -113,12 +113,12 @@ describe("App integration", () => {
   it("resolves P3 local runbook scenario on-device", async () => {
     const { getByRole, getByText, findByText, getByLabelText } = render(<App />);
 
-    fireEvent.click(getByText(/Build Error/i));
+    fireEvent.click(getByText(/Build \/ TLS Fix/i));
     fireEvent.click(getByRole("button", { name: /Scrub & (Analyze|Fix Offline)/i }));
 
     expect(await findByText(/Instant On-Device Fix \(\$0\)/i)).toBeTruthy();
 
-    fireEvent.click(getByText(/Medical PHI/i));
+    fireEvent.click(getByText(/P0 Outage \+ PHI/i));
     const textarea = getByLabelText(/Support Ticket or Error Logs/i) as HTMLTextAreaElement;
     expect(textarea.value).toContain("Manipal ICU Floor 3");
   });

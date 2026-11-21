@@ -166,9 +166,19 @@ export function mergeAndRedactSpans(
     }
   }
 
+  const categoryCounts = new Map<string, number>();
+  const normalizedSpans = mergedSpans.map((span) => {
+    const next = (categoryCounts.get(span.category) ?? 0) + 1;
+    categoryCounts.set(span.category, next);
+    return {
+      ...span,
+      placeholder: `[REDACTED:${span.category}_${next}]`,
+    };
+  });
+
   return {
-    sanitizedText: applyMaskedSpans(rawText, mergedSpans),
-    mergedSpans,
+    sanitizedText: applyMaskedSpans(rawText, normalizedSpans),
+    mergedSpans: normalizedSpans,
   };
 }
 

@@ -70,8 +70,23 @@ function downloadBlobFile(filename: string, content: string, mimeType: string) {
 }
 
 function renderInlineCodeAndBold(line: string): ReactNode[] {
-  const parts = line.split(/(`[^`]+`|\*\*[^*]+\*\*)/g);
+  const parts = line.split(/(\[REDACTED:[A-Z0-9_]+\]|`[^`]+`|\*\*[^*]+\*\*)/g);
   return parts.map((part, i) => {
+    if (/^\[REDACTED:[A-Z0-9_]+\]$/.test(part)) {
+      return (
+        <span
+          key={i}
+          className="mx-0.5 inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[10px] font-semibold"
+          style={{
+            backgroundColor: "var(--safe-bg)",
+            borderColor: "var(--safe-border)",
+            color: "var(--safe-text)",
+          }}
+        >
+          {part}
+        </span>
+      );
+    }
     if (part.startsWith("`") && part.endsWith("`") && part.length >= 2) {
       return (
         <code
@@ -100,7 +115,24 @@ function renderInlineCodeAndBold(line: string): ReactNode[] {
 
 function SafeMarkdownView({ content }: { content: string }) {
   const lines = content.split("\n");
+  const firstNonEmpty = lines.find((l) => l.trim().length > 0)?.trim() ?? "";
+  const needsRootCauseHeader =
+    firstNonEmpty.length > 0 &&
+    !firstNonEmpty.startsWith("#") &&
+    !/^(ROOT CAUSE|IMMEDIATE MITIGATION|VERIFICATION)/i.test(firstNonEmpty);
+
   const blocks: ReactNode[] = [];
+  if (needsRootCauseHeader) {
+    blocks.push(
+      <h4
+        key="auto-root-cause"
+        className="text-xs font-semibold uppercase tracking-wider"
+        style={{ color: "var(--text-primary)" }}
+      >
+        Root Cause
+      </h4>
+    );
+  }
   let codeFence: string[] = [];
   let inCode = false;
 
@@ -154,6 +186,32 @@ function SafeMarkdownView({ content }: { content: string }) {
         >
           {renderInlineCodeAndBold(heading)}
         </h4>
+      );
+      return;
+    }
+
+    const checklistMatch = trimmed.match(/^[-*]\s+\[([ xX])\]\s+(.*)$/);
+    if (checklistMatch) {
+      const checked = checklistMatch[1].toLowerCase() === "x";
+      blocks.push(
+        <div
+          key={`chk-${idx}`}
+          className="flex items-start gap-2 pl-1 text-xs leading-relaxed"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          <span
+            aria-hidden="true"
+            className="mt-0.5 inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border"
+            style={{
+              backgroundColor: checked ? "var(--safe-bg)" : "var(--bg-subtle)",
+              borderColor: checked ? "var(--safe-border)" : "var(--border-strong)",
+              color: checked ? "var(--safe-text)" : "transparent",
+            }}
+          >
+            {checked ? <Check className="h-2.5 w-2.5" /> : null}
+          </span>
+          <span>{renderInlineCodeAndBold(checklistMatch[2])}</span>
+        </div>
       );
       return;
     }
@@ -227,6 +285,7 @@ export function RightWorkbenchPane({
 }: RightWorkbenchPaneProps) {
   const [activeTab, setActiveTab] = useState<RightPaneTab>("sanitized");
   const [copiedSlack, setCopiedSlack] = useState(false);
+  const [copiedRca, setCopiedRca] = useState(false);
 
   // Auto-focus AI Solution when Cloud RCA streams or Local Runbook resolves
   useEffect(() => {
@@ -339,6 +398,36 @@ export function RightWorkbenchPane({
     }
   };
 
+  const nanoCount = detectorCounts.get("NANO_SEMANTIC_FIREWALL") ?? 0;
+  const heuristicCount =
+    (detectorCounts.get("HEURISTIC_GUARD") ?? 0) +
+    (detectorCounts.get("POLICY_TERM") ?? 0) +
+    (detectorCounts.get("MANUAL_MASK") ?? 0);
+  const regexCount =
+    (detectorCounts.get("REGEX_FIREWALL") ?? 0) +
+    (detectorCounts.get("ENTROPY_SCANNER") ?? 0);
+
+  const stage2ProofLabel = !currentResult
+    ? ""
+    : currentResult.resolutionMode === "LOCAL_RUNBOOK"
+      ? `On-Device ($0 · ${currentResult.stage1LatencyMs}ms)`
+      : currentResult.resolutionMode === "CLOUD_ESCALATION"
+        ? `${currentResult.activeCloudModel ?? runtimeConfig.cloudModel} (${currentResult.stage2LatencyMs}ms)`
+        : currentResult.resolutionMode === "OFFLINE_QUEUED"
+          ? "Offline Sealed ($0)"
+          : "Held on-device";
+
+  const handleCopyRca = async () => {
+    if (!currentResult?.resolution) return;
+    try {
+      await navigator.clipboard.writeText(currentResult.resolution);
+      setCopiedRca(true);
+      setTimeout(() => setCopiedRca(false), 1800);
+    } catch {
+      // Clipboard blocked
+    }
+  };
+
   const canEscalate =
     Boolean(currentResult) &&
     !isRunning &&
@@ -445,6 +534,29 @@ export function RightWorkbenchPane({
           )}
         </div>
       </div>
+
+      {/* Razor-Thin 1-Line Hybrid Proof Strip (visible above Sanitized & AI Solution) */}
+      {currentResult && activeTab !== "proof" && (
+        <div
+          className="flex flex-wrap items-center justify-between gap-2 border-b px-3.5 py-1.5 font-mono text-[10px] tabular-nums"
+          style={{
+            backgroundColor: "var(--bg-subtle)",
+            borderColor: "var(--border-subtle)",
+            color: "var(--text-secondary)",
+          }}
+        >
+          <span>
+            <strong style={{ color: "var(--mask-text)" }}>{maskedCount} Blocked</strong>{" "}
+            ({nanoCount} Nano 4 · {heuristicCount} Heuristic · {regexCount} Regex) ·{" "}
+            <strong style={{ color: unmaskedCount === 0 ? "var(--safe-text)" : "var(--warn-text)" }}>
+              {unmaskedCount === 0 ? "0 Leaked" : `${unmaskedCount} Unmasked`}
+            </strong>
+          </span>
+          <span style={{ color: "var(--text-muted)" }}>
+            Stage 2: {stage2ProofLabel}
+          </span>
+        </div>
+      )}
 
       {/* Main Scrollable Pane Content */}
       <div className="min-h-0 flex-1 overflow-y-auto p-3.5">
@@ -984,6 +1096,65 @@ export function RightWorkbenchPane({
               >
                 Approve &amp; Get Safe AI Solution →
               </button>
+            </div>
+          ) : currentResult.resolutionMode === "CLOUD_ESCALATION" && !maskDirtySinceCloud ? (
+            <div className="flex w-full flex-wrap items-center justify-between gap-2">
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium" style={{ color: "var(--safe-text)" }}>
+                <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                Cloud analysis complete ({currentResult.stage2LatencyMs}ms)
+              </span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => void handleCopyRca()}
+                  className="inline-flex min-h-[32px] items-center gap-1 rounded-md border px-2.5 text-xs font-medium"
+                  style={{
+                    backgroundColor: "var(--bg-surface)",
+                    borderColor: "var(--border-subtle)",
+                    color: "var(--text-primary)",
+                  }}
+                >
+                  {copiedRca ? (
+                    <Check className="h-3 w-3" style={{ color: "var(--safe-text)" }} aria-hidden="true" />
+                  ) : (
+                    <Copy className="h-3 w-3" aria-hidden="true" />
+                  )}
+                  {copiedRca ? "Copied RCA" : "Copy Safe RCA"}
+                </button>
+                <button
+                  type="button"
+                  disabled={isRunning}
+                  onClick={() => {
+                    onApproveOrRerunCloud();
+                    setActiveTab("solution");
+                  }}
+                  className="inline-flex min-h-[32px] items-center gap-1 rounded-md border px-2.5 text-xs font-medium disabled:opacity-45"
+                  style={{
+                    backgroundColor: "var(--bg-surface)",
+                    borderColor: "var(--border-subtle)",
+                    color: "var(--text-primary)",
+                  }}
+                >
+                  <RefreshCw className="h-3 w-3" aria-hidden="true" />
+                  Re-run Cloud
+                </button>
+                <button
+                  type="button"
+                  disabled={isGeneratingBrief}
+                  onClick={() => {
+                    onGenerateHybridBrief();
+                    setActiveTab("solution");
+                  }}
+                  className="inline-flex min-h-[32px] items-center gap-1 rounded-md px-2.5 text-xs font-semibold disabled:opacity-45"
+                  style={{
+                    backgroundColor: "var(--accent-primary)",
+                    color: "var(--accent-on-primary)",
+                  }}
+                >
+                  <Sparkles className="h-3 w-3" aria-hidden="true" />
+                  Draft Executive Brief
+                </button>
+              </div>
             </div>
           ) : (
             <div className="flex w-full flex-wrap items-center justify-between gap-2">

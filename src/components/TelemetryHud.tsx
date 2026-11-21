@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  AlertCircle,
   Cloud,
-  CloudOff,
   Loader2,
   LogOut,
   Monitor,
@@ -306,10 +306,8 @@ export function TelemetryHud({
             >
               {telemetry.offlineMode ? (
                 <WifiOff className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              ) : telemetry.authUser ? (
-                <Cloud className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
               ) : (
-                <CloudOff className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <Cloud className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
               )}
               <span>{syncLabel}</span>
             </button>
@@ -488,9 +486,18 @@ export function TelemetryHud({
                   )}
 
                   {telemetry.cloudSyncError && (
-                    <p className="mt-2 text-[11px]" style={{ color: "var(--mask-text)" }}>
-                      {telemetry.cloudSyncError}
-                    </p>
+                    <div
+                      role="alert"
+                      className="mt-2 flex items-start gap-1.5 rounded-md border p-2 text-[11px] leading-snug"
+                      style={{
+                        backgroundColor: "var(--mask-bg)",
+                        borderColor: "var(--mask-border)",
+                        color: "var(--mask-text)",
+                      }}
+                    >
+                      <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                      <span>{telemetry.cloudSyncError}</span>
+                    </div>
                   )}
                 </div>
               </div>

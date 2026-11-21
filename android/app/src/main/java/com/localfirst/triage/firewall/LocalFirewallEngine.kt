@@ -552,7 +552,14 @@ object LocalFirewallEngine {
             }
         }
 
-        return applyMaskedSpans(rawText, merged) to merged
+        val categoryCounts = mutableMapOf<String, Int>()
+        val normalized = merged.map { span ->
+            val next = (categoryCounts[span.category] ?: 0) + 1
+            categoryCounts[span.category] = next
+            span.copy(placeholder = "[REDACTED:${span.category}_$next]")
+        }
+
+        return applyMaskedSpans(rawText, normalized) to normalized
     }
 
     data class ScanOptions(

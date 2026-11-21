@@ -34,6 +34,8 @@ export function AirgapSpine({
   const phase = resolveSpinePhase(currentResult, isRunning, offlineMode);
   const blockedCount =
     currentResult?.spans.filter((s) => s.masked !== false).length ?? 0;
+  const unmaskedCount =
+    currentResult?.spans.filter((s) => s.masked === false).length ?? 0;
 
   const badgeColor =
     phase === "offline"
@@ -63,7 +65,7 @@ export function AirgapSpine({
   return (
     <aside
       aria-label="Airgap Firewall Status"
-      className="hidden lg:flex lg:h-full lg:w-[72px] lg:flex-col lg:items-center lg:justify-between lg:py-3 select-none"
+      className="hidden lg:flex lg:h-full lg:w-[76px] lg:flex-col lg:items-center lg:justify-between lg:py-3 select-none"
     >
       <span
         className="text-[9px] font-semibold uppercase tracking-[0.14em]"
@@ -72,7 +74,7 @@ export function AirgapSpine({
         Airgap
       </span>
 
-      <div className="relative flex flex-1 w-full flex-col items-center justify-center my-2">
+      <div className="relative my-2 flex w-full flex-1 flex-col items-center justify-center">
         {/* Vertical Conduit Track */}
         <div
           className="absolute inset-y-2 w-px"
@@ -124,7 +126,7 @@ export function AirgapSpine({
 
         {/* Center Shield Emblem */}
         <div
-          className="relative z-10 flex h-11 w-11 items-center justify-center rounded-xl border transition-colors"
+          className="relative z-10 flex h-10 w-10 items-center justify-center rounded-xl border transition-colors"
           style={{
             backgroundColor: badgeColor.bg,
             borderColor: badgeColor.border,
@@ -145,32 +147,53 @@ export function AirgapSpine({
           )}
         </div>
 
-        {/* Live Tabular Status Pill */}
-        <div
-          className="relative z-10 mt-2 rounded-md border px-1.5 py-0.5 text-center font-mono text-[9px] font-bold uppercase tracking-wider tabular-nums"
-          style={{
-            backgroundColor: badgeColor.bg,
-            borderColor: badgeColor.border,
-            color: badgeColor.text,
-          }}
-        >
-          {phase === "offline"
-            ? "SEALED"
-            : phase === "scanning"
-              ? "SCAN"
-              : phase === "intercepted"
-                ? `${blockedCount} BLK`
-                : phase === "verified"
-                  ? "0 LEAK"
-                  : "READY"}
-        </div>
+        {/* Stacked Crimson BLOCKED + Emerald 0 LEAK Badges */}
+        {currentResult && phase !== "scanning" && phase !== "offline" ? (
+          <div className="relative z-10 mt-2 flex flex-col items-center gap-1">
+            <span
+              className="rounded border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-tight tabular-nums"
+              style={{
+                backgroundColor: "var(--mask-bg)",
+                borderColor: "var(--mask-border)",
+                color: "var(--mask-text)",
+              }}
+            >
+              {blockedCount} BLOCKED
+            </span>
+            <span
+              className="rounded border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-tight tabular-nums"
+              style={{
+                backgroundColor: unmaskedCount === 0 ? "var(--safe-bg)" : "var(--warn-bg)",
+                borderColor: unmaskedCount === 0 ? "var(--safe-border)" : "var(--warn-border)",
+                color: unmaskedCount === 0 ? "var(--safe-text)" : "var(--warn-text)",
+              }}
+            >
+              {unmaskedCount === 0 ? "0 LEAK" : `${unmaskedCount} OPEN`}
+            </span>
+          </div>
+        ) : (
+          <div
+            className="relative z-10 mt-2 rounded-md border px-1.5 py-0.5 text-center font-mono text-[9px] font-bold uppercase tracking-wider tabular-nums"
+            style={{
+              backgroundColor: badgeColor.bg,
+              borderColor: badgeColor.border,
+              color: badgeColor.text,
+            }}
+          >
+            {phase === "offline"
+              ? "SEALED"
+              : phase === "scanning"
+                ? "SCANNING"
+                : "READY"}
+          </div>
+        )}
       </div>
 
       <span
-        className="text-[9px] font-mono font-medium uppercase tracking-wider tabular-nums"
-        style={{ color: "var(--text-muted)" }}
+        className="text-center font-mono text-[9px] font-semibold uppercase tracking-wider tabular-nums"
+        style={{ color: phase === "offline" ? "var(--warn-text)" : "var(--text-muted)" }}
       >
-        {phase === "offline" ? "$0" : "TLS"}
+        {phase === "offline" ? "SEALED $0" : "AIRGAP"}
       </span>
     </aside>
   );

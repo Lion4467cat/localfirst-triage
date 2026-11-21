@@ -490,6 +490,7 @@ export function App() {
     runGenerationRef.current += 1;
     inFlightRef.current = false;
     setIsRunning(false);
+    setCurrentResult(null);
     setTitle(scenario.title);
     setRawText(scenario.rawText);
     setImportedFromExtension(false);
@@ -801,8 +802,21 @@ export function App() {
                 offlineMode={telemetry.offlineMode}
                 queuedTickets={queuedTickets}
                 importedFromExtension={importedFromExtension}
-                onTitleChange={setTitle}
-                onRawTextChange={setRawText}
+                onTitleChange={(nextTitle) => {
+                  setTitle(nextTitle);
+                  if (currentResult?.resolutionMode === "CLOUD_ESCALATION") {
+                    setCurrentResult(null);
+                  }
+                }}
+                onRawTextChange={(nextRaw) => {
+                  setRawText(nextRaw);
+                  if (currentResult) {
+                    setCurrentResult(null);
+                    setMaskDirtySinceCloud(false);
+                    setCountdownMs(null);
+                    setCountdownPaused(false);
+                  }
+                }}
                 onSelectScenario={handleSelectScenario}
                 onRunTriage={() => {
                   setMobilePane("output");

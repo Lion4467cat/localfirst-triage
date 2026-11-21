@@ -1,5 +1,5 @@
 import { useRef, type ChangeEvent, type KeyboardEvent } from "react";
-import { FileUp, Loader2, Shield, Trash2, WifiOff } from "lucide-react";
+import { FileUp, Loader2, ShieldCheck, Trash2, WifiOff } from "lucide-react";
 import type { DemoScenario, TriageResult } from "../types/triage";
 
 interface TriageInboxProps {
@@ -18,9 +18,9 @@ interface TriageInboxProps {
 }
 
 const PRESET_LABELS: Record<string, string> = {
-  "scenario-p0-semantic-leak": "Medical PHI",
-  "scenario-p1-billing-webhook": "P0 Outage",
-  "scenario-p3-local-runbook": "Build Error",
+  "scenario-p0-semantic-leak": "P0 Outage + PHI",
+  "scenario-p3-local-runbook": "Build / TLS Fix",
+  "scenario-p1-billing-webhook": "P1 Billing Leak",
   "scenario-p2-offline-oauth": "Offline $0",
 };
 
@@ -262,7 +262,7 @@ export function TriageInbox({
             </>
           ) : (
             <>
-              <Shield className="h-3.5 w-3.5" aria-hidden="true" />
+              <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
               <span>Scrub &amp; Analyze</span>
               <kbd
                 className="hidden rounded border px-1.5 py-0.5 font-mono text-[10px] font-medium sm:inline-block"
