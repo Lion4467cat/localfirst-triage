@@ -110,9 +110,8 @@ export function TelemetryHud({
 
   return (
     <header
-      className="sticky top-0 z-40 border-b px-3 lg:h-12 lg:px-5"
+      className="lf-glass-header sticky top-0 z-40 border-b px-3 lg:h-12 lg:px-5"
       style={{
-        backgroundColor: "var(--bg-surface)",
         borderColor: "var(--border-subtle)",
       }}
     >

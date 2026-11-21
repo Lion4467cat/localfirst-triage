@@ -73,10 +73,12 @@ export function AirgapSpine({
         defaults: { ease: "outQuad" },
       });
 
-      tl.add(drawable, {
-        draw: ["0 0", "0 1"],
-        duration: 550,
-      });
+      if (drawable.length > 0) {
+        tl.add(drawable, {
+          draw: ["0 0", "0 1"],
+          duration: 550,
+        });
+      }
 
       if (phase === "scanning" || phase === "intercepted") {
         tl.add(
@@ -85,7 +87,7 @@ export function AirgapSpine({
             ...deflectMotion,
             opacity: [0, 1, 1, 0],
             duration: 950,
-            delay: stagger(160),
+            delay: stagger(220),
           },
           100,
         ).add(
@@ -105,8 +107,8 @@ export function AirgapSpine({
           {
             ...safeMotion,
             opacity: [0, 1, 0],
-            duration: 1100,
-            delay: stagger(240),
+            duration: 1200,
+            delay: stagger(320),
           },
           150,
         );
@@ -155,60 +157,58 @@ export function AirgapSpine({
       </span>
 
       <div className="relative my-2 flex w-full flex-1 flex-col items-center justify-center overflow-hidden">
-        <svg
+        {/* Full-height subtle vertical airgap barrier line */}
+        <div
           aria-hidden="true"
-          viewBox="0 0 76 260"
-          className="pointer-events-none absolute inset-0 h-full w-full"
-          preserveAspectRatio="none"
-        >
-          {/* Vertical Barrier Line */}
-          <line
-            x1="38"
-            y1="8"
-            x2="38"
-            y2="252"
-            stroke={
+          className="pointer-events-none absolute inset-y-2 left-1/2 -translate-x-1/2 border-l"
+          style={{
+            borderColor:
               phase === "offline"
                 ? "var(--warn-border)"
                 : phase === "verified"
                   ? "var(--safe-border)"
                   : phase === "intercepted"
                     ? "var(--mask-border)"
-                    : "var(--border-subtle)"
-            }
-            strokeWidth={phase === "offline" ? "2.5" : "1.5"}
-            strokeDasharray={phase === "offline" ? "none" : "4 4"}
-          />
+                    : "var(--border-subtle)",
+            borderStyle: phase === "offline" ? "solid" : "dashed",
+          }}
+        />
 
-          {/* Deflection track (left -> shield -> bounce back) */}
+        {/* Centered fixed-aspect SVG circuit around the shield */}
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 76 120"
+          className="pointer-events-none absolute left-1/2 top-1/2 h-[120px] w-[76px] -translate-x-1/2 -translate-y-1/2"
+        >
+          {/* Deflection track (only active during scanning/intercepted) */}
           <path
             id="spine-deflect-track"
-            className="spine-trace"
-            d="M 4 128 L 32 128 L 10 96"
+            className={phase === "scanning" || phase === "intercepted" ? "spine-trace" : ""}
+            d="M 6 60 L 32 60 L 12 32"
             fill="none"
             stroke="var(--mask-solid)"
             strokeWidth="1.25"
-            strokeOpacity="0.45"
+            strokeOpacity={phase === "scanning" || phase === "intercepted" ? "0.45" : "0"}
           />
 
           {/* Safe output trace (shield -> right pane) */}
           <path
             id="spine-safe-track"
             className="spine-trace"
-            d="M 40 130 L 72 130"
+            d="M 40 60 L 70 60"
             fill="none"
             stroke="var(--safe-solid)"
-            strokeWidth="1.75"
-            strokeOpacity="0.7"
+            strokeWidth="1.5"
+            strokeOpacity={phase === "verified" || phase === "idle" ? "0.55" : "0.18"}
           />
 
           {/* Vermilion Deflecting Threat Particles */}
-          <circle className="spine-threat-dot" cx="0" cy="0" r="3" fill="var(--mask-solid)" opacity="0" />
-          <circle className="spine-threat-dot" cx="0" cy="0" r="2.5" fill="var(--warn-text)" opacity="0" />
+          <circle className="spine-threat-dot" cx="0" cy="0" r="2.8" fill="var(--mask-solid)" opacity="0" />
+          <circle className="spine-threat-dot" cx="0" cy="0" r="2.2" fill="var(--warn-text)" opacity="0" />
 
           {/* Mint Safe Packets */}
-          <circle className="spine-safe-dot" cx="0" cy="0" r="3" fill="var(--safe-solid)" opacity="0" />
-          <circle className="spine-safe-dot" cx="0" cy="0" r="2.2" fill="var(--nano-solid)" opacity="0" />
+          <circle className="spine-safe-dot" cx="0" cy="0" r="2.6" fill="var(--safe-solid)" opacity="0" />
+          <circle className="spine-safe-dot" cx="0" cy="0" r="2" fill="var(--nano-solid)" opacity="0" />
         </svg>
 
         {/* Shockwave Ripple Ring */}

@@ -252,8 +252,8 @@ export function ProcessTimelineSection({ onJumpToWorkbench }: ProcessTimelineSec
         </div>
 
         {/* Right Column: Sticky Interactive Process Card */}
-        <div className="lg:sticky lg:top-[128px] lg:h-[calc(100dvh-160px)]">
-          <div className="lf-card relative flex h-full min-h-[420px] flex-col justify-between overflow-hidden rounded-2xl p-5">
+        <div className="lg:sticky lg:top-[128px]">
+          <div className="lf-card relative flex flex-col justify-between overflow-hidden rounded-2xl p-5">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3" style={{ borderColor: "var(--border-subtle)" }}>
               <span className="font-mono text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
                 {PROCESS_BEATS[activeBeat].step} · {PROCESS_BEATS[activeBeat].title}
@@ -512,6 +512,43 @@ export function ProcessTimelineSection({ onJumpToWorkbench }: ProcessTimelineSec
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* 3-Layer Detector Status Strip */}
+            <div className="mb-3 grid grid-cols-3 gap-2">
+              <div
+                className="rounded-lg border px-2.5 py-2 font-mono text-[10px]"
+                style={{
+                  backgroundColor: activeBeat >= 1 ? "var(--mask-bg)" : "var(--bg-subtle)",
+                  borderColor: activeBeat >= 1 ? "var(--mask-border)" : "var(--border-subtle)",
+                  color: activeBeat >= 1 ? "var(--mask-text)" : "var(--text-muted)",
+                }}
+              >
+                <div className="font-bold">01 · Regex</div>
+                <div className="mt-0.5 tabular-nums">{activeBeat >= 1 ? "5 keys locked (<2ms)" : "Standby"}</div>
+              </div>
+              <div
+                className="rounded-lg border px-2.5 py-2 font-mono text-[10px]"
+                style={{
+                  backgroundColor: activeBeat >= 2 ? "var(--nano-bg)" : "var(--bg-subtle)",
+                  borderColor: activeBeat >= 2 ? "var(--nano-border)" : "var(--border-subtle)",
+                  color: activeBeat >= 2 ? "var(--nano-text)" : "var(--text-muted)",
+                }}
+              >
+                <div className="font-bold">02 · Nano 4 GPU</div>
+                <div className="mt-0.5 tabular-nums">{activeBeat >= 2 ? "5 semantic caught" : "Waiting"}</div>
+              </div>
+              <div
+                className="rounded-lg border px-2.5 py-2 font-mono text-[10px]"
+                style={{
+                  backgroundColor: activeBeat >= 3 ? "var(--safe-bg)" : "var(--bg-subtle)",
+                  borderColor: activeBeat >= 3 ? "var(--safe-border)" : "var(--border-subtle)",
+                  color: activeBeat >= 3 ? "var(--safe-text)" : "var(--text-muted)",
+                }}
+              >
+                <div className="font-bold">03 · Airgap Gate</div>
+                <div className="mt-0.5 tabular-nums">{activeBeat >= 3 ? "0 / 10 Leaked" : "Sealed"}</div>
+              </div>
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-2">

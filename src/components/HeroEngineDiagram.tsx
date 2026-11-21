@@ -46,7 +46,8 @@ export function HeroEngineDiagram({
       if (reduced) return;
 
       const mainMotion = svg.createMotionPath("#hero-main-track");
-      const vaultMotion = svg.createMotionPath("#hero-vault-track");
+      const regexVaultMotion = svg.createMotionPath("#hero-regex-vault-track");
+      const nanoVaultMotion = svg.createMotionPath("#hero-nano-vault-track");
       const traces = svg.createDrawable(".hero-trace");
 
       const tl = createTimeline({
@@ -56,8 +57,8 @@ export function HeroEngineDiagram({
 
       tl.add(traces, {
         draw: ["0 0", "0 1"],
-        duration: 850,
-        delay: stagger(90),
+        duration: 750,
+        delay: stagger(80),
       })
         .add(
           ".hero-safe-packet",
@@ -69,22 +70,31 @@ export function HeroEngineDiagram({
           200,
         )
         .add(
-          ".hero-threat-packet",
+          ".hero-threat-regex",
           {
-            ...vaultMotion,
+            ...regexVaultMotion,
+            opacity: [0, 1, 1, 0],
+            duration: 1550,
+            delay: stagger(1050),
+          },
+          260,
+        )
+        .add(
+          ".hero-threat-nano",
+          {
+            ...nanoVaultMotion,
             opacity: [0, 1, 1, 0],
             duration: 1850,
-            delay: stagger(240),
           },
-          320,
+          780,
         )
         .add(
           ".hero-vault-pulse",
           {
-            scale: [1, 1.08, 1],
-            duration: 450,
+            scale: [1, 1.045, 1],
+            duration: 420,
           },
-          1500,
+          1550,
         );
 
       tlRef.current = tl;
@@ -114,7 +124,7 @@ export function HeroEngineDiagram({
     <section
       id="story-top"
       ref={rootRef}
-      className="relative flex min-h-[calc(100dvh-48px)] items-center border-b px-4 py-10 lg:px-8"
+      className="lf-hero-glow relative flex min-h-[calc(100dvh-48px)] items-center border-b px-4 py-10 lg:px-8"
       style={{ borderColor: "var(--border-subtle)" }}
     >
       <div className="mx-auto grid w-full max-w-[1440px] grid-cols-1 items-center gap-10 lg:grid-cols-[44fr_56fr]">
@@ -153,11 +163,7 @@ export function HeroEngineDiagram({
             <button
               type="button"
               onClick={onJumpToWorkbench}
-              className="inline-flex min-h-[44px] items-center gap-2 rounded-xl px-5 text-sm font-semibold"
-              style={{
-                backgroundColor: "var(--accent-primary)",
-                color: "var(--accent-on-primary)",
-              }}
+              className="lf-btn-primary inline-flex min-h-[44px] items-center gap-2 rounded-xl px-5 text-sm font-semibold"
             >
               <span>Open Live Workbench</span>
               <ArrowDown className="h-4 w-4" aria-hidden="true" />
@@ -239,7 +245,7 @@ export function HeroEngineDiagram({
           {/* SVG Circuit Diagram */}
           <div className="relative">
             <svg
-              viewBox="0 0 600 285"
+              viewBox="0 0 600 245"
               className="h-auto w-full"
               role="img"
               aria-label="Animated Clockwork Airgap Engine showing secrets trapped locally and safe stack trace flowing to Cloud Gemini"
@@ -248,41 +254,53 @@ export function HeroEngineDiagram({
               <path
                 id="hero-main-track"
                 className="hero-trace"
-                d="M 24 85 L 515 85"
+                d="M 24 78 L 515 78"
                 fill="none"
                 stroke="var(--safe-solid)"
                 strokeWidth="2"
-                strokeOpacity="0.6"
+                strokeOpacity="0.55"
               />
 
               {/* Branch Tracks to Extension & Android */}
               <path
                 className="hero-trace"
-                d="M 445 85 L 470 85 L 470 42 L 515 42"
+                d="M 445 78 L 472 78 L 472 36 L 515 36"
                 fill="none"
                 stroke="var(--nano-solid)"
                 strokeWidth="1.5"
-                strokeOpacity="0.65"
+                strokeOpacity="0.6"
               />
               <path
                 className="hero-trace"
-                d="M 445 85 L 470 85 L 470 128 L 515 128"
+                d="M 445 78 L 472 78 L 472 120 L 515 120"
                 fill="none"
                 stroke="var(--safe-solid)"
                 strokeWidth="1.5"
+                strokeOpacity="0.6"
+              />
+
+              {/* Threat Deflection Track 1: Regex -> Local Vault */}
+              <path
+                id="hero-regex-vault-track"
+                className="hero-trace"
+                d="M 24 78 L 127 78 Q 127 118 148 174"
+                fill="none"
+                stroke="var(--mask-solid)"
+                strokeWidth="1.75"
+                strokeDasharray="4 4"
                 strokeOpacity="0.65"
               />
 
-              {/* Threat Deflection Track (Into Local Vault) */}
+              {/* Threat Deflection Track 2: Nano 4 -> Local Vault */}
               <path
-                id="hero-vault-track"
+                id="hero-nano-vault-track"
                 className="hero-trace"
-                d="M 24 85 L 155 85 Q 190 85 190 122 L 190 212"
+                d="M 24 78 L 261 78 Q 261 128 226 174"
                 fill="none"
-                stroke="var(--mask-solid)"
-                strokeWidth="2"
+                stroke="var(--nano-solid)"
+                strokeWidth="1.75"
                 strokeDasharray="4 4"
-                strokeOpacity="0.7"
+                strokeOpacity="0.65"
               />
 
               {/* Chamber 01: Regex (<2ms) */}
@@ -293,18 +311,18 @@ export function HeroEngineDiagram({
               >
                 <rect
                   x="76"
-                  y="52"
+                  y="46"
                   width="102"
                   height="64"
-                  rx="8"
+                  rx="10"
                   fill="var(--bg-subtle)"
-                  stroke="var(--border-strong)"
-                  strokeWidth="1.25"
+                  stroke={hoveredChamber === "regex" ? "var(--mask-solid)" : "var(--border-strong)"}
+                  strokeWidth={hoveredChamber === "regex" ? "1.75" : "1.25"}
                 />
-                <text x="127" y="76" textAnchor="middle" fill="var(--text-primary)" fontSize="11" fontWeight="700" fontFamily="var(--font-mono)">
+                <text x="127" y="71" textAnchor="middle" fill="var(--text-primary)" fontSize="11" fontWeight="700" fontFamily="var(--font-mono)">
                   01 Regex
                 </text>
-                <text x="127" y="96" textAnchor="middle" fill="var(--text-muted)" fontSize="10" fontFamily="var(--font-mono)">
+                <text x="127" y="90" textAnchor="middle" fill="var(--text-muted)" fontSize="10" fontFamily="var(--font-mono)">
                   &lt;2ms
                 </text>
               </g>
@@ -317,18 +335,18 @@ export function HeroEngineDiagram({
               >
                 <rect
                   x="206"
-                  y="52"
+                  y="46"
                   width="110"
                   height="64"
-                  rx="8"
+                  rx="10"
                   fill="var(--nano-bg)"
-                  stroke="var(--nano-border)"
-                  strokeWidth="1.5"
+                  stroke={hoveredChamber === "nano" ? "var(--nano-solid)" : "var(--nano-border)"}
+                  strokeWidth={hoveredChamber === "nano" ? "2" : "1.5"}
                 />
-                <text x="261" y="76" textAnchor="middle" fill="var(--nano-text)" fontSize="11" fontWeight="700" fontFamily="var(--font-mono)">
+                <text x="261" y="71" textAnchor="middle" fill="var(--nano-text)" fontSize="11" fontWeight="700" fontFamily="var(--font-mono)">
                   02 Nano 4
                 </text>
-                <text x="261" y="96" textAnchor="middle" fill="var(--text-secondary)" fontSize="10" fontFamily="var(--font-mono)">
+                <text x="261" y="90" textAnchor="middle" fill="var(--text-secondary)" fontSize="10" fontFamily="var(--font-mono)">
                   Local GPU
                 </text>
               </g>
@@ -341,89 +359,94 @@ export function HeroEngineDiagram({
               >
                 <rect
                   x="342"
-                  y="44"
+                  y="38"
                   width="96"
                   height="80"
-                  rx="8"
+                  rx="10"
                   fill="var(--safe-bg)"
-                  stroke="var(--safe-border)"
-                  strokeWidth="1.75"
+                  stroke={hoveredChamber === "airgap" ? "var(--safe-solid)" : "var(--safe-border)"}
+                  strokeWidth={hoveredChamber === "airgap" ? "2.25" : "1.75"}
                 />
-                <text x="390" y="74" textAnchor="middle" fill="var(--safe-text)" fontSize="11" fontWeight="700" fontFamily="var(--font-mono)">
+                <text x="390" y="69" textAnchor="middle" fill="var(--safe-text)" fontSize="11" fontWeight="700" fontFamily="var(--font-mono)">
                   03 Airgap
                 </text>
-                <text x="390" y="92" textAnchor="middle" fill="var(--safe-text)" fontSize="10" fontFamily="var(--font-mono)">
+                <text x="390" y="88" textAnchor="middle" fill="var(--safe-text)" fontSize="10" fontFamily="var(--font-mono)">
                   0 Leaked
                 </text>
               </g>
 
               {/* Output Nodes */}
               <g>
-                <rect x="515" y="25" width="76" height="32" rx="6" fill="var(--bg-subtle)" stroke="var(--nano-border)" />
-                <text x="553" y="45" textAnchor="middle" fill="var(--text-primary)" fontSize="10" fontWeight="600" fontFamily="var(--font-mono)">
+                <rect x="515" y="20" width="76" height="32" rx="7" fill="var(--bg-subtle)" stroke="var(--nano-border)" />
+                <text x="553" y="40" textAnchor="middle" fill="var(--text-primary)" fontSize="10" fontWeight="600" fontFamily="var(--font-mono)">
                   Extension
                 </text>
 
-                <rect x="515" y="69" width="76" height="32" rx="6" fill="var(--safe-bg)" stroke="var(--safe-border)" />
-                <text x="553" y="89" textAnchor="middle" fill="var(--safe-text)" fontSize="10" fontWeight="700" fontFamily="var(--font-mono)">
+                <rect x="515" y="62" width="76" height="32" rx="7" fill="var(--safe-bg)" stroke="var(--safe-border)" />
+                <text x="553" y="82" textAnchor="middle" fill="var(--safe-text)" fontSize="10" fontWeight="700" fontFamily="var(--font-mono)">
                   Cloud AI
                 </text>
 
-                <rect x="515" y="113" width="76" height="32" rx="6" fill="var(--bg-subtle)" stroke="var(--safe-border)" />
-                <text x="553" y="133" textAnchor="middle" fill="var(--text-primary)" fontSize="10" fontWeight="600" fontFamily="var(--font-mono)">
+                <rect x="515" y="104" width="76" height="32" rx="7" fill="var(--bg-subtle)" stroke="var(--safe-border)" />
+                <text x="553" y="124" textAnchor="middle" fill="var(--text-primary)" fontSize="10" fontWeight="600" fontFamily="var(--font-mono)">
                   Android
                 </text>
               </g>
 
               {/* Local Vault (Blocked) */}
-              <g className="hero-vault-pulse" style={{ transformOrigin: "190px 236px" }}>
+              <g className="hero-vault-pulse" style={{ transformOrigin: "190px 204px" }}>
                 <rect
-                  x="110"
-                  y="206"
-                  width="160"
-                  height="58"
+                  x="90"
+                  y="174"
+                  width="200"
+                  height="56"
                   rx="10"
                   fill="var(--mask-bg)"
                   stroke="var(--mask-border)"
                   strokeWidth="1.5"
                 />
-                <text x="190" y="229" textAnchor="middle" fill="var(--mask-text)" fontSize="11" fontWeight="700" fontFamily="var(--font-mono)">
+                <text x="190" y="197" textAnchor="middle" fill="var(--mask-text)" fontSize="11" fontWeight="700" fontFamily="var(--font-mono)">
                   LOCAL VAULT (BLOCKED)
                 </text>
-                <text x="190" y="248" textAnchor="middle" fill="var(--text-secondary)" fontSize="10" fontFamily="var(--font-mono)">
+                <text x="190" y="216" textAnchor="middle" fill="var(--text-secondary)" fontSize="10" fontFamily="var(--font-mono)">
                   AWS Key · ICU Note · JWT
                 </text>
               </g>
 
-              {/* Animated Data Packets */}
-              <g className="hero-safe-packet">
-                <rect x="-32" y="-10" width="64" height="20" rx="5" fill="var(--safe-solid)" />
+              {/* Animated Data Packets (start opacity 0 so they never stack at origin) */}
+              <g className="hero-safe-packet" opacity="0">
+                <rect x="-36" y="-11" width="72" height="22" rx="6" fill="var(--safe-solid)" />
                 <text x="0" y="3.5" textAnchor="middle" fill="#07090D" fontSize="9.5" fontWeight="700" fontFamily="var(--font-mono)">
                   Stack Trace
                 </text>
               </g>
 
-              {["AWS Key", "ICU Note", "JWT"].map((label, idx) => (
-                <g key={label} className="hero-threat-packet">
-                  <rect
-                    x="-28"
-                    y="-9"
-                    width="56"
-                    height="18"
-                    rx="4"
-                    fill={idx === 1 ? "var(--nano-solid)" : "var(--mask-solid)"}
-                  />
-                  <text x="0" y="3.5" textAnchor="middle" fill="#07090D" fontSize="9" fontWeight="700" fontFamily="var(--font-mono)">
-                    {label}
-                  </text>
-                </g>
-              ))}
+              <g className="hero-threat-regex" opacity="0">
+                <rect x="-28" y="-10" width="56" height="20" rx="5" fill="var(--mask-solid)" />
+                <text x="0" y="3.5" textAnchor="middle" fill="#FFFFFF" fontSize="9" fontWeight="700" fontFamily="var(--font-mono)">
+                  AWS Key
+                </text>
+              </g>
+
+              <g className="hero-threat-regex" opacity="0">
+                <rect x="-22" y="-10" width="44" height="20" rx="5" fill="var(--mask-solid)" />
+                <text x="0" y="3.5" textAnchor="middle" fill="#FFFFFF" fontSize="9" fontWeight="700" fontFamily="var(--font-mono)">
+                  JWT
+                </text>
+              </g>
+
+              <g className="hero-threat-nano" opacity="0">
+                <rect x="-30" y="-10" width="60" height="20" rx="5" fill="var(--nano-solid)" />
+                <text x="0" y="3.5" textAnchor="middle" fill="#07090D" fontSize="9" fontWeight="700" fontFamily="var(--font-mono)">
+                  ICU Note
+                </text>
+              </g>
             </svg>
           </div>
 
           {/* Hover Tooltip / Process Info Bar */}
           <div
-            className="mt-2 flex min-h-[42px] items-center justify-between gap-2 rounded-lg border px-3 py-1.5 text-xs"
+            className="mt-2 flex min-h-[44px] items-center justify-between gap-2 rounded-xl border px-3 py-2 text-xs"
             style={{
               backgroundColor: "var(--bg-subtle)",
               borderColor: "var(--border-subtle)",
@@ -440,8 +463,13 @@ export function HeroEngineDiagram({
               </>
             ) : (
               <>
-                <span style={{ color: "var(--text-secondary)" }}>
-                  Hover any chamber (`01 Regex`, `02 Nano 4`, `03 Airgap`) to inspect its exact SDK role.
+                <span className="flex flex-wrap items-center gap-1" style={{ color: "var(--text-secondary)" }}>
+                  <span>Hover</span>
+                  <code className="rounded border px-1.5 py-0.5 font-mono text-[10px]" style={{ backgroundColor: "var(--bg-surface)", borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}>01 Regex</code>
+                  <code className="rounded border px-1.5 py-0.5 font-mono text-[10px]" style={{ backgroundColor: "var(--bg-surface)", borderColor: "var(--border-subtle)", color: "var(--nano-text)" }}>02 Nano 4</code>
+                  <span>or</span>
+                  <code className="rounded border px-1.5 py-0.5 font-mono text-[10px]" style={{ backgroundColor: "var(--bg-surface)", borderColor: "var(--border-subtle)", color: "var(--safe-text)" }}>03 Airgap</code>
+                  <span>to inspect SDK roles.</span>
                 </span>
                 <span className="hidden shrink-0 font-mono text-[10px] sm:inline" style={{ color: "var(--text-muted)" }}>
                   Anime.js v4 Circuit

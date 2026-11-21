@@ -625,47 +625,74 @@ export function RightWorkbenchPane({
       <div className="min-h-0 flex-1 overflow-y-auto p-3.5">
         {/* Idle Visual Preview (No Empty Void) */}
         {!currentResult && !isRunning && activeTab !== "proof" && (
-          <div className="flex h-full min-h-[280px] flex-col items-center justify-center gap-5 py-6 text-center">
-            <div className="w-full max-w-md space-y-3">
-              <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+          <div className="flex h-full min-h-[290px] flex-col items-center justify-center gap-5 py-6 text-center">
+            <div className="w-full max-w-md space-y-4">
+              <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2.5">
                 <div
-                  className="rounded-lg border p-2.5 text-left"
+                  className="rounded-xl border p-3 text-left"
                   style={{
                     backgroundColor: "var(--mask-bg)",
                     borderColor: "var(--mask-border)",
                   }}
                 >
-                  <p className="font-mono text-[10px] font-semibold uppercase" style={{ color: "var(--mask-text)" }}>
+                  <p className="font-mono text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--mask-text)" }}>
                     Raw Secret
                   </p>
-                  <p className="mt-1 truncate font-mono text-[11px]" style={{ color: "var(--text-primary)" }}>
+                  <p className="mt-1 truncate font-mono text-xs" style={{ color: "var(--text-primary)" }}>
                     AKIA••••••••••••
                   </p>
                 </div>
 
                 <div
-                  className="flex h-8 w-8 items-center justify-center rounded-lg border"
+                  className="flex h-9 w-9 items-center justify-center rounded-xl border"
                   style={{
                     backgroundColor: "var(--bg-subtle)",
                     borderColor: "var(--border-strong)",
-                    color: "var(--text-primary)",
+                    color: "var(--safe-text)",
                   }}
                 >
-                  <Lock className="h-3.5 w-3.5" aria-hidden="true" />
+                  <Lock className="h-4 w-4" aria-hidden="true" />
                 </div>
 
                 <div
-                  className="rounded-lg border p-2.5 text-left"
+                  className="rounded-xl border p-3 text-left"
                   style={{
                     backgroundColor: "var(--safe-bg)",
                     borderColor: "var(--safe-border)",
                   }}
                 >
-                  <p className="font-mono text-[10px] font-semibold uppercase" style={{ color: "var(--safe-text)" }}>
+                  <p className="font-mono text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--safe-text)" }}>
                     Safe AI Answer
                   </p>
-                  <p className="mt-1 truncate font-mono text-[11px]" style={{ color: "var(--text-primary)" }}>
+                  <p className="mt-1 truncate font-mono text-xs" style={{ color: "var(--text-primary)" }}>
                     [REDACTED:AWS_1]
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 text-left">
+                <div className="lf-subtle-box rounded-lg px-2.5 py-2">
+                  <p className="font-mono text-[10px] font-bold" style={{ color: "var(--text-primary)" }}>
+                    1. Scrub &lt;2ms
+                  </p>
+                  <p className="mt-0.5 text-[11px]" style={{ color: "var(--text-muted)" }}>
+                    Regex + Nano 4
+                  </p>
+                </div>
+                <div className="lf-subtle-box rounded-lg px-2.5 py-2">
+                  <p className="font-mono text-[10px] font-bold" style={{ color: "var(--text-primary)" }}>
+                    2. Review Diff
+                  </p>
+                  <p className="mt-0.5 text-[11px]" style={{ color: "var(--text-muted)" }}>
+                    Toggle any mask
+                  </p>
+                </div>
+                <div className="lf-subtle-box rounded-lg px-2.5 py-2">
+                  <p className="font-mono text-[10px] font-bold" style={{ color: "var(--text-primary)" }}>
+                    3. Safe RCA
+                  </p>
+                  <p className="mt-0.5 text-[11px]" style={{ color: "var(--text-muted)" }}>
+                    0 PII to Cloud
                   </p>
                 </div>
               </div>
@@ -674,18 +701,19 @@ export function RightWorkbenchPane({
                 Secrets and health details are masked locally before anything crosses the airgap.
               </p>
 
-              <button
-                type="button"
-                onClick={onRunLiveDemo}
-                className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg px-4 text-xs font-semibold"
-                style={{
-                  backgroundColor: "var(--accent-primary)",
-                  color: "var(--accent-on-primary)",
-                }}
-              >
-                <span>Run Live P0 Demo</span>
-                <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-              </button>
+              <div className="flex flex-col items-center gap-2">
+                <button
+                  type="button"
+                  onClick={onRunLiveDemo}
+                  className="lf-btn-primary inline-flex min-h-[38px] items-center gap-1.5 rounded-xl px-5 text-xs font-semibold"
+                >
+                  <span>Run Live P0 Demo</span>
+                  <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                </button>
+                <span className="font-mono text-[10px]" style={{ color: "var(--text-muted)" }}>
+                  Tip: Press ⌘↵ or Ctrl+Enter in the editor to scrub
+                </span>
+              </div>
             </div>
           </div>
         )}
