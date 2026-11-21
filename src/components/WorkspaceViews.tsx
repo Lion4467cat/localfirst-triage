@@ -1,8 +1,9 @@
-import { useState, type FormEvent } from "react";
-import { motion } from "motion/react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { animate, stagger } from "animejs";
 import { BookOpen, Clock, Lock, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { getSeverityStyle } from "../config/displayLabels";
 import type { CustomRunbook, PrivacyPolicy, TriageResult } from "../types/triage";
+import { createSafeScope } from "../utils/animeScope";
 
 export function HistoryWorkspaceView({
   history,
@@ -13,8 +14,26 @@ export function HistoryWorkspaceView({
   onSelectHistory: (ticket: TriageResult) => void;
   onClearHistory: () => void;
 }) {
+  const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const root = listRef.current;
+    if (!root || history.length === 0) return;
+    const scope = createSafeScope(root, (reduced) => {
+      if (reduced) return;
+      animate(".lf-history-card", {
+        opacity: [0, 1],
+        translateY: [8, 0],
+        duration: 280,
+        delay: stagger(35),
+        ease: "outQuad",
+      });
+    });
+    return () => scope.revert();
+  }, [history.length]);
+
   return (
-    <section className="lf-card rounded-2xl p-5">
+    <section ref={listRef} className="lf-card rounded-2xl p-5">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>
@@ -60,23 +79,14 @@ export function HistoryWorkspaceView({
         </div>
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
-          {history.map((item, idx) => {
+          {history.map((item) => {
             const sev = getSeverityStyle(item.severity);
             return (
-              <motion.button
+              <button
                 key={item.id}
                 type="button"
                 onClick={() => onSelectHistory(item)}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                whileHover={{ y: -1 }}
-                whileTap={{ scale: 0.99 }}
-                transition={{
-                  duration: 0.22,
-                  delay: Math.min(idx, 8) * 0.03,
-                  ease: [0.23, 1, 0.32, 1],
-                }}
-                className="flex min-h-[44px] flex-col items-start gap-2 rounded-xl border p-4 text-left"
+                className="lf-history-card flex min-h-[44px] flex-col items-start gap-2 rounded-xl border p-4 text-left"
                 style={{
                   backgroundColor: "var(--bg-subtle)",
                   borderColor: "var(--border-subtle)",
@@ -123,7 +133,7 @@ export function HistoryWorkspaceView({
                   <span>{item.spans.length} secret(s)</span>
                   <span>· {new Date(item.createdAt).toLocaleString()}</span>
                 </div>
-              </motion.button>
+              </button>
             );
           })}
         </div>
@@ -391,18 +401,11 @@ export function RunbooksWorkspaceView({
         </form>
 
         <div className="space-y-3">
-          {runbooks.map((rb, idx) => {
+          {runbooks.map((rb) => {
             const sev = getSeverityStyle(rb.severity);
             return (
-              <motion.article
+              <article
                 key={rb.id}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{
-                  duration: 0.22,
-                  delay: Math.min(idx, 8) * 0.03,
-                  ease: [0.23, 1, 0.32, 1],
-                }}
                 className="rounded-xl border p-4"
                 style={{
                   backgroundColor: "var(--bg-subtle)",
@@ -459,7 +462,7 @@ export function RunbooksWorkspaceView({
                 <p className="mt-2 text-xs" style={{ color: "var(--text-secondary)" }}>
                   Keywords: <code className="font-mono">{rb.keywords.join(", ")}</code>
                 </p>
-              </motion.article>
+              </article>
             );
           })}
         </div>

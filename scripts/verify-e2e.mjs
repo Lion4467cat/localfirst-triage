@@ -64,9 +64,23 @@ async function main() {
     });
 
     await page.goto(BASE_URL, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector("text=Stop pasting secrets into Cloud AI.");
+    await page.waitForSelector("text=Keep secrets on your device. Send only safe context to AI.");
 
-    // 0. Verify System / Dark / Light theme switcher + Act 1 Hero -> Launch Live Workbench jump
+    // 0. Verify live Anime.js v4 Hero SVG animation across two frames 350ms apart
+    const frameA = await page.evaluate(() => {
+      const pkt = document.querySelector(".hero-safe-packet");
+      return pkt ? getComputedStyle(pkt).transform : "";
+    });
+    await page.waitForTimeout(350);
+    const frameB = await page.evaluate(() => {
+      const pkt = document.querySelector(".hero-safe-packet");
+      return pkt ? getComputedStyle(pkt).transform : "";
+    });
+    if (!frameA || frameA === frameB) {
+      throw new Error(`Expected HeroEngineDiagram SVG packet transform to animate (A=${frameA}, B=${frameB})`);
+    }
+
+    // Verify System / Dark / Light theme switcher + Act 1 Hero -> Open Live Workbench jump
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.getByRole("button", { name: /^Dark/i }).click();
     if ((await page.evaluate(() => document.documentElement.getAttribute("data-theme"))) !== "dark") {
@@ -77,11 +91,11 @@ async function main() {
       throw new Error("Expected Light theme to set data-theme=light");
     }
 
-    await page.getByRole("button", { name: /Launch Live Workbench/i }).click();
+    await page.getByRole("button", { name: /Open Live Workbench/i }).click();
     await page.waitForTimeout(350);
     const workbenchVisible = await page.locator("#workbench-act").isVisible();
     if (!workbenchVisible) {
-      throw new Error("Expected #workbench-act to be visible after clicking Launch Live Workbench");
+      throw new Error("Expected #workbench-act to be visible after clicking Open Live Workbench");
     }
 
     await page.getByRole("button", { name: /Cloud Sync/i }).click();

@@ -10,8 +10,8 @@
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
 
-  /* Light Mode — Warm Architectural Stone & Ceramic White */
-  --bg-canvas: #f6f7f9;
+  /* Light Mode — Architectural Blueprint */
+  --bg-canvas: #f7f8fa;
   --bg-surface: #ffffff;
   --bg-subtle: #eceff4;
   --bg-elevated: #ffffff;
@@ -22,8 +22,9 @@
   --text-muted: #64748b;
 
   --border-subtle: rgba(15, 23, 42, 0.1);
-  --border-strong: rgba(15, 23, 42, 0.2);
-  --dot-grid: rgba(15, 23, 42, 0.06);
+  --border-strong: rgba(15, 23, 42, 0.22);
+  --dot-grid: rgba(15, 23, 42, 0.055);
+  --grid-line: rgba(15, 23, 42, 0.045);
 
   --accent-primary: #0b1220;
   --accent-primary-hover: #1e293b;
@@ -69,20 +70,21 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  /* Dark Mode — Obsidian Vault & Bio-Signal */
-  --bg-canvas: #07090d;
-  --bg-surface: #0f131a;
-  --bg-subtle: #151b24;
-  --bg-elevated: #1b222e;
-  --bg-hover: #232c3b;
+  /* Dark Mode — Graphite-Obsidian Precision Instrument */
+  --bg-canvas: #0b0c10;
+  --bg-surface: #12141b;
+  --bg-subtle: #191c26;
+  --bg-elevated: #202431;
+  --bg-hover: #272c3b;
 
   --text-primary: #f8fafc;
   --text-secondary: #94a3b8;
   --text-muted: #64748b;
 
   --border-subtle: rgba(148, 163, 184, 0.14);
-  --border-strong: rgba(148, 163, 184, 0.26);
-  --dot-grid: rgba(148, 163, 184, 0.06);
+  --border-strong: rgba(148, 163, 184, 0.28);
+  --dot-grid: rgba(148, 163, 184, 0.055);
+  --grid-line: rgba(148, 163, 184, 0.045);
 
   --accent-primary: #00e5a3;
   --accent-primary-hover: #2ef5b8;
@@ -200,8 +202,20 @@
 }
 
 .lf-dot-grid {
-  background-image: radial-gradient(var(--dot-grid) 1px, transparent 1px);
-  background-size: 18px 18px;
+  background-image:
+    linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+.lf-ruler-ticks {
+  background-image: repeating-linear-gradient(
+    to right,
+    var(--border-strong) 0,
+    var(--border-strong) 1px,
+    transparent 1px,
+    transparent 10px
+  );
 }
 
 .lf-card {

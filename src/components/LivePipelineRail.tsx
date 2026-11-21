@@ -1,6 +1,8 @@
-import { motion } from "motion/react";
+import { useEffect, useRef } from "react";
+import { animate, stagger } from "animejs";
 import { CheckCircle2, Cloud, Cpu, Loader2, ShieldAlert, ShieldCheck, WifiOff } from "lucide-react";
 import type { TriageResult } from "../types/triage";
+import { createSafeScope } from "../utils/animeScope";
 
 interface LivePipelineRailProps {
   currentResult: TriageResult | null;
@@ -13,11 +15,13 @@ export function LivePipelineRail({
   isRunning,
   offlineMode,
 }: LivePipelineRailProps) {
+  const rootRef = useRef<HTMLDivElement>(null);
   const blockedCount =
     currentResult?.spans.filter((s) => s.masked !== false).length ?? 0;
 
   const stage1Active = isRunning && !currentResult;
   const stage1Done = Boolean(currentResult);
+  const nanoUsed = currentResult?.stage1Source === "ON_DEVICE (Nano 4)";
   const stage2Active = Boolean(isRunning && currentResult);
   const stage3Done = Boolean(
     currentResult &&
@@ -25,135 +29,155 @@ export function LivePipelineRail({
         currentResult.resolutionMode === "LOCAL_RUNBOOK"),
   );
 
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+
+    const scope = createSafeScope(root, (reduced) => {
+      if (reduced) return;
+      animate(".clockwork-step", {
+        opacity: [0.6, 1],
+        translateY: [2, 0],
+        duration: 280,
+        delay: stagger(45),
+        ease: "outQuad",
+      });
+    });
+
+    return () => scope.revert();
+  }, [currentResult?.id, isRunning]);
+
   const liveStatusText = stage1Active
-    ? "Scanning locally on your device (Regex + Entropy + Nano 4)..."
+    ? "Scanning locally on your device..."
     : stage2Active
       ? "Streaming safe fix from Cloud Gemini..."
       : !currentResult
-        ? "Ready — paste a log or pick a starter preset to run Stage 1."
+        ? "Ready — paste a log or pick a preset"
         : currentResult.resolutionMode === "LOCAL_RUNBOOK"
-          ? `Blocked ${blockedCount} secrets · Resolved locally ($0 cloud)`
+          ? `${blockedCount} secrets kept local · Solved on-device ($0)`
           : currentResult.resolutionMode === "CLOUD_ESCALATION"
-            ? `Blocked ${blockedCount} secrets · 0 leaked · Safe Cloud RCA complete`
+            ? `${blockedCount} secrets kept local · 0 leaked · Safe Cloud RCA`
             : currentResult.resolutionMode === "OFFLINE_QUEUED"
-              ? `Blocked ${blockedCount} secrets · Airgap sealed ($0 local)`
-              : `Blocked ${blockedCount} secrets · 0 leaked · Ready for safe cloud approval`;
+              ? `${blockedCount} secrets kept local · Airgap sealed ($0)`
+              : `${blockedCount} secrets kept on your device · Safe to get AI help`;
 
   return (
     <div
-      aria-label="Live Hybrid Pipeline Rail"
-      className="lf-card flex flex-wrap items-center justify-between gap-2 rounded-xl px-3.5 py-2"
+      ref={rootRef}
+      aria-label="Clockwork Execution Track"
+      className="lf-card flex flex-col gap-1.5 rounded-xl px-3.5 py-2"
     >
-      <div className="flex flex-wrap items-center gap-2 text-[11px] font-medium">
-        {/* Node 1: Local Scan (Neural Cyan) */}
-        <div
-          className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1"
-          style={{
-            backgroundColor: stage1Done || stage1Active ? "var(--nano-bg)" : "var(--bg-subtle)",
-            borderColor: stage1Done || stage1Active ? "var(--nano-border)" : "var(--border-subtle)",
-            color: stage1Done || stage1Active ? "var(--nano-text)" : "var(--text-secondary)",
-          }}
-        >
-          {stage1Active ? (
-            <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
-          ) : (
-            <Cpu className="h-3 w-3" aria-hidden="true" />
-          )}
-          <span>1. Local Firewall (Regex + Nano 4)</span>
-        </div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-medium tabular-nums">
+          {/* 01 Local Rules */}
+          <div
+            className="clockwork-step inline-flex items-center gap-1.5 rounded-md border px-2 py-1"
+            style={{
+              backgroundColor: stage1Done || stage1Active ? "var(--safe-bg)" : "var(--bg-subtle)",
+              borderColor: stage1Done || stage1Active ? "var(--safe-border)" : "var(--border-subtle)",
+              color: stage1Done || stage1Active ? "var(--safe-text)" : "var(--text-secondary)",
+            }}
+          >
+            {stage1Active ? (
+              <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+            ) : (
+              <ShieldCheck className="h-3 w-3" aria-hidden="true" />
+            )}
+            <span>01 Local Rules</span>
+            {currentResult && (
+              <span className="font-mono text-[10px] opacity-80">
+                {currentResult.stage1LatencyMs}ms
+              </span>
+            )}
+          </div>
 
-        {/* Connector 1 -> 2 */}
-        <div
-          className="relative hidden h-0.5 w-8 overflow-hidden rounded-full sm:block"
-          style={{ backgroundColor: "var(--border-subtle)" }}
-          aria-hidden="true"
-        >
-          {stage1Active ? (
-            <motion.div
-              className="h-full w-1/2 rounded-full"
-              style={{ backgroundColor: "var(--nano-solid)" }}
-              animate={{ x: ["-100%", "220%"] }}
-              transition={{ duration: 1.0, repeat: Infinity, ease: "linear" }}
-            />
-          ) : stage1Done ? (
-            <div className="h-full w-full" style={{ backgroundColor: "var(--safe-solid)" }} />
-          ) : null}
-        </div>
-
-        {/* Node 2: Airgap Gate */}
-        <div
-          className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 tabular-nums"
-          style={{
-            backgroundColor: offlineMode
-              ? "var(--warn-bg)"
-              : stage1Done
-                ? "var(--safe-bg)"
-                : "var(--bg-subtle)",
-            borderColor: offlineMode
-              ? "var(--warn-border)"
-              : stage1Done
-                ? "var(--safe-border)"
-                : "var(--border-subtle)",
-            color: offlineMode
-              ? "var(--warn-text)"
-              : stage1Done
-                ? "var(--safe-text)"
-                : "var(--text-secondary)",
-          }}
-        >
-          {offlineMode ? (
-            <WifiOff className="h-3 w-3" aria-hidden="true" />
-          ) : stage1Done ? (
-            <ShieldCheck className="h-3 w-3" aria-hidden="true" />
-          ) : (
-            <ShieldAlert className="h-3 w-3" aria-hidden="true" />
-          )}
-          <span>2. Airgap Gate ({stage1Done ? `${blockedCount} Blocked · 0 Leaked` : "0 Leaked"})</span>
-        </div>
-
-        {/* Connector 2 -> 3 */}
-        <div
-          className="relative hidden h-0.5 w-8 overflow-hidden rounded-full sm:block"
-          style={{ backgroundColor: "var(--border-subtle)" }}
-          aria-hidden="true"
-        >
-          {stage2Active ? (
-            <motion.div
-              className="h-full w-1/2 rounded-full"
-              style={{ backgroundColor: "var(--safe-solid)" }}
-              animate={{ x: ["-100%", "220%"] }}
-              transition={{ duration: 1.0, repeat: Infinity, ease: "linear" }}
-            />
-          ) : stage3Done ? (
-            <div className="h-full w-full" style={{ backgroundColor: "var(--safe-solid)" }} />
-          ) : null}
-        </div>
-
-        {/* Node 3: Safe Cloud / $0 Local */}
-        <div
-          className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1"
-          style={{
-            backgroundColor: stage3Done || stage2Active ? "var(--safe-bg)" : "var(--bg-subtle)",
-            borderColor: stage3Done || stage2Active ? "var(--safe-border)" : "var(--border-subtle)",
-            color: stage3Done || stage2Active ? "var(--safe-text)" : "var(--text-secondary)",
-          }}
-        >
-          {stage2Active ? (
-            <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
-          ) : stage3Done ? (
-            <CheckCircle2 className="h-3 w-3" aria-hidden="true" />
-          ) : (
-            <Cloud className="h-3 w-3" aria-hidden="true" />
-          )}
-          <span>
-            3. {currentResult?.resolutionMode === "LOCAL_RUNBOOK" ? "$0 Local Runbook" : "Safe Cloud RCA"}
+          <span className="hidden text-xs sm:inline" style={{ color: "var(--text-muted)" }}>
+            ─
           </span>
+
+          {/* 02 Nano 4 GPU */}
+          <div
+            className="clockwork-step inline-flex items-center gap-1.5 rounded-md border px-2 py-1"
+            style={{
+              backgroundColor: nanoUsed ? "var(--nano-bg)" : "var(--bg-subtle)",
+              borderColor: nanoUsed ? "var(--nano-border)" : "var(--border-subtle)",
+              color: nanoUsed ? "var(--nano-text)" : "var(--text-secondary)",
+            }}
+          >
+            <Cpu className="h-3 w-3" aria-hidden="true" />
+            <span>02 Nano 4 GPU</span>
+          </div>
+
+          <span className="hidden text-xs sm:inline" style={{ color: "var(--text-muted)" }}>
+            ─
+          </span>
+
+          {/* 03 Airgap Gate */}
+          <div
+            className="clockwork-step inline-flex items-center gap-1.5 rounded-md border px-2 py-1"
+            style={{
+              backgroundColor: offlineMode
+                ? "var(--warn-bg)"
+                : stage1Done
+                  ? "var(--safe-bg)"
+                  : "var(--bg-subtle)",
+              borderColor: offlineMode
+                ? "var(--warn-border)"
+                : stage1Done
+                  ? "var(--safe-border)"
+                  : "var(--border-subtle)",
+              color: offlineMode
+                ? "var(--warn-text)"
+                : stage1Done
+                  ? "var(--safe-text)"
+                  : "var(--text-secondary)",
+            }}
+          >
+            {offlineMode ? (
+              <WifiOff className="h-3 w-3" aria-hidden="true" />
+            ) : stage1Done ? (
+              <ShieldCheck className="h-3 w-3" aria-hidden="true" />
+            ) : (
+              <ShieldAlert className="h-3 w-3" aria-hidden="true" />
+            )}
+            <span>03 Airgap Gate ({stage1Done ? `${blockedCount} Blocked · 0 Leaked` : "0 Leaked"})</span>
+          </div>
+
+          <span className="hidden text-xs sm:inline" style={{ color: "var(--text-muted)" }}>
+            ─
+          </span>
+
+          {/* 04 Safe AI */}
+          <div
+            className="clockwork-step inline-flex items-center gap-1.5 rounded-md border px-2 py-1"
+            style={{
+              backgroundColor: stage3Done || stage2Active ? "var(--safe-bg)" : "var(--bg-subtle)",
+              borderColor: stage3Done || stage2Active ? "var(--safe-border)" : "var(--border-subtle)",
+              color: stage3Done || stage2Active ? "var(--safe-text)" : "var(--text-secondary)",
+            }}
+          >
+            {stage2Active ? (
+              <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+            ) : stage3Done ? (
+              <CheckCircle2 className="h-3 w-3" aria-hidden="true" />
+            ) : (
+              <Cloud className="h-3 w-3" aria-hidden="true" />
+            )}
+            <span>04 {currentResult?.resolutionMode === "LOCAL_RUNBOOK" ? "$0 Local" : "Safe AI"}</span>
+            {currentResult && currentResult.stage2LatencyMs > 0 && (
+              <span className="font-mono text-[10px] opacity-80">
+                {currentResult.stage2LatencyMs}ms
+              </span>
+            )}
+          </div>
         </div>
+
+        <span className="font-mono text-[11px] tabular-nums" style={{ color: "var(--text-secondary)" }}>
+          {liveStatusText}
+        </span>
       </div>
 
-      <span className="font-mono text-[11px] tabular-nums" style={{ color: "var(--text-muted)" }}>
-        {liveStatusText}
-      </span>
+      <div className="lf-ruler-ticks h-1 w-full opacity-45" aria-hidden="true" />
     </div>
   );
 }

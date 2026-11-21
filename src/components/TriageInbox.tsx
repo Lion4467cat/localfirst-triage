@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
-import { AnimatePresence, motion } from "motion/react";
+import { animate } from "animejs";
 import { FileUp, Loader2, ShieldCheck, Trash2, WifiOff } from "lucide-react";
 import type { DemoScenario, TriageResult } from "../types/triage";
+import { createSafeScope } from "../utils/animeScope";
 
 interface TriageInboxProps {
   scenarios: DemoScenario[];
@@ -40,12 +41,31 @@ export function TriageInbox({
   onProcessOfflineQueue,
 }: TriageInboxProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const editorWrapRef = useRef<HTMLDivElement>(null);
   const [laserActive, setLaserActive] = useState(false);
+
+  useEffect(() => {
+    if (!isRunning && !laserActive) return;
+    const wrap = editorWrapRef.current;
+    if (!wrap) return;
+
+    const scope = createSafeScope(wrap, (reduced) => {
+      if (reduced) return;
+      animate(".inbox-laser-beam", {
+        top: ["-48px", "100%"],
+        opacity: [0.95, 1, 0.85],
+        duration: 900,
+        ease: "outCubic",
+      });
+    });
+
+    return () => scope.revert();
+  }, [isRunning, laserActive]);
 
   useEffect(() => {
     if (isRunning) {
       setLaserActive(true);
-      const t = setTimeout(() => setLaserActive(false), 900);
+      const t = setTimeout(() => setLaserActive(false), 950);
       return () => clearTimeout(t);
     }
   }, [isRunning]);
@@ -173,26 +193,23 @@ export function TriageInbox({
           className="lf-input w-full rounded-lg px-2.5 py-1.5 text-xs font-medium"
         />
 
-        <div className="relative flex min-h-[220px] flex-1 flex-col overflow-hidden rounded-lg border" style={{ borderColor: "var(--border-subtle)" }}>
-          <AnimatePresence>
-            {(isRunning || laserActive) && (
-              <motion.div
-                key="laser-scan-beam"
-                aria-hidden="true"
-                initial={{ top: "-48px", opacity: 0.95 }}
-                animate={{ top: "100%", opacity: [0.95, 1, 0.85] }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.9, ease: [0.23, 1, 0.32, 1] }}
-                className="pointer-events-none absolute inset-x-0 z-10 h-[51px]"
-                style={{
-                  background:
-                    "linear-gradient(180deg, transparent 0%, rgba(56,189,248,0.16) 72%, rgba(0,229,163,0.42) 100%)",
-                  borderBottom: "3px solid var(--signal-mint, #00E5A3)",
-                  boxShadow: "0 0 14px var(--signal-mint, #00E5A3)",
-                }}
-              />
-            )}
-          </AnimatePresence>
+        <div
+          ref={editorWrapRef}
+          className="relative flex min-h-[220px] flex-1 flex-col overflow-hidden rounded-lg border"
+          style={{ borderColor: "var(--border-subtle)" }}
+        >
+          {(isRunning || laserActive) && (
+            <div
+              aria-hidden="true"
+              className="inbox-laser-beam pointer-events-none absolute inset-x-0 top-[-48px] z-10 h-[51px]"
+              style={{
+                background:
+                  "linear-gradient(180deg, transparent 0%, rgba(56,189,248,0.16) 72%, rgba(0,229,163,0.42) 100%)",
+                borderBottom: "3px solid var(--signal-mint, #00E5A3)",
+                boxShadow: "0 0 14px var(--signal-mint, #00E5A3)",
+              }}
+            />
+          )}
           <textarea
             id="ticket-body"
             aria-label="Support Ticket or Error Logs"
@@ -262,7 +279,11 @@ export function TriageInbox({
         <button
           type="button"
           disabled={isRunning || !rawText.trim()}
-          onClick={onRunTriage}
+          onClick={() => {
+            setLaserActive(true);
+            setTimeout(() => setLaserActive(false), 950);
+            onRunTriage();
+          }}
           className="inline-flex min-h-[36px] flex-1 items-center justify-center gap-2 rounded-lg px-4 text-xs font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-45"
           style={{
             backgroundColor: "var(--accent-primary)",
