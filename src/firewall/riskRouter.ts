@@ -1,5 +1,6 @@
 import type {
   PrivacyPolicy,
+  ProtectionLevel,
   RedactionSpan,
   RiskProfile,
   RiskRoutingAction,
@@ -14,6 +15,7 @@ const HARD_CREDENTIAL_CATEGORIES = new Set([
   "DB_URI",
   "PASSWORD",
   "NATURAL_SECRET",
+  "GOV_ID",
 ]);
 
 const SENSITIVE_PII_PHI_CATEGORIES = new Set([
@@ -35,6 +37,7 @@ const CORPORATE_CATEGORIES = new Set([
 export interface RiskRouterOptions {
   cacheHit?: boolean;
   isLocalRunbook?: boolean;
+  protectionLevel?: ProtectionLevel;
 }
 
 function resolveTier(score: number): RiskTier {
@@ -48,9 +51,10 @@ function resolveAction(
   score: number,
   options: RiskRouterOptions,
 ): RiskRoutingAction {
+  const lockdownThreshold = options.protectionLevel === "high" ? 50 : 80;
   if (options.cacheHit) return "CACHE_HIT_LOCAL";
   if (options.isLocalRunbook) return "LOCAL_RUNBOOK";
-  if (score >= 80) return "CRITICAL_AIRGAP_LOCKDOWN";
+  if (score >= lockdownThreshold) return "CRITICAL_AIRGAP_LOCKDOWN";
   if (score >= 40) return "HYBRID_GATED_REVIEW";
   return "LOCAL_RUNBOOK";
 }

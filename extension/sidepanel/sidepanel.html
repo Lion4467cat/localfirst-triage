@@ -61,6 +61,14 @@
           </div>
         </div>
         <div class="field">
+          <label>Protection Level</label>
+          <div class="level-group" role="group" aria-label="Protection level">
+            <button type="button" class="level-btn" data-level-choice="low" aria-pressed="false" title="Secrets Only (API keys, JWT, PEM, DB URI, Gov IDs, Cards)">Low</button>
+            <button type="button" class="level-btn" data-level-choice="medium" aria-pressed="true" title="Balanced: Secrets + phones, emails, names, employers & Nano 4">Medium</button>
+            <button type="button" class="level-btn" data-level-choice="high" aria-pressed="false" title="Strict Zero-Trust: Medium + addresses, M&A & always-on Nano 4">High</button>
+          </div>
+        </div>
+        <div class="field">
           <label for="workbench-target">Workbench Target</label>
           <select id="workbench-target">
             <option value="production">Production (para-1-2e22b.web.app)</option>

@@ -8,6 +8,7 @@ const CAPTURE_STORAGE_KEY = "pendingCapture";
 const THEME_STORAGE_KEY = "localfirst-theme";
 const SHIELD_ENABLED_KEY = "shieldEnabled";
 const SHIELD_STATS_KEY = "shieldStats";
+const PROTECTION_LEVEL_KEY = "protectionLevel";
 const WORKBENCH_TARGET_KEY = "workbenchTarget";
 const WORKBENCH_URLS = {
   production: "https://para-1-2e22b.web.app/",
@@ -20,6 +21,8 @@ const shieldToggleLabel = document.getElementById("shield-toggle-label");
 const statBlockedPastes = document.getElementById("stat-blocked-pastes");
 const statSecretsBlocked = document.getElementById("stat-secrets-blocked");
 const workbenchTargetSelect = document.getElementById("workbench-target");
+const levelButtons = Array.from(document.querySelectorAll("[data-level-choice]"));
+let activeProtectionLevel = "medium";
 const titleInput = document.getElementById("ticket-title");
 const rawInput = document.getElementById("raw-input");
 const scanStats = document.getElementById("scan-stats");
@@ -237,16 +240,26 @@ function renderShieldStats(stats) {
   }
 }
 
+function renderProtectionLevel(level) {
+  activeProtectionLevel = level === "low" || level === "high" ? level : "medium";
+  for (const btn of levelButtons) {
+    const choice = btn.getAttribute("data-level-choice");
+    btn.setAttribute("aria-pressed", String(choice === activeProtectionLevel));
+  }
+}
+
 async function initPasteShieldControls() {
   if (typeof chrome === "undefined" || !chrome.storage?.local) return;
   const res = await chrome.storage.local.get([
     SHIELD_ENABLED_KEY,
     SHIELD_STATS_KEY,
+    PROTECTION_LEVEL_KEY,
     WORKBENCH_TARGET_KEY,
   ]);
   const enabled = typeof res?.[SHIELD_ENABLED_KEY] === "boolean" ? res[SHIELD_ENABLED_KEY] : true;
   renderShieldState(enabled);
   renderShieldStats(res?.[SHIELD_STATS_KEY]);
+  renderProtectionLevel(res?.[PROTECTION_LEVEL_KEY] || "medium");
   if (workbenchTargetSelect && (res?.[WORKBENCH_TARGET_KEY] === "local" || res?.[WORKBENCH_TARGET_KEY] === "production")) {
     workbenchTargetSelect.value = res[WORKBENCH_TARGET_KEY];
   }
@@ -257,6 +270,14 @@ async function initPasteShieldControls() {
     renderShieldState(next);
     await chrome.storage.local.set({ [SHIELD_ENABLED_KEY]: next });
   });
+
+  for (const btn of levelButtons) {
+    btn.addEventListener("click", async () => {
+      const choice = btn.getAttribute("data-level-choice") || "medium";
+      renderProtectionLevel(choice);
+      await chrome.storage.local.set({ [PROTECTION_LEVEL_KEY]: activeProtectionLevel });
+    });
+  }
 
   workbenchTargetSelect?.addEventListener("change", async () => {
     const val = workbenchTargetSelect.value === "local" ? "local" : "production";

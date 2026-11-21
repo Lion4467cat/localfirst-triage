@@ -128,7 +128,7 @@ async function main() {
       throw new Error(`Expected safe redacted text in #sim-github-issue, got '${taAfter}'`);
     }
 
-    // 4. Typing natural-language secrets into contenteditable -> debounced Live Typed-Secret Guard + Scrub Draft Now
+    // 4. Typing natural-language secrets into contenteditable -> debounced Live Typed-Secret Guard (650ms) + Scrub Draft Now
     await page.waitForTimeout(1600);
     await page.locator("#sim-ai-chat").evaluate((el) => {
       el.textContent = "";
@@ -137,7 +137,7 @@ async function main() {
     const nlSample =
       "my phone number is 9876543210 and my name is ravi and i work in Zenith company , and my api key is 23224324234kjjjkjl";
     await page.locator("#sim-ai-chat").type(nlSample, { delay: 2 });
-    await page.waitForTimeout(600);
+    await page.waitForTimeout(800);
     await page.locator("#localfirst-paste-shield-host").waitFor();
     const draftHeadline = await page.evaluate(
       () => document.querySelector("#localfirst-paste-shield-host")?.shadowRoot?.querySelector("#lf-headline")?.textContent || "",

@@ -1237,7 +1237,7 @@ export function RightWorkbenchPane({
                   Verbatim Outbound Payload
                 </p>
                 <pre
-                  className="max-h-36 overflow-auto rounded border p-2.5 font-mono text-[11px] leading-relaxed"
+                  className="max-h-36 overflow-y-auto whitespace-pre-wrap break-words [overflow-wrap:anywhere] rounded border p-2.5 font-mono text-[11px] leading-relaxed"
                   style={{
                     backgroundColor: "var(--code-bg)",
                     borderColor: "var(--code-border)",

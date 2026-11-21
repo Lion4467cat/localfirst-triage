@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
 import { animate } from "animejs";
 import { FileUp, Loader2, ShieldCheck, Trash2, WifiOff } from "lucide-react";
-import type { DemoScenario, TriageResult } from "../types/triage";
+import type { DemoScenario, ProtectionLevel, TriageResult } from "../types/triage";
 import { createSafeScope } from "../utils/animeScope";
 
 interface TriageInboxProps {
@@ -10,10 +10,12 @@ interface TriageInboxProps {
   rawText: string;
   isRunning: boolean;
   offlineMode: boolean;
+  protectionLevel: ProtectionLevel;
   queuedTickets: TriageResult[];
   importedFromExtension: boolean;
   onTitleChange: (title: string) => void;
   onRawTextChange: (rawText: string) => void;
+  onProtectionLevelChange: (level: ProtectionLevel) => void;
   onSelectScenario: (scenario: DemoScenario) => void;
   onRunTriage: () => void;
   onProcessOfflineQueue: () => void;
@@ -32,10 +34,12 @@ export function TriageInbox({
   rawText,
   isRunning,
   offlineMode,
+  protectionLevel,
   queuedTickets,
   importedFromExtension,
   onTitleChange,
   onRawTextChange,
+  onProtectionLevelChange,
   onSelectScenario,
   onRunTriage,
   onProcessOfflineQueue,
@@ -129,19 +133,82 @@ export function TriageInbox({
           )}
         </div>
 
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors"
-          style={{
-            backgroundColor: "var(--bg-subtle)",
-            borderColor: "var(--border-subtle)",
-            color: "var(--text-secondary)",
-          }}
-        >
-          <FileUp className="h-3 w-3" aria-hidden="true" />
-          Upload
-        </button>
+        <div className="flex items-center gap-2">
+          {/* 3-Level Protection Selector */}
+          <div
+            role="group"
+            aria-label="Protection level"
+            className="inline-flex rounded-md border p-0.5"
+            style={{
+              backgroundColor: "var(--bg-subtle)",
+              borderColor: "var(--border-subtle)",
+            }}
+          >
+            {(
+              [
+                {
+                  id: "low" as const,
+                  label: "Low",
+                  tip: "Low (Secrets Only): API keys, AWS, JWT, PEM, DB URI, Gov IDs & cards",
+                },
+                {
+                  id: "medium" as const,
+                  label: "Medium",
+                  tip: "Medium (Balanced): Secrets + phones, emails, names, employers & Nano 4 PHI",
+                },
+                {
+                  id: "high" as const,
+                  label: "High",
+                  tip: "High (Strict Zero-Trust): Medium + addresses, M&A, tight entropy & lower lockdown threshold",
+                },
+              ]
+            ).map((opt) => {
+              const active = protectionLevel === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  title={opt.tip}
+                  aria-pressed={active}
+                  onClick={() => onProtectionLevelChange(opt.id)}
+                  className="rounded px-2 py-0.5 font-mono text-[10px] font-semibold transition-colors"
+                  style={{
+                    backgroundColor: active
+                      ? opt.id === "high"
+                        ? "var(--mask-bg)"
+                        : opt.id === "medium"
+                          ? "var(--safe-bg)"
+                          : "var(--bg-surface)"
+                      : "transparent",
+                    color: active
+                      ? opt.id === "high"
+                        ? "var(--mask-text)"
+                        : opt.id === "medium"
+                          ? "var(--safe-text)"
+                          : "var(--text-primary)"
+                      : "var(--text-muted)",
+                  }}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors"
+            style={{
+              backgroundColor: "var(--bg-subtle)",
+              borderColor: "var(--border-subtle)",
+              color: "var(--text-secondary)",
+            }}
+          >
+            <FileUp className="h-3 w-3" aria-hidden="true" />
+            Upload
+          </button>
+        </div>
         <input
           ref={fileInputRef}
           type="file"

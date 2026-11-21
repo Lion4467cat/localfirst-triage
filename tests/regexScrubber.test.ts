@@ -209,4 +209,48 @@ describe("regexScrubber", () => {
     expect(res.sanitizedText).toContain("[REDACTED:ORG_TERM_");
     expect(res.sanitizedText).toContain("[REDACTED:API_KEY_");
   });
+
+  it("respects 3 protection levels (low vs medium vs high) and preserves surrounding text byte-for-byte", () => {
+    const sample =
+      "my phone number is 9876543210 and my name is ravi and i work in Zenith company , and my api key is 23224324234kjjjkjl";
+
+    const lowRes = scanAndRedactLocal(sample, {
+      protectionLevel: "low",
+      includeHeuristics: true,
+    });
+    expect(lowRes.sanitizedText).not.toContain("23224324234kjjjkjl");
+    expect(lowRes.sanitizedText).toContain("9876543210");
+    expect(lowRes.sanitizedText).toContain("ravi");
+    expect(lowRes.sanitizedText).toContain("Zenith company");
+
+    for (const level of ["medium", "high"] as const) {
+      const res = scanAndRedactLocal(sample, {
+        protectionLevel: level,
+        includeHeuristics: true,
+      });
+      expect(res.mergedSpans.length).toBe(4);
+      expect(res.sanitizedText).not.toContain("9876543210");
+      expect(res.sanitizedText).not.toContain("ravi");
+      expect(res.sanitizedText).not.toContain("Zenith company");
+      expect(res.sanitizedText).not.toContain("23224324234kjjjkjl");
+    }
+
+    const p0Line = "URGENT P0 Outage in checkout-gateway after v4.8.2 deploy.\nCustomer John's daughter (Manipal ICU Floor 3).";
+    const mergedP0 = scanAndRedactLocal(p0Line, {
+      protectionLevel: "medium",
+      includeHeuristics: true,
+      extraSpans: [
+        {
+          start: p0Line.indexOf("Manipal ICU Floor 3"),
+          end: p0Line.indexOf("Manipal ICU Floor 3") + "Manipal ICU Floor 3".length,
+          category: "CONTEXTUAL_PHI",
+          detector: "NANO_SEMANTIC_FIREWALL",
+          placeholder: "[REDACTED:CONTEXTUAL_PHI_1]",
+          matchedText: "Manipal ICU Floor 3",
+          masked: true,
+        },
+      ],
+    });
+    expect(mergedP0.sanitizedText.startsWith("URGENT P0 Outage in checkout-gateway after v4.8.2 deploy.")).toBe(true);
+  });
 });

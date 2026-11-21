@@ -68,6 +68,7 @@ import type {
   HybridTelemetry,
   NanoStatus,
   PrivacyPolicy,
+  ProtectionLevel,
   TriageResult,
 } from "./types/triage";
 
@@ -103,6 +104,23 @@ export function App() {
   const [activeView, setActiveView] = useState<WorkspaceView>("triage");
   const [mobilePane, setMobilePane] = useState<"input" | "output">("input");
   const [autoCloudMode, setAutoCloudMode] = useState(false);
+  const [protectionLevel, setProtectionLevel] = useState<ProtectionLevel>(() => {
+    try {
+      const saved = window.localStorage.getItem("localfirst_protection_level");
+      if (saved === "low" || saved === "medium" || saved === "high") return saved;
+    } catch {
+      // ignore storage errors
+    }
+    return "medium";
+  });
+  const handleProtectionLevelChange = (level: ProtectionLevel) => {
+    setProtectionLevel(level);
+    try {
+      window.localStorage.setItem("localfirst_protection_level", level);
+    } catch {
+      // ignore storage errors
+    }
+  };
   const workbenchRef = useRef<HTMLDivElement>(null);
 
   const jumpToStory = () => {
@@ -566,6 +584,7 @@ export function App() {
         offlineMode: telemetry.offlineMode,
         customRunbooks: runbooks,
         policy,
+        protectionLevel,
         runtimeConfig,
         importedFromExtension,
         sourcePlatform: importedFromExtension ? "CHROME_EXTENSION" : "WEB",
@@ -881,6 +900,7 @@ export function App() {
                 rawText={rawText}
                 isRunning={isRunning}
                 offlineMode={telemetry.offlineMode}
+                protectionLevel={protectionLevel}
                 queuedTickets={queuedTickets}
                 importedFromExtension={importedFromExtension}
                 onTitleChange={(nextTitle) => {
@@ -898,6 +918,7 @@ export function App() {
                     setCountdownPaused(false);
                   }
                 }}
+                onProtectionLevelChange={handleProtectionLevelChange}
                 onSelectScenario={handleSelectScenario}
                 onRunTriage={() => {
                   setMobilePane("output");

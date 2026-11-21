@@ -5,6 +5,7 @@
   const STORAGE_KEY_ENABLED = "shieldEnabled";
   const STORAGE_KEY_STATS = "shieldStats";
   const STORAGE_KEY_TARGET = "workbenchTarget";
+  const STORAGE_KEY_LEVEL = "protectionLevel";
   const TARGET_URLS = {
     production: "https://para-1-2e22b.web.app/",
     local: "http://localhost:4173/",
@@ -12,20 +13,25 @@
 
   let shieldEnabled = true;
   let workbenchTarget = "production";
+  let protectionLevel = "medium";
   let isInjectingSafePaste = false;
   let activeHud = null;
   let typingDebounceTimer = null;
   let bypassedDraftText = null;
+  let lastNanoSweptText = "";
 
   function loadInitialSettings() {
     if (typeof chrome === "undefined" || !chrome.storage?.local) return;
     try {
-      chrome.storage.local.get([STORAGE_KEY_ENABLED, STORAGE_KEY_TARGET], (res) => {
+      chrome.storage.local.get([STORAGE_KEY_ENABLED, STORAGE_KEY_TARGET, STORAGE_KEY_LEVEL], (res) => {
         if (typeof res?.[STORAGE_KEY_ENABLED] === "boolean") {
           shieldEnabled = res[STORAGE_KEY_ENABLED];
         }
         if (res?.[STORAGE_KEY_TARGET] === "local" || res?.[STORAGE_KEY_TARGET] === "production") {
           workbenchTarget = res[STORAGE_KEY_TARGET];
+        }
+        if (["low", "medium", "high"].includes(res?.[STORAGE_KEY_LEVEL])) {
+          protectionLevel = res[STORAGE_KEY_LEVEL];
         }
       });
       chrome.storage.onChanged.addListener((changes, area) => {
@@ -36,6 +42,10 @@
         if (changes[STORAGE_KEY_TARGET]) {
           const val = changes[STORAGE_KEY_TARGET].newValue;
           if (val === "local" || val === "production") workbenchTarget = val;
+        }
+        if (changes[STORAGE_KEY_LEVEL]) {
+          const lvl = changes[STORAGE_KEY_LEVEL].newValue;
+          if (lvl === "low" || lvl === "medium" || lvl === "high") protectionLevel = lvl;
         }
       });
     } catch {
@@ -248,8 +258,10 @@
     US_SSN: "SSN",
     EMAIL: "Email",
     PHONE: "Phone",
+    GOV_ID: "Gov ID",
     PERSON: "Person Name",
     ORG_TERM: "Company / Org",
+    ADDRESS: "Address",
     CONTEXTUAL_PHI: "Medical Info",
     M_AND_A_SECRET: "M&A Secret",
     NATURAL_SECRET: "Private Note",
@@ -345,6 +357,11 @@
           ? "Confirm raw paste? (unsafe)"
           : "Bypass once (unsafe)";
 
+      const levelBadge =
+        protectionLevel === "high"
+          ? "HIGH · NANO 4"
+          : `${protectionLevel.toUpperCase()} SHIELD`;
+
       card.innerHTML = `
         <div class="lf-row">
           <div class="lf-title">
@@ -356,7 +373,7 @@
             </svg>
             <span id="lf-headline">${headlineText}</span>
           </div>
-          <span class="lf-risk lf-risk-${risk.tier}">${risk.tier}</span>
+          <span class="lf-risk lf-risk-${risk.tier}">${levelBadge} · ${risk.tier}</span>
         </div>
         <div class="lf-sub" id="lf-subline">On-Device · 0 bytes sent to ${hostName}</div>
         <div class="lf-chips" id="lf-chips"></div>
@@ -487,7 +504,7 @@
     const rawText = event.clipboardData?.getData("text/plain") || "";
     if (!rawText) return;
 
-    const scan = fw.scrubSync(rawText, true);
+    const scan = fw.scrubSync(rawText, true, protectionLevel);
     if (scan.mergedSpans.length === 0) {
       return; // Benign paste: 0ms friction
     }
@@ -502,7 +519,7 @@
   }
 
   function onInput(event) {
-    if (!shieldEnabled || isInjectingSafePaste) return;
+    if (!shieldEnabled || isInjectingSafePaste || protectionLevel === "low") return;
     const target = resolveEditableTarget(event.target);
     if (!target) return;
     clearTimeout(typingDebounceTimer);
@@ -511,7 +528,7 @@
       if (!fw?.scrubSync) return;
       const text = getTargetText(target);
       if (!text.trim() || text === bypassedDraftText) return;
-      const scan = fw.scrubSync(text, true);
+      const scan = fw.scrubSync(text, true, protectionLevel);
       if (scan.mergedSpans.length >= 1) {
         showShieldHud({
           target,
@@ -520,12 +537,35 @@
           initialScan: scan,
           mode: "draft",
         });
+        return;
       }
-    }, 450);
+
+      // In HIGH protection mode, run always-on Nano 4 semantic PII sweep on drafts >= 20 chars
+      if (
+        protectionLevel === "high" &&
+        text.length >= 20 &&
+        text !== lastNanoSweptText &&
+        typeof globalThis.LanguageModel !== "undefined" &&
+        fw.runExtensionNanoScan
+      ) {
+        lastNanoSweptText = text;
+        void fw.runExtensionNanoScan(text, { timeoutMs: 4000 }).then((nanoRes) => {
+          if (nanoRes?.mergedSpans?.length >= 1 && getTargetText(target) === text) {
+            showShieldHud({
+              target,
+              savedSel: null,
+              rawText: text,
+              initialScan: nanoRes,
+              mode: "draft",
+            });
+          }
+        });
+      }
+    }, 650);
   }
 
   function onSubmitKeyDown(event) {
-    if (!shieldEnabled || isInjectingSafePaste) return;
+    if (!shieldEnabled || isInjectingSafePaste || protectionLevel === "low") return;
     if (event.key !== "Enter" || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) {
       return;
     }
@@ -536,7 +576,7 @@
     if (!fw?.scrubSync) return;
     const text = getTargetText(target);
     if (!text.trim() || text === bypassedDraftText) return;
-    const scan = fw.scrubSync(text, true);
+    const scan = fw.scrubSync(text, true, protectionLevel);
     if (scan.mergedSpans.length >= 1) {
       event.preventDefault();
       event.stopImmediatePropagation();

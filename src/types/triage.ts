@@ -101,6 +101,8 @@ export interface HybridBriefResult {
   generatedAt: number;
 }
 
+export type ProtectionLevel = "low" | "medium" | "high";
+
 export type RiskTier = "LOW" | "ELEVATED" | "HIGH" | "CRITICAL";
 
 export type RiskRoutingAction =

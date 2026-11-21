@@ -63,4 +63,24 @@ describe("Live Browser Paste Shield (firewall-core)", () => {
     expect(res.sanitizedText).toContain("[REDACTED:ORG_TERM_");
     expect(res.sanitizedText).toContain("[REDACTED:API_KEY_");
   });
+
+  it("enforces low vs medium vs high protection levels on natural-language input", () => {
+    const sample =
+      "my phone number is 9876543210 and my name is ravi and i work in Zenith company , and my api key is 23224324234kjjjkjl";
+
+    const lowRes = scrubSync(sample, true, "low");
+    expect(lowRes.mergedSpans.length).toBe(1);
+    expect(lowRes.sanitizedText).not.toContain("23224324234kjjjkjl");
+    expect(lowRes.sanitizedText).toContain("9876543210");
+    expect(lowRes.sanitizedText).toContain("ravi");
+
+    for (const lvl of ["medium", "high"] as const) {
+      const res = scrubSync(sample, true, lvl);
+      expect(res.mergedSpans.length).toBe(4);
+      expect(res.sanitizedText).not.toContain("9876543210");
+      expect(res.sanitizedText).not.toContain("ravi");
+      expect(res.sanitizedText).not.toContain("Zenith company");
+      expect(res.sanitizedText).not.toContain("23224324234kjjjkjl");
+    }
+  });
 });

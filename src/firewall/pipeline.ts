@@ -14,6 +14,7 @@ import type {
   HybridTelemetry,
   InferenceSource,
   PrivacyPolicy,
+  ProtectionLevel,
   RedactionSpan,
   SourcePlatform,
   TriageResult,
@@ -46,6 +47,7 @@ export interface PipelineInput {
   approveCloudEscalation?: boolean;
   customRunbooks?: CustomRunbook[];
   policy?: PrivacyPolicy;
+  protectionLevel?: ProtectionLevel;
   runtimeConfig?: RuntimeConfigValues;
   importedFromExtension?: boolean;
   sourcePlatform?: SourcePlatform;
@@ -232,23 +234,29 @@ export async function runTriagePipeline(
   const sourcePlatform: SourcePlatform =
     input.sourcePlatform ?? (input.importedFromExtension ? "CHROME_EXTENSION" : "WEB");
 
+  const protectionLevel: ProtectionLevel = input.protectionLevel ?? "medium";
   const nanoResult = await extractNano(input.rawText);
 
   const stage1Source: TriageResult["stage1Source"] =
     nanoResult.nanoStatus === "READY" ? "ON_DEVICE (Nano 4)" : "HEURISTIC_GUARD";
 
   const { sanitizedText, mergedSpans } = scanAndRedactLocal(input.rawText, {
+    protectionLevel,
     // Defense-in-Depth Union: ALWAYS run HEURISTIC_GUARD alongside Nano 4.
     // spanMerger keeps NANO_SEMANTIC_FIREWALL priority (4 > 1) on overlapping phrases,
     // while HEURISTIC_GUARD guarantees 0 clinical/M&A/password leakage if Nano 4 under-extracts.
     includeHeuristics: true,
     enableEntropyScanner: input.policy?.enableEntropyScanner !== false,
     entropyThreshold:
-      stage1Config.entropyThreshold ?? DEFAULT_RUNTIME_CONFIG.entropyThreshold ?? 3.25,
+      protectionLevel === "low"
+        ? 3.8
+        : protectionLevel === "high"
+          ? 2.9
+          : (stage1Config.entropyThreshold ?? DEFAULT_RUNTIME_CONFIG.entropyThreshold ?? 3.25),
     customTerms: input.policy?.customTerms,
     remoteBlockedTerms:
       stage1Config.enterpriseBlockedTerms ?? DEFAULT_RUNTIME_CONFIG.enterpriseBlockedTerms,
-    extraSpans: nanoResult.spans,
+    extraSpans: protectionLevel === "low" ? [] : nanoResult.spans,
   });
 
   const stage1LatencyMs = Math.max(1, Math.round(performance.now() - startedAt));
@@ -270,7 +278,7 @@ export async function runTriagePipeline(
     input.rawText,
     { spans: mergedSpans, sanitizedText },
     input.policy,
-    { isLocalRunbook: Boolean(runbook) },
+    { isLocalRunbook: Boolean(runbook), protectionLevel },
   );
 
   const stage1Audit = verifyZeroLeakage(

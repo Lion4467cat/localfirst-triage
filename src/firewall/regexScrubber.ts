@@ -1,4 +1,4 @@
-import type { DetectorSource, RedactionSpan } from "../types/triage";
+import type { DetectorSource, ProtectionLevel, RedactionSpan } from "../types/triage";
 import { mergeAndRedactSpans } from "./spanMerger";
 
 interface RegexRule {
@@ -6,6 +6,7 @@ interface RegexRule {
   detector: DetectorSource;
   pattern: RegExp;
   captureGroup?: number;
+  minLevel?: ProtectionLevel;
   validator?: (matched: string) => boolean;
 }
 
@@ -95,13 +96,31 @@ const DETERMINISTIC_REGEX_RULES: RegexRule[] = [
     pattern: /\b(?!000|666|9\d{2})\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b/g,
   },
   {
+    category: "GOV_ID",
+    detector: "REGEX_FIREWALL",
+    pattern: /\b[A-Z]{5}[0-9]{4}[A-Z]\b/g,
+  },
+  {
+    category: "GOV_ID",
+    detector: "REGEX_FIREWALL",
+    captureGroup: 1,
+    pattern: /\b(?:aadhaar|aadhar|uid|uidai)\b[^0-9\n]{0,20}(\d{4}[\s-]?\d{4}[\s-]?\d{4})\b/gi,
+  },
+  {
+    category: "GOV_ID",
+    detector: "REGEX_FIREWALL",
+    pattern: /\b\d{4}[\s-]\d{4}[\s-]\d{4}\b/g,
+  },
+  {
     category: "EMAIL",
     detector: "REGEX_FIREWALL",
+    minLevel: "medium",
     pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
   },
   {
     category: "PHONE",
     detector: "REGEX_FIREWALL",
+    minLevel: "medium",
     pattern:
       /(?:\+?\d{1,3}[\s.-]?)?(?:\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}|\+?\d{1,3}[\s.-]\d{5}[\s.-]\d{5})\b/g,
   },
@@ -109,6 +128,7 @@ const DETERMINISTIC_REGEX_RULES: RegexRule[] = [
     category: "PHONE",
     detector: "REGEX_FIREWALL",
     captureGroup: 1,
+    minLevel: "medium",
     pattern:
       /\b(?:phone|mobile|cell|call|whatsapp|contact|number|tel|ph)\b[^0-9\n]{0,25}((?:\+?\d{1,3}[\s.-]?)?\d{10})\b/gi,
   },
@@ -127,6 +147,7 @@ const CONTEXTUAL_HEURISTIC_RULES: RegexRule[] = [
     category: "PERSON",
     detector: "HEURISTIC_GUARD",
     captureGroup: 1,
+    minLevel: "medium",
     pattern:
       /\b(?:my\s+name\s+is|i\s+am\s+called|call\s+me|patient\s+name(?:\s+is)?|customer\s+name(?:\s+is)?|full\s+name(?:\s+is)?|name\s*[:=])\s+([a-zA-Z][a-zA-Z.'-]{1,24}(?:\s+(?!(?:and|from|at|in|who|with|is|for|on|to)\b)[a-zA-Z][a-zA-Z.'-]{1,24})?)/gi,
   },
@@ -134,40 +155,69 @@ const CONTEXTUAL_HEURISTIC_RULES: RegexRule[] = [
     category: "ORG_TERM",
     detector: "HEURISTIC_GUARD",
     captureGroup: 1,
+    minLevel: "medium",
     pattern:
       /\b(?:work(?:ing)?\s+(?:in|at|for)|employed\s+(?:at|by|with)|employee\s+(?:at|of))\s+(?!(?:a|an|the|my|our|this|that)\b)([A-Za-z0-9&._-]{2,28}(?:\s+(?:company|corp|corporation|inc|ltd|pvt|bank|insurance|technologies|tech|labs|group))?)/gi,
   },
   {
+    category: "ADDRESS",
+    detector: "HEURISTIC_GUARD",
+    captureGroup: 1,
+    minLevel: "high",
+    pattern:
+      /\b(?:live(?:s|d)?\s+(?:at|in|near)|home\s+address\s*(?:is|:)?|address\s*(?:is|:))\s+([^\n,.]{4,48})/gi,
+  },
+  {
     category: "CONTEXTUAL_PHI",
     detector: "HEURISTIC_GUARD",
+    minLevel: "medium",
     pattern:
       /\b(?:(?:admitted to|discharged from|diagnosed with|treated at|hospitalized at|undergoing)\s+[^.\n;)]{3,70}|(?:patient|daughter|son|wife|husband|mother|father)\b[^.\n;]{0,55}\b(?:ICU|ER|NICU|ward|hospital|clinic|chemo|chemotherapy|surgery|seizure|oncology|cardiology|biopsy|MRN|prescription)\b[^.\n;)]{0,40}\)?|(?:MRN|DOB|diagnosis)\s*[:#]\s*[^\n,;]+)/gi,
   },
   {
     category: "M_AND_A_SECRET",
     detector: "HEURISTIC_GUARD",
+    minLevel: "medium",
     pattern:
       /(?:\$\d+(?:\.\d+)?\s?(?:[MBK]|million|billion)\s+(?:valuation|offer|deal|acquisition|buyout|term sheet|round)|\bProject-[A-Za-z0-9_-]{2,}\b|\b(?:acquisition target|merger with|undisclosed bid|term sheet)\b)/gi,
   },
   {
     category: "NATURAL_SECRET",
     detector: "HEURISTIC_GUARD",
+    minLevel: "medium",
     pattern:
       /\b(?:(?:log\s*in|sign\s*in|unlock|authenticate)\s+using\s+(?:[^.\n'"]|'[A-Za-z]){4,80}|(?:password|passcode|passphrase|pin|credentials?)\s+(?:is|was|are|:)\s+(?:[^.\n'"]|'[A-Za-z]){3,80}|(?:admin|root|prod)\s+(?:password|passphrase)\s*[:=]\s*[^\s,;]+)/gi,
   },
   {
     category: "PERSONAL_PII_LOCATION",
     detector: "HEURISTIC_GUARD",
+    minLevel: "medium",
     pattern:
       /(?:\b(?:lives?\s+(?:near|at|on|in)|home\s+address|resides?\s+at)\s+[A-Z0-9][^.\n;)]{3,60}|\b(?:VP|CEO|CFO|CTO|Director|Customer|Client|Patient)\s+(?:of\s+[A-Za-z]+\s+)?\([A-Z][a-z]+\s+[A-Z][a-z]+[^)\n]{0,60}\))/g,
   },
 ];
 
-function runRules(text: string, rules: RegexRule[], startCounter = 1): RedactionSpan[] {
+const LEVEL_RANK: Record<ProtectionLevel, number> = {
+  low: 0,
+  medium: 1,
+  high: 2,
+};
+
+function runRules(
+  text: string,
+  rules: RegexRule[],
+  startCounter = 1,
+  protectionLevel: ProtectionLevel = "medium",
+): RedactionSpan[] {
   const spans: RedactionSpan[] = [];
   let counter = startCounter;
+  const activeRank = LEVEL_RANK[protectionLevel];
 
   for (const rule of rules) {
+    const reqRank = LEVEL_RANK[rule.minLevel ?? "low"];
+    if (activeRank < reqRank) {
+      continue;
+    }
     const regex = new RegExp(rule.pattern.source, rule.pattern.flags);
     let match: RegExpExecArray | null;
     while ((match = regex.exec(text)) !== null) {
@@ -203,8 +253,11 @@ function runRules(text: string, rules: RegexRule[], startCounter = 1): Redaction
   return spans;
 }
 
-export function detectRegexSpans(text: string): RedactionSpan[] {
-  return runRules(text, DETERMINISTIC_REGEX_RULES, 1);
+export function detectRegexSpans(
+  text: string,
+  protectionLevel: ProtectionLevel = "medium",
+): RedactionSpan[] {
+  return runRules(text, DETERMINISTIC_REGEX_RULES, 1, protectionLevel);
 }
 
 export function detectHighEntropySecrets(
@@ -249,8 +302,11 @@ export function detectHighEntropySecrets(
   return spans;
 }
 
-export function detectContextualHeuristicSpans(text: string): RedactionSpan[] {
-  return runRules(text, CONTEXTUAL_HEURISTIC_RULES, 100);
+export function detectContextualHeuristicSpans(
+  text: string,
+  protectionLevel: ProtectionLevel = "medium",
+): RedactionSpan[] {
+  return runRules(text, CONTEXTUAL_HEURISTIC_RULES, 100, protectionLevel);
 }
 
 export function detectPolicyTermSpans(
@@ -289,6 +345,7 @@ export function detectPolicyTermSpans(
 }
 
 export interface LocalFirewallScanOptions {
+  protectionLevel?: ProtectionLevel;
   includeHeuristics?: boolean;
   enableEntropyScanner?: boolean;
   entropyThreshold?: number;
@@ -306,18 +363,22 @@ export function scanAndRedactLocal(
   rawText: string,
   options: LocalFirewallScanOptions = {},
 ): { sanitizedText: string; mergedSpans: RedactionSpan[] } {
-  const regexSpans = detectRegexSpans(rawText);
+  const level: ProtectionLevel = options.protectionLevel ?? "medium";
+  const defaultEntropy = level === "low" ? 3.8 : level === "high" ? 2.9 : 3.25;
+  const regexSpans = detectRegexSpans(rawText, level);
   const entropySpans =
     options.enableEntropyScanner === false
       ? []
-      : detectHighEntropySecrets(rawText, options.entropyThreshold ?? 3.25);
+      : detectHighEntropySecrets(rawText, options.entropyThreshold ?? defaultEntropy);
   const policySpans = options.customTerms?.length
     ? detectPolicyTermSpans(rawText, options.customTerms, "POLICY_TERM", 200)
     : [];
   const remotePolicySpans = options.remoteBlockedTerms?.length
     ? detectPolicyTermSpans(rawText, options.remoteBlockedTerms, "REMOTE_POLICY", 300)
     : [];
-  const heuristicSpans = options.includeHeuristics ? detectContextualHeuristicSpans(rawText) : [];
+  const heuristicSpans = options.includeHeuristics
+    ? detectContextualHeuristicSpans(rawText, level)
+    : [];
   const extraSpans = options.extraSpans ?? [];
 
   return mergeAndRedactSpans(rawText, [
