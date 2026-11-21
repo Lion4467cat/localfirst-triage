@@ -5,14 +5,18 @@ const PORT = 4173;
 const BASE_URL = `http://127.0.0.1:${PORT}/`;
 
 function startPreviewServer() {
-  const proc = spawn("npx", ["vite", "preview", "--port", String(PORT), "--host", "127.0.0.1"], {
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const proc = spawn(
+    "npx",
+    ["vite", "preview", "--port", String(PORT), "--strictPort", "--host", "127.0.0.1"],
+    {
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("vite preview startup timeout")), 10000);
     proc.stdout.on("data", (buf) => {
       const text = buf.toString();
-      if (text.includes(String(PORT)) || text.includes("Local:")) {
+      if (text.includes("Local:")) {
         clearTimeout(timer);
         resolve(proc);
       }
