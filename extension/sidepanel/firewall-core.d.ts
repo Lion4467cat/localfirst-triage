@@ -22,6 +22,20 @@ export function mergeSpans(
   spans: ExtensionSpan[],
 ): { sanitizedText: string; mergedSpans: ExtensionSpan[] };
 
+export function computeQuickRiskScore(
+  masks: Array<{ category: string; detector?: string }>,
+): { score: number; tier: "LOW" | "ELEVATED" | "HIGH" | "CRITICAL" };
+
+export function scrubSync(
+  rawText: string,
+  includeHeuristics?: boolean,
+): {
+  sanitizedText: string;
+  mergedSpans: ExtensionSpan[];
+  riskProfile: { score: number; tier: "LOW" | "ELEVATED" | "HIGH" | "CRITICAL" };
+  latencyMs: number;
+};
+
 export function runExtensionNanoScan(
   rawText: string,
 ): Promise<{

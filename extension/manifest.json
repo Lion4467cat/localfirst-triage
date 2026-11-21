@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "LocalFirst Triage — Privacy Firewall",
-  "version": "4.0.0",
-  "description": "Sanitize Jira, GitHub, Zendesk, and PagerDuty incidents locally with Chrome Gemini Nano 4 before escalating to Firebase AI Logic.",
+  "name": "LocalFirst Triage — Live Privacy Firewall",
+  "version": "4.2.0",
+  "description": "Live Browser Paste Shield & Side Panel Firewall. Blocks secrets on-device before ChatGPT, Claude, Gemini, GitHub, or Slack sees a single byte.",
   "icons": {
     "16": "icons/icon-16.png",
     "48": "icons/icon-48.png",
@@ -23,9 +23,13 @@
     "service_worker": "service-worker.js",
     "type": "module"
   },
-  "permissions": ["sidePanel", "contextMenus", "storage", "tabs", "scripting"],
+  "permissions": ["sidePanel", "contextMenus", "storage", "activeTab", "scripting"],
   "host_permissions": [
+    "https://chatgpt.com/*",
+    "https://claude.ai/*",
+    "https://gemini.google.com/*",
     "https://github.com/*",
+    "https://app.slack.com/*",
     "https://*.atlassian.net/*",
     "https://*.zendesk.com/*",
     "https://*.pagerduty.com/*",
@@ -33,5 +37,19 @@
     "https://para-1-2e22b.web.app/*",
     "http://localhost/*",
     "http://127.0.0.1/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://claude.ai/*",
+        "https://gemini.google.com/*",
+        "https://github.com/*",
+        "https://app.slack.com/*",
+        "http://localhost/*"
+      ],
+      "js": ["firewall-core.js", "content-shield.js"],
+      "run_at": "document_start"
+    }
   ]
 }

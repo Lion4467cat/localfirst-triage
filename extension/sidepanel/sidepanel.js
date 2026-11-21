@@ -6,8 +6,14 @@ import {
 
 const CAPTURE_STORAGE_KEY = "pendingCapture";
 const THEME_STORAGE_KEY = "localfirst-theme";
+const SHIELD_ENABLED_KEY = "shieldEnabled";
+const SHIELD_STATS_KEY = "shieldStats";
 
 const nanoBadge = document.getElementById("nano-badge");
+const shieldToggleBtn = document.getElementById("btn-shield-toggle");
+const shieldToggleLabel = document.getElementById("shield-toggle-label");
+const statBlockedPastes = document.getElementById("stat-blocked-pastes");
+const statSecretsBlocked = document.getElementById("stat-secrets-blocked");
 const titleInput = document.getElementById("ticket-title");
 const rawInput = document.getElementById("raw-input");
 const scanStats = document.getElementById("scan-stats");
@@ -194,9 +200,48 @@ if (typeof chrome !== "undefined" && chrome.storage?.onChanged) {
     if (areaName === "session" && changes[CAPTURE_STORAGE_KEY]?.newValue) {
       void loadPendingCapture();
     }
+    if (areaName === "local") {
+      if (changes[SHIELD_ENABLED_KEY]) {
+        renderShieldState(changes[SHIELD_ENABLED_KEY].newValue !== false);
+      }
+      if (changes[SHIELD_STATS_KEY]) {
+        renderShieldStats(changes[SHIELD_STATS_KEY].newValue);
+      }
+    }
+  });
+}
+
+function renderShieldState(enabled) {
+  if (!shieldToggleBtn || !shieldToggleLabel) return;
+  shieldToggleBtn.setAttribute("aria-checked", String(enabled));
+  shieldToggleLabel.textContent = `Live Paste Protection: ${enabled ? "ON" : "OFF"}`;
+}
+
+function renderShieldStats(stats) {
+  if (statBlockedPastes) {
+    statBlockedPastes.textContent = String(stats?.totalBlockedPastes ?? 0);
+  }
+  if (statSecretsBlocked) {
+    statSecretsBlocked.textContent = String(stats?.totalSecretsIntercepted ?? 0);
+  }
+}
+
+async function initPasteShieldControls() {
+  if (typeof chrome === "undefined" || !chrome.storage?.local) return;
+  const res = await chrome.storage.local.get([SHIELD_ENABLED_KEY, SHIELD_STATS_KEY]);
+  const enabled = typeof res?.[SHIELD_ENABLED_KEY] === "boolean" ? res[SHIELD_ENABLED_KEY] : true;
+  renderShieldState(enabled);
+  renderShieldStats(res?.[SHIELD_STATS_KEY]);
+
+  shieldToggleBtn?.addEventListener("click", async () => {
+    const current = shieldToggleBtn.getAttribute("aria-checked") !== "false";
+    const next = !current;
+    renderShieldState(next);
+    await chrome.storage.local.set({ [SHIELD_ENABLED_KEY]: next });
   });
 }
 
 setupThemeSwitcher();
+void initPasteShieldControls();
 void refreshNanoStatus();
 void loadPendingCapture();
