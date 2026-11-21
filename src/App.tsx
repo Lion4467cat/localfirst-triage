@@ -41,7 +41,9 @@ import {
   saveSanitizedTicket,
 } from "./storage/ticketStore";
 import { AirgapSpine } from "./components/AirgapSpine";
+import { LivePipelineRail } from "./components/LivePipelineRail";
 import { RightWorkbenchPane } from "./components/RightWorkbenchPane";
+import { ScrollStoryAct } from "./components/ScrollStoryAct";
 import { TelemetryHud, type WorkspaceView } from "./components/TelemetryHud";
 import { TriageInbox } from "./components/TriageInbox";
 import {
@@ -97,6 +99,20 @@ export function App() {
     useState<RuntimeConfigValues>(DEFAULT_RUNTIME_CONFIG);
   const [activeView, setActiveView] = useState<WorkspaceView>("triage");
   const [mobilePane, setMobilePane] = useState<"input" | "output">("input");
+  const [autoCloudMode, setAutoCloudMode] = useState(false);
+  const workbenchRef = useRef<HTMLDivElement>(null);
+
+  const jumpToStory = () => {
+    requestAnimationFrame(() => {
+      document.getElementById("story-top")?.scrollIntoView({ behavior: "smooth" });
+    });
+  };
+
+  const jumpToWorkbench = () => {
+    requestAnimationFrame(() => {
+      workbenchRef.current?.scrollIntoView({ behavior: "smooth" });
+    });
+  };
   const [themePreference, setThemePreference] = useState<ThemePreference>(() =>
     getStoredThemePreference()
   );
@@ -460,6 +476,30 @@ export function App() {
     }
   }, [currentResult, isRunning, telemetry.offlineMode, syncHistoryAndQueueCount, syncTicketIfSignedIn]);
 
+  // Auto-Cloud choreography: brief 700ms beat at Airgap Gate, then escalate automatically
+  useEffect(() => {
+    if (
+      !autoCloudMode ||
+      telemetry.offlineMode ||
+      isRunning ||
+      (currentResult?.resolutionMode !== "QUARANTINED_PENDING_APPROVAL" &&
+        currentResult?.resolutionMode !== "PRE_CLOUD_COUNTDOWN")
+    ) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      void handleApproveOrRerunCloud();
+    }, 700);
+    return () => clearTimeout(timer);
+  }, [
+    autoCloudMode,
+    telemetry.offlineMode,
+    isRunning,
+    currentResult?.id,
+    currentResult?.resolutionMode,
+    handleApproveOrRerunCloud,
+  ]);
+
   // 3.0s cancelable pre-cloud countdown timer when Nano 4 is READY
   useEffect(() => {
     if (
@@ -710,7 +750,7 @@ export function App() {
 
   return (
     <div
-      className="lf-dot-grid flex min-h-screen flex-col lg:h-dvh lg:overflow-hidden"
+      className="lf-dot-grid flex min-h-screen flex-col"
       style={{
         backgroundColor: "var(--bg-canvas)",
         color: "var(--text-primary)",
@@ -719,6 +759,8 @@ export function App() {
       <TelemetryHud
         activeView={activeView}
         onChangeView={setActiveView}
+        onJumpToStory={jumpToStory}
+        onJumpToWorkbench={jumpToWorkbench}
         historyCount={history.length}
         rulesCount={rulesCount}
         runbooksCount={runbooks.length}
@@ -753,8 +795,23 @@ export function App() {
       />
 
       {activeView === "triage" && (
-        <main className="mx-auto flex w-full max-w-[1680px] flex-1 flex-col gap-3 p-3 lg:h-[calc(100dvh-48px)] lg:min-h-0 lg:overflow-hidden lg:p-4">
-          {/* Mobile Input / Safe Output Switcher */}
+        <>
+          {/* ACT 1: Sticky Scroll-Driven Story */}
+          <ScrollStoryAct onJumpToWorkbench={jumpToWorkbench} />
+
+          {/* ACT 2: Live 100dvh Airgap Workbench */}
+          <main
+            id="workbench-act"
+            ref={workbenchRef}
+            className="mx-auto flex w-full max-w-[1680px] flex-col gap-3 p-3 scroll-mt-12 lg:h-[calc(100dvh-48px)] lg:min-h-[620px] lg:overflow-hidden lg:p-4"
+          >
+            <LivePipelineRail
+              currentResult={currentResult}
+              isRunning={isRunning}
+              offlineMode={telemetry.offlineMode}
+            />
+
+            {/* Mobile Input / Safe Output Switcher */}
           <div
             role="tablist"
             aria-label="Mobile workbench panes"
@@ -792,7 +849,7 @@ export function App() {
             </button>
           </div>
 
-          <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[minmax(0,44fr)_72px_minmax(0,52fr)] lg:gap-0">
+          <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[minmax(0,44fr)_76px_minmax(0,52fr)] lg:gap-0">
             <div className={`${mobilePane === "input" ? "flex" : "hidden"} min-h-0 flex-col lg:flex`}>
               <TriageInbox
                 scenarios={DEMO_SCENARIOS}
@@ -852,6 +909,8 @@ export function App() {
                 maskDirtySinceCloud={maskDirtySinceCloud}
                 telemetry={telemetry}
                 runtimeConfig={runtimeConfig}
+                autoCloudMode={autoCloudMode}
+                onToggleAutoCloudMode={() => setAutoCloudMode((v) => !v)}
                 onRunLiveDemo={() => {
                   handleSelectScenario(DEMO_SCENARIOS[0]);
                   setMobilePane("output");
@@ -869,6 +928,7 @@ export function App() {
             </div>
           </div>
         </main>
+        </>
       )}
 
       {activeView !== "triage" && (

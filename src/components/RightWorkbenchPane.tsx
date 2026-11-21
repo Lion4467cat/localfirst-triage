@@ -39,6 +39,8 @@ interface RightWorkbenchPaneProps {
   maskDirtySinceCloud: boolean;
   telemetry: HybridTelemetry;
   runtimeConfig: RuntimeConfigValues;
+  autoCloudMode: boolean;
+  onToggleAutoCloudMode: () => void;
   onRunLiveDemo: () => void;
   onToggleSpan: (spanIndex: number) => void;
   onAddManualSpan: (start: number, end: number) => void;
@@ -273,6 +275,8 @@ export function RightWorkbenchPane({
   maskDirtySinceCloud,
   telemetry,
   runtimeConfig,
+  autoCloudMode,
+  onToggleAutoCloudMode,
   onRunLiveDemo,
   onToggleSpan,
   onAddManualSpan,
@@ -716,20 +720,21 @@ export function RightWorkbenchPane({
               </span>
             </div>
 
-            {/* Clean Scannable Redaction Lock-Chips */}
+            {/* Clean Scannable Redaction Lock-Chips (Staggered Spring Reveal) */}
             {currentResult.spans.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {currentResult.spans.map((span, idx) => {
                   const isMasked = span.masked !== false;
                   return (
                     <button
-                      key={`${span.start}-${span.end}-${idx}`}
+                      key={`${currentResult.id}-${span.start}-${span.end}-${idx}`}
                       type="button"
                       disabled={Boolean(currentResult.loadedFromZeroPiiStore)}
                       aria-pressed={isMasked}
                       onClick={() => onToggleSpan(idx)}
-                      className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors disabled:opacity-55"
+                      className="animate-chip-lock inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors disabled:opacity-55"
                       style={{
+                        animationDelay: `${Math.min(idx, 12) * 25}ms`,
                         backgroundColor: isMasked ? "var(--mask-bg)" : "var(--warn-bg)",
                         borderColor: isMasked ? "var(--mask-border)" : "var(--warn-border)",
                         color: isMasked ? "var(--mask-text)" : "var(--warn-text)",
@@ -1191,25 +1196,47 @@ export function RightWorkbenchPane({
                 </span>
               )}
 
-              <button
-                type="button"
-                disabled={!canEscalate}
-                onClick={() => {
-                  onApproveOrRerunCloud();
-                  setActiveTab("solution");
-                }}
-                className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg px-3.5 text-xs font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-45"
-                style={{
-                  backgroundColor: "var(--accent-primary)",
-                  color: "var(--accent-on-primary)",
-                }}
-              >
-                <span>
-                  {currentResult.resolutionMode === "CLOUD_ERROR"
-                    ? "Retry Safe AI Solution"
-                    : "Approve & Get Safe AI Solution →"}
-                </span>
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={autoCloudMode}
+                  aria-label="Toggle Auto-Cloud mode"
+                  onClick={onToggleAutoCloudMode}
+                  className="inline-flex min-h-[32px] items-center gap-1.5 rounded-md border px-2.5 text-[11px] font-medium"
+                  style={{
+                    backgroundColor: autoCloudMode ? "var(--safe-bg)" : "var(--bg-surface)",
+                    borderColor: autoCloudMode ? "var(--safe-border)" : "var(--border-subtle)",
+                    color: autoCloudMode ? "var(--safe-text)" : "var(--text-secondary)",
+                  }}
+                >
+                  <span
+                    className="h-1.5 w-1.5 rounded-full"
+                    style={{ backgroundColor: autoCloudMode ? "var(--safe-solid)" : "var(--text-muted)" }}
+                  />
+                  {autoCloudMode ? "Auto-Cloud" : "Pause at Airgap"}
+                </button>
+
+                <button
+                  type="button"
+                  disabled={!canEscalate}
+                  onClick={() => {
+                    onApproveOrRerunCloud();
+                    setActiveTab("solution");
+                  }}
+                  className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg px-3.5 text-xs font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-45"
+                  style={{
+                    backgroundColor: "var(--accent-primary)",
+                    color: "var(--accent-on-primary)",
+                  }}
+                >
+                  <span>
+                    {currentResult.resolutionMode === "CLOUD_ERROR"
+                      ? "Retry Safe AI Solution"
+                      : "Approve & Get Safe AI Solution →"}
+                  </span>
+                </button>
+              </div>
             </div>
           )}
         </div>

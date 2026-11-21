@@ -64,9 +64,9 @@ async function main() {
     });
 
     await page.goto(BASE_URL, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector("text=LocalFirst");
+    await page.waitForSelector("text=Stop pasting secrets into Cloud AI.");
 
-    // 0. Verify System / Dark / Light theme switcher + Cloud Sync popover + Zero-scroll on 1280x720
+    // 0. Verify System / Dark / Light theme switcher + Act 1 Hero -> Launch Live Workbench jump
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.getByRole("button", { name: /^Dark/i }).click();
     if ((await page.evaluate(() => document.documentElement.getAttribute("data-theme"))) !== "dark") {
@@ -77,11 +77,11 @@ async function main() {
       throw new Error("Expected Light theme to set data-theme=light");
     }
 
-    const verticalScroll = await page.evaluate(
-      () => document.documentElement.scrollHeight > window.innerHeight + 2,
-    );
-    if (verticalScroll) {
-      throw new Error("Expected zero vertical page scroll on desktop 1280x720");
+    await page.getByRole("button", { name: /Launch Live Workbench/i }).click();
+    await page.waitForTimeout(350);
+    const workbenchVisible = await page.locator("#workbench-act").isVisible();
+    if (!workbenchVisible) {
+      throw new Error("Expected #workbench-act to be visible after clicking Launch Live Workbench");
     }
 
     await page.getByRole("button", { name: /Cloud Sync/i }).click();

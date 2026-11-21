@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Lock, Shield, ShieldAlert, ShieldCheck, WifiOff } from "lucide-react";
 import type { TriageResult } from "../types/triage";
 
@@ -12,7 +13,7 @@ type SpinePhase = "idle" | "scanning" | "offline" | "intercepted" | "verified";
 function resolveSpinePhase(
   currentResult: TriageResult | null,
   isRunning: boolean,
-  offlineMode: boolean
+  offlineMode: boolean,
 ): SpinePhase {
   if (isRunning) return "scanning";
   if (offlineMode) return "offline";
@@ -36,6 +37,30 @@ export function AirgapSpine({
     currentResult?.spans.filter((s) => s.masked !== false).length ?? 0;
   const unmaskedCount =
     currentResult?.spans.filter((s) => s.masked === false).length ?? 0;
+
+  // Animated odometer counter (0 -> blockedCount)
+  const [displayBlocked, setDisplayBlocked] = useState(blockedCount);
+  useEffect(() => {
+    if (!currentResult) {
+      setDisplayBlocked(0);
+      return;
+    }
+    if (blockedCount <= 0) {
+      setDisplayBlocked(0);
+      return;
+    }
+    let frame = 0;
+    const steps = Math.min(12, blockedCount);
+    const timer = setInterval(() => {
+      frame++;
+      const nextVal = Math.round((frame / steps) * blockedCount);
+      setDisplayBlocked(nextVal);
+      if (frame >= steps) {
+        clearInterval(timer);
+      }
+    }, 28);
+    return () => clearInterval(timer);
+  }, [currentResult?.id, blockedCount]);
 
   const badgeColor =
     phase === "offline"
@@ -65,7 +90,7 @@ export function AirgapSpine({
   return (
     <aside
       aria-label="Airgap Firewall Status"
-      className="hidden lg:flex lg:h-full lg:w-[76px] lg:flex-col lg:items-center lg:justify-between lg:py-3 select-none"
+      className="hidden select-none lg:flex lg:h-full lg:w-[76px] lg:flex-col lg:items-center lg:justify-between lg:py-3"
     >
       <span
         className="text-[9px] font-semibold uppercase tracking-[0.14em]"
@@ -75,54 +100,70 @@ export function AirgapSpine({
       </span>
 
       <div className="relative my-2 flex w-full flex-1 flex-col items-center justify-center">
-        {/* Vertical Conduit Track */}
-        <div
-          className="absolute inset-y-2 w-px"
-          style={{
-            backgroundColor:
+        {/* 60fps SVG Particle Conduit */}
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 76 260"
+          className="pointer-events-none absolute inset-0 h-full w-full"
+          preserveAspectRatio="none"
+        >
+          {/* Vertical Barrier Line */}
+          <line
+            x1="38"
+            y1="8"
+            x2="38"
+            y2="252"
+            stroke={
               phase === "offline"
                 ? "var(--warn-border)"
                 : phase === "verified"
                   ? "var(--safe-border)"
                   : phase === "intercepted"
                     ? "var(--mask-border)"
-                    : "var(--border-subtle)",
-          }}
-        />
-
-        {/* Animated Conduit Pulse */}
-        {phase !== "offline" && (
-          <div
-            className="animate-airgap-conduit pointer-events-none absolute h-20 w-[3px] rounded-full blur-[1px]"
-            style={{
-              backgroundColor:
-                phase === "verified"
-                  ? "var(--safe-solid)"
-                  : phase === "intercepted" || phase === "scanning"
-                    ? "var(--mask-solid)"
-                    : "var(--text-muted)",
-            }}
+                    : "var(--border-subtle)"
+            }
+            strokeWidth="1.5"
+            strokeDasharray={phase === "offline" ? "none" : "4 4"}
           />
-        )}
 
-        {/* Directional Packets */}
-        {phase === "scanning" && (
-          <div className="pointer-events-none absolute -left-1 flex items-center">
-            <span
-              className="animate-airgap-packet h-1.5 w-3 rounded-full"
-              style={{ backgroundColor: "var(--mask-solid)" }}
-            />
-          </div>
-        )}
+          {/* Deflecting Crimson Secret Particles (Scanning / Intercepted) */}
+          {(phase === "scanning" || phase === "intercepted") && (
+            <g>
+              <circle cx="8" cy="112" r="3" fill="var(--mask-solid)" className="animate-airgap-deflect" />
+              <circle
+                cx="8"
+                cy="132"
+                r="2.5"
+                fill="var(--warn-text)"
+                className="animate-airgap-deflect"
+                style={{ animationDelay: "0.35s" }}
+              />
+              <circle
+                cx="8"
+                cy="150"
+                r="3"
+                fill="var(--mask-solid)"
+                className="animate-airgap-deflect"
+                style={{ animationDelay: "0.7s" }}
+              />
+            </g>
+          )}
 
-        {phase === "verified" && (
-          <div className="pointer-events-none absolute -right-1 flex items-center">
-            <span
-              className="animate-airgap-packet h-1.5 w-3 rounded-full"
-              style={{ backgroundColor: "var(--safe-solid)" }}
-            />
-          </div>
-        )}
+          {/* Safe Emerald Stream Packets (Verified / Cloud Streaming) */}
+          {phase === "verified" && (
+            <g>
+              <circle cx="48" cy="122" r="3" fill="var(--safe-solid)" className="animate-airgap-packet" />
+              <circle
+                cx="48"
+                cy="138"
+                r="2.5"
+                fill="var(--safe-solid)"
+                className="animate-airgap-packet"
+                style={{ animationDelay: "0.45s" }}
+              />
+            </g>
+          )}
+        </svg>
 
         {/* Center Shield Emblem */}
         <div
@@ -158,7 +199,7 @@ export function AirgapSpine({
                 color: "var(--mask-text)",
               }}
             >
-              {blockedCount} BLOCKED
+              {displayBlocked} BLOCKED
             </span>
             <span
               className="rounded border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-tight tabular-nums"

@@ -19,6 +19,8 @@ export type WorkspaceView = "triage" | "history" | "rules" | "runbooks";
 interface TelemetryHudProps {
   activeView: WorkspaceView;
   onChangeView: (view: WorkspaceView) => void;
+  onJumpToStory?: () => void;
+  onJumpToWorkbench?: () => void;
   historyCount: number;
   rulesCount: number;
   runbooksCount: number;
@@ -37,6 +39,8 @@ interface TelemetryHudProps {
 export function TelemetryHud({
   activeView,
   onChangeView,
+  onJumpToStory,
+  onJumpToWorkbench,
   historyCount,
   rulesCount,
   runbooksCount,
@@ -212,6 +216,20 @@ export function TelemetryHud({
             borderColor: "var(--border-subtle)",
           }}
         >
+          <button
+            type="button"
+            onClick={() => {
+              onChangeView("triage");
+              onJumpToStory?.();
+            }}
+            className="inline-flex min-h-[30px] flex-1 items-center justify-center rounded-md px-1.5 text-[11px] font-medium transition-colors sm:flex-initial sm:px-2.5 sm:text-xs"
+            style={{
+              backgroundColor: "transparent",
+              color: "var(--text-secondary)",
+            }}
+          >
+            Story
+          </button>
           {navTabs.map((tab) => {
             const active = activeView === tab.id;
             return (
@@ -219,8 +237,13 @@ export function TelemetryHud({
                 key={tab.id}
                 type="button"
                 aria-current={active ? "page" : undefined}
-                onClick={() => onChangeView(tab.id)}
-                className="inline-flex min-h-[30px] flex-1 items-center justify-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors sm:flex-initial"
+                onClick={() => {
+                  onChangeView(tab.id);
+                  if (tab.id === "triage") {
+                    onJumpToWorkbench?.();
+                  }
+                }}
+                className="inline-flex min-h-[30px] flex-1 items-center justify-center gap-1 rounded-md px-1.5 text-[11px] font-medium transition-colors sm:flex-initial sm:gap-1.5 sm:px-2.5 sm:text-xs"
                 style={{
                   backgroundColor: active ? "var(--bg-surface)" : "transparent",
                   color: active ? "var(--text-primary)" : "var(--text-secondary)",
