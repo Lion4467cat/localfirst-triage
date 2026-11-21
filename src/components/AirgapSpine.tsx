@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { Lock, Shield, ShieldAlert, ShieldCheck, WifiOff } from "lucide-react";
 import type { TriageResult } from "../types/triage";
+import { AirgapCanvas, type AirgapCanvasPhase } from "./AirgapCanvas";
 
 interface AirgapSpineProps {
   currentResult: TriageResult | null;
@@ -9,13 +10,11 @@ interface AirgapSpineProps {
   offlineMode: boolean;
 }
 
-type SpinePhase = "idle" | "scanning" | "offline" | "intercepted" | "verified";
-
 function resolveSpinePhase(
   currentResult: TriageResult | null,
   isRunning: boolean,
   offlineMode: boolean,
-): SpinePhase {
+): AirgapCanvasPhase {
   if (isRunning) return "scanning";
   if (offlineMode) return "offline";
   if (!currentResult) return "idle";
@@ -46,7 +45,7 @@ export function AirgapSpine({
       return;
     }
     let frame = 0;
-    const steps = Math.min(12, blockedCount);
+    const steps = Math.min(14, blockedCount);
     const timer = setInterval(() => {
       frame++;
       setDisplayBlocked(Math.round((frame / steps) * blockedCount));
@@ -92,95 +91,8 @@ export function AirgapSpine({
         Airgap
       </span>
 
-      <div className="relative my-2 flex w-full flex-1 flex-col items-center justify-center">
-        {/* Motion-Driven SVG Particle Conduit */}
-        <svg
-          aria-hidden="true"
-          viewBox="0 0 76 260"
-          className="pointer-events-none absolute inset-0 h-full w-full"
-          preserveAspectRatio="none"
-        >
-          <line
-            x1="38"
-            y1="8"
-            x2="38"
-            y2="252"
-            stroke={
-              phase === "offline"
-                ? "var(--warn-border)"
-                : phase === "verified"
-                  ? "var(--safe-border)"
-                  : phase === "intercepted"
-                    ? "var(--mask-border)"
-                    : "var(--border-subtle)"
-            }
-            strokeWidth={phase === "offline" ? "2.5" : "1.5"}
-            strokeDasharray={phase === "offline" ? "none" : "4 4"}
-          />
-
-          {/* Deflecting Signal Vermilion Particles */}
-          {(phase === "scanning" || phase === "intercepted") && (
-            <g>
-              {[108, 130, 152].map((cy, i) => (
-                <motion.circle
-                  key={cy}
-                  cx="6"
-                  cy={cy}
-                  r="3"
-                  fill={i === 1 ? "var(--warn-text)" : "var(--mask-solid)"}
-                  initial={{ x: 0, y: 0, opacity: 0.2, scale: 0.9 }}
-                  animate={{
-                    x: [0, 24, 10, 2],
-                    y: [0, 0, i === 2 ? 12 : -12, i === 2 ? 20 : -20],
-                    opacity: [0.2, 1, 0.85, 0],
-                    scale: [0.85, 1.15, 0.9, 0.4],
-                  }}
-                  transition={{
-                    duration: 1.25,
-                    delay: i * 0.34,
-                    repeat: Infinity,
-                    ease: [0.23, 1, 0.32, 1],
-                  }}
-                />
-              ))}
-            </g>
-          )}
-
-          {/* Electric Mint Verified Stream Packets */}
-          {phase === "verified" && (
-            <g>
-              {[120, 140].map((cy, i) => (
-                <motion.circle
-                  key={cy}
-                  cx="42"
-                  cy={cy}
-                  r="3"
-                  fill="var(--safe-solid)"
-                  initial={{ x: 0, opacity: 0 }}
-                  animate={{ x: [0, 28], opacity: [0, 1, 0] }}
-                  transition={{
-                    duration: 1.05,
-                    delay: i * 0.42,
-                    repeat: Infinity,
-                    ease: "linear",
-                  }}
-                />
-              ))}
-            </g>
-          )}
-        </svg>
-
-        {/* Expanding Shield Ripple on Interception */}
-        {(phase === "intercepted" || phase === "scanning") && (
-          <motion.span
-            aria-hidden="true"
-            className="pointer-events-none absolute h-11 w-11 rounded-xl border"
-            style={{ borderColor: "var(--mask-solid)" }}
-            initial={{ scale: 0.95, opacity: 0.7 }}
-            animate={{ scale: 1.55, opacity: 0 }}
-            transition={{ duration: 1.4, repeat: Infinity, ease: [0.23, 1, 0.32, 1] }}
-          />
-        )}
+      <div className="relative my-2 flex w-full flex-1 flex-col items-center justify-center overflow-hidden">
+        <AirgapCanvas phase={phase} />
 
         {/* Center Shield Emblem */}
         <motion.div
@@ -188,7 +100,7 @@ export function AirgapSpine({
             phase === "offline"
               ? { scale: [1, 0.96, 1] }
               : phase === "intercepted"
-                ? { scale: [1, 1.06, 1] }
+                ? { scale: [1, 1.08, 1] }
                 : undefined
           }
           transition={{ duration: 0.35, ease: [0.23, 1, 0.32, 1] }}
@@ -216,9 +128,9 @@ export function AirgapSpine({
         {/* Stacked Signal Vermilion BLOCKED + Electric Mint 0 LEAK Badges */}
         {currentResult && phase !== "scanning" && phase !== "offline" ? (
           <motion.div
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ type: "spring", duration: 0.35, bounce: 0.2 }}
+            initial={{ opacity: 0, scale: 0.9, y: 4 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            transition={{ type: "spring", stiffness: 420, damping: 26 }}
             className="relative z-10 mt-2 flex flex-col items-center gap-1"
           >
             <span

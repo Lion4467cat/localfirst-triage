@@ -37,6 +37,7 @@
   --safe-border: rgba(5, 150, 105, 0.36);
   --safe-text: #047857;
   --safe-solid: #059669;
+  --signal-mint: #059669;
 
   --nano-bg: rgba(2, 132, 199, 0.09);
   --nano-border: rgba(2, 132, 199, 0.36);
@@ -95,6 +96,7 @@
   --safe-border: rgba(0, 229, 163, 0.36);
   --safe-text: #00e5a3;
   --safe-solid: #00e5a3;
+  --signal-mint: #00e5a3;
 
   --nano-bg: rgba(56, 189, 248, 0.11);
   --nano-border: rgba(56, 189, 248, 0.38);

@@ -117,12 +117,12 @@ export function TelemetryHud({
       }}
     >
       <div className="mx-auto flex min-h-12 max-w-[1680px] flex-wrap items-center justify-between gap-2 py-1.5 lg:h-12 lg:flex-nowrap lg:py-0">
-        {/* Left: Bespoke Split-Shield Logo + Live Hardware Status Dot */}
+        {/* Left: Bespoke Geometric Airgap Mark + Live Hardware Status Dot */}
         <div className="flex min-w-0 items-center gap-2.5">
           <div className="flex items-center gap-2">
-            <BrandLogo size={22} animated />
+            <BrandLogo size={22} />
             <span
-              className="text-sm font-bold tracking-tight"
+              className="text-sm font-semibold tracking-tight"
               style={{ color: "var(--text-primary)" }}
             >
               LocalFirst
@@ -227,8 +227,8 @@ export function TelemetryHud({
               >
                 {active && (
                   <motion.span
-                    layoutId="top-nav-pill"
-                    transition={{ type: "spring", duration: 0.35, bounce: 0.15 }}
+                    layoutId="nav-pill"
+                    transition={{ type: "spring", stiffness: 420, damping: 28 }}
                     className="absolute inset-0 rounded-md"
                     style={{
                       backgroundColor: "var(--bg-surface)",

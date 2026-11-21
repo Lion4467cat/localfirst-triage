@@ -53,6 +53,39 @@ interface RightWorkbenchPaneProps {
   onRecheckNano: () => void;
 }
 
+const CIPHER_GLYPHS = "#x9$k!@&*?%01A-Z";
+
+function ScrambleChipLabel({ label, ticketId }: { label: string; ticketId: string }) {
+  const [text, setText] = useState(label);
+
+  useEffect(() => {
+    let step = 0;
+    const totalSteps = 10; // ~350ms total
+    const timer = setInterval(() => {
+      step++;
+      if (step >= totalSteps) {
+        setText(label);
+        clearInterval(timer);
+        return;
+      }
+      const scrambled = label
+        .split("")
+        .map((ch, idx) =>
+          ch === " "
+            ? " "
+            : idx < Math.floor((step / totalSteps) * label.length)
+              ? ch
+              : CIPHER_GLYPHS[Math.floor(Math.random() * CIPHER_GLYPHS.length)],
+        )
+        .join("");
+      setText(scrambled);
+    }, 35);
+    return () => clearInterval(timer);
+  }, [label, ticketId]);
+
+  return <span>{text}</span>;
+}
+
 const DETECTOR_KEYS: DetectorSource[] = [
   "NANO_SEMANTIC_FIREWALL",
   "REGEX_FIREWALL",
@@ -313,6 +346,22 @@ export function RightWorkbenchPane({
     currentResult?.spans.filter((s) => s.masked !== false).length ?? 0;
   const unmaskedCount =
     currentResult?.spans.filter((s) => s.masked === false).length ?? 0;
+
+  const [rolledBlocked, setRolledBlocked] = useState(maskedCount);
+  useEffect(() => {
+    if (!currentResult || maskedCount <= 0) {
+      setRolledBlocked(0);
+      return;
+    }
+    let frame = 0;
+    const steps = Math.min(12, maskedCount);
+    const timer = setInterval(() => {
+      frame++;
+      setRolledBlocked(Math.round((frame / steps) * maskedCount));
+      if (frame >= steps) clearInterval(timer);
+    }, 28);
+    return () => clearInterval(timer);
+  }, [currentResult?.id, maskedCount]);
 
   const detectorCounts = new Map<DetectorSource, number>();
   for (const key of DETECTOR_KEYS) detectorCounts.set(key, 0);
@@ -666,7 +715,7 @@ export function RightWorkbenchPane({
                   Blocked
                 </p>
                 <p className="mt-0.5 font-mono text-sm font-bold tabular-nums" style={{ color: "var(--mask-text)" }}>
-                  {maskedCount} Blocked
+                  {rolledBlocked} Blocked
                 </p>
               </div>
               <div className="p-2.5" style={{ backgroundColor: "var(--bg-surface)" }}>
@@ -749,9 +798,9 @@ export function RightWorkbenchPane({
                       whileTap={{ scale: 0.96 }}
                       transition={{
                         type: "spring",
-                        duration: 0.28,
-                        bounce: 0.18,
-                        delay: Math.min(idx, 12) * 0.025,
+                        stiffness: 420,
+                        damping: 26,
+                        delay: Math.min(idx, 12) * 0.035,
                       }}
                       className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium disabled:opacity-55"
                       style={{
@@ -777,7 +826,10 @@ export function RightWorkbenchPane({
                       ) : (
                         <Unlock className="h-2.5 w-2.5" aria-hidden="true" />
                       )}
-                      <span>{formatCategoryLabel(span.category)}</span>
+                      <ScrambleChipLabel
+                        label={formatCategoryLabel(span.category)}
+                        ticketId={currentResult.id}
+                      />
                     </motion.button>
                   );
                 })}

@@ -1,4 +1,5 @@
-import { useRef, type ChangeEvent, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { FileUp, Loader2, ShieldCheck, Trash2, WifiOff } from "lucide-react";
 import type { DemoScenario, TriageResult } from "../types/triage";
 
@@ -39,6 +40,15 @@ export function TriageInbox({
   onProcessOfflineQueue,
 }: TriageInboxProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [laserActive, setLaserActive] = useState(false);
+
+  useEffect(() => {
+    if (isRunning) {
+      setLaserActive(true);
+      const t = setTimeout(() => setLaserActive(false), 900);
+      return () => clearTimeout(t);
+    }
+  }, [isRunning]);
 
   const handleUploadLog = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -164,16 +174,25 @@ export function TriageInbox({
         />
 
         <div className="relative flex min-h-[220px] flex-1 flex-col overflow-hidden rounded-lg border" style={{ borderColor: "var(--border-subtle)" }}>
-          {isRunning && (
-            <div
-              className="animate-airgap-sweep pointer-events-none absolute inset-x-0 top-0 z-10 h-12"
-              style={{
-                background:
-                  "linear-gradient(180deg, transparent 0%, rgba(239,68,68,0.16) 50%, transparent 100%)",
-                borderBottom: "1px solid var(--mask-border)",
-              }}
-            />
-          )}
+          <AnimatePresence>
+            {(isRunning || laserActive) && (
+              <motion.div
+                key="laser-scan-beam"
+                aria-hidden="true"
+                initial={{ top: "-48px", opacity: 0.95 }}
+                animate={{ top: "100%", opacity: [0.95, 1, 0.85] }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.9, ease: [0.23, 1, 0.32, 1] }}
+                className="pointer-events-none absolute inset-x-0 z-10 h-[51px]"
+                style={{
+                  background:
+                    "linear-gradient(180deg, transparent 0%, rgba(56,189,248,0.16) 72%, rgba(0,229,163,0.42) 100%)",
+                  borderBottom: "3px solid var(--signal-mint, #00E5A3)",
+                  boxShadow: "0 0 14px var(--signal-mint, #00E5A3)",
+                }}
+              />
+            )}
+          </AnimatePresence>
           <textarea
             id="ticket-body"
             aria-label="Support Ticket or Error Logs"

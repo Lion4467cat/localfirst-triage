@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { BrandLogo } from "./BrandLogo";
 
-interface ScrollStoryActProps {
+interface StorySectionProps {
   onJumpToWorkbench: () => void;
 }
 
@@ -83,7 +83,7 @@ function CipherScrambleChip({
     let tick = 0;
     const timer = setInterval(() => {
       tick++;
-      if (tick >= 7) {
+      if (tick >= 8) {
         setText(lockedLabel);
         clearInterval(timer);
         return;
@@ -92,14 +92,14 @@ function CipherScrambleChip({
         CIPHER_CHARS[Math.floor(Math.random() * CIPHER_CHARS.length)],
       ).join("");
       setText(scrambled);
-    }, 36);
+    }, 35);
     return () => clearInterval(timer);
   }, [locked, rawPreview, lockedLabel]);
 
   return (
     <motion.span
       layout
-      transition={{ type: "spring", duration: 0.35, bounce: 0.2 }}
+      transition={{ type: "spring", stiffness: 420, damping: 26 }}
       className="inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 font-mono text-[11px] font-semibold"
       style={{
         backgroundColor: locked ? "var(--bg-surface)" : "var(--mask-bg)",
@@ -113,11 +113,10 @@ function CipherScrambleChip({
   );
 }
 
-export function ScrollStoryAct({ onJumpToWorkbench }: ScrollStoryActProps) {
+export function StorySection({ onJumpToWorkbench }: StorySectionProps) {
   const [activeBeat, setActiveBeat] = useState(0);
   const stageRef = useRef<HTMLDivElement>(null);
 
-  // Global top scroll progress bar
   const { scrollYProgress } = useScroll();
   const smoothProgress = useSpring(scrollYProgress, {
     stiffness: 240,
@@ -125,21 +124,22 @@ export function ScrollStoryAct({ onJumpToWorkbench }: ScrollStoryActProps) {
     restDelta: 0.001,
   });
 
-  // Stage-specific scroll progress for laser scanline & beat transitions
+  // Clean 260vh sticky scroll stage
   const { scrollYProgress: stageProgress } = useScroll({
     target: stageRef,
     offset: ["start start", "end end"],
   });
-  const laserTop = useTransform(stageProgress, [0.15, 0.52], ["4%", "88%"]);
+  const laserY = useTransform(stageProgress, [0.25, 0.5], ["0%", "88%"]);
 
   useEffect(() => {
     return stageProgress.on("change", (val) => {
-      const idx = Math.min(3, Math.max(0, Math.floor(val * 3.99)));
-      setActiveBeat(idx);
+      if (val < 0.25) setActiveBeat(0);
+      else if (val < 0.5) setActiveBeat(1);
+      else if (val < 0.75) setActiveBeat(2);
+      else setActiveBeat(3);
     });
   }, [stageProgress]);
 
-  // Interactive pointer-reactive radial spotlight in Hero (zero React re-renders)
   const pointerX = useMotionValue(50);
   const pointerY = useMotionValue(42);
   const smoothX = useSpring(pointerX, { stiffness: 120, damping: 24 });
@@ -166,7 +166,7 @@ export function ScrollStoryAct({ onJumpToWorkbench }: ScrollStoryActProps) {
         />
       </div>
 
-      {/* Above-the-Fold Hero (~92dvh) */}
+      {/* Above-the-Fold Hero */}
       <section
         onPointerMove={(e) => {
           const rect = e.currentTarget.getBoundingClientRect();
@@ -176,7 +176,6 @@ export function ScrollStoryAct({ onJumpToWorkbench }: ScrollStoryActProps) {
         className="relative flex min-h-[calc(100dvh-48px)] flex-col items-center justify-center overflow-hidden border-b px-4 py-12 text-center"
         style={{ borderColor: "var(--border-subtle)" }}
       >
-        {/* Pointer-reactive ambient neural spotlight */}
         <motion.div
           aria-hidden="true"
           className="pointer-events-none absolute inset-0"
@@ -190,7 +189,7 @@ export function ScrollStoryAct({ onJumpToWorkbench }: ScrollStoryActProps) {
           className="relative z-10 mx-auto max-w-3xl space-y-6"
         >
           <div className="flex flex-col items-center gap-3">
-            <BrandLogo size={46} animated />
+            <BrandLogo size={44} />
             <div
               className="inline-flex items-center gap-2 rounded-full border px-3 py-1 font-mono text-[11px] font-medium"
               style={{
@@ -256,16 +255,16 @@ export function ScrollStoryAct({ onJumpToWorkbench }: ScrollStoryActProps) {
         </motion.div>
       </section>
 
-      {/* Pinned Sticky Scroll Stage */}
+      {/* 260vh Sticky Scroll Stage */}
       <section
         id="story-stage"
         ref={stageRef}
-        className="mx-auto max-w-[1440px] border-b px-4 py-12 lg:min-h-[300vh] lg:px-8"
+        className="mx-auto max-w-[1440px] border-b px-4 py-12 lg:min-h-[260vh] lg:px-8"
         style={{ borderColor: "var(--border-subtle)" }}
       >
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-[40fr_60fr] lg:items-start">
           {/* Left Column: 4 Spaced Narrative Beats */}
-          <div className="space-y-6 lg:space-y-[42vh] lg:py-16">
+          <div className="space-y-6 lg:space-y-[34vh] lg:py-12">
             {STORY_BEATS.map((beat, idx) => {
               const isActive = activeBeat === idx;
               const isNano = idx === 2;
@@ -349,7 +348,7 @@ export function ScrollStoryAct({ onJumpToWorkbench }: ScrollStoryActProps) {
           </div>
 
           {/* Right Column: Sticky Interactive Visual Card */}
-          <div className="lg:sticky lg:top-[72px] lg:h-[calc(100dvh-104px)]">
+          <div className="lg:sticky lg:top-[80px] lg:h-[calc(100dvh-112px)]">
             <div className="lf-card relative flex h-full min-h-[430px] flex-col justify-between overflow-hidden rounded-2xl p-5">
               {/* Top Card Status Bar */}
               <div
@@ -372,10 +371,10 @@ export function ScrollStoryAct({ onJumpToWorkbench }: ScrollStoryActProps) {
                     className="font-mono text-xs font-semibold tracking-tight"
                     style={{ color: "var(--text-primary)" }}
                   >
-                    {activeBeat === 0 && "Beat 01 · Raw Incident Log"}
-                    {activeBeat === 1 && "Beat 02 · Laser Regex + Entropy Sweep"}
-                    {activeBeat === 2 && "Beat 03 · Gemini Nano 4 Neural Radar"}
-                    {activeBeat === 3 && "Beat 04 · Verified Airgap (0 / 10 Leaked)"}
+                    {activeBeat === 0 && "0.00–0.25 · Raw P0 Incident Log"}
+                    {activeBeat === 1 && "0.25–0.50 · Laser Regex + Entropy Sweep"}
+                    {activeBeat === 2 && "0.50–0.75 · Gemini Nano 4 Neural Sweep"}
+                    {activeBeat === 3 && "0.75–1.00 · Verified Airgap (0 / 10 Leaked)"}
                   </span>
                 </div>
 
@@ -410,31 +409,32 @@ export function ScrollStoryAct({ onJumpToWorkbench }: ScrollStoryActProps) {
                   borderColor: "var(--border-subtle)",
                 }}
               >
-                {/* Beat 2: Scroll-Linked Continuous Laser Scanline */}
+                {/* 0.25–0.50: Scroll-Linked Horizontal Laser Bar (y driven by useTransform) */}
                 {activeBeat === 1 && (
                   <motion.div
                     aria-hidden="true"
-                    className="pointer-events-none absolute inset-x-0 z-10 h-10"
+                    className="pointer-events-none absolute inset-x-0 z-10 h-12"
                     style={{
-                      top: laserTop,
+                      top: laserY,
                       background:
-                        "linear-gradient(180deg, transparent 0%, rgba(255,77,90,0.22) 60%, transparent 100%)",
-                      borderBottom: "2px solid var(--mask-solid)",
+                        "linear-gradient(180deg, transparent 0%, rgba(0,229,163,0.18) 80%, rgba(56,189,248,0.4) 100%)",
+                      borderBottom: "3px solid var(--safe-solid)",
+                      boxShadow: "0 2px 12px var(--safe-solid)",
                     }}
                   />
                 )}
 
-                {/* Beat 3: Neural Cyan Radar Wave */}
+                {/* 0.50–0.75: Neural Cyan Sweep */}
                 {activeBeat === 2 && (
                   <motion.div
                     aria-hidden="true"
                     initial={{ y: "-20%", opacity: 0.7 }}
-                    animate={{ y: "110%", opacity: [0.3, 0.75, 0.1] }}
-                    transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }}
-                    className="pointer-events-none absolute inset-x-0 top-0 z-10 h-28"
+                    animate={{ y: "110%", opacity: [0.35, 0.8, 0.1] }}
+                    transition={{ duration: 2.0, repeat: Infinity, ease: "easeInOut" }}
+                    className="pointer-events-none absolute inset-x-0 top-0 z-10 h-24"
                     style={{
                       background:
-                        "linear-gradient(180deg, transparent 0%, var(--nano-bg) 75%, transparent 100%)",
+                        "linear-gradient(180deg, transparent 0%, var(--nano-bg) 80%, transparent 100%)",
                       borderBottom: "2px solid var(--nano-solid)",
                     }}
                   />
@@ -452,7 +452,7 @@ export function ScrollStoryAct({ onJumpToWorkbench }: ScrollStoryActProps) {
                         <motion.span
                           initial={{ scale: 0.9, opacity: 0 }}
                           animate={{ scale: 1, opacity: 1 }}
-                          transition={{ type: "spring", duration: 0.4, bounce: 0.2 }}
+                          transition={{ type: "spring", stiffness: 420, damping: 26 }}
                           className="inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-semibold"
                           style={{
                             backgroundColor: "var(--nano-bg)",
@@ -484,7 +484,7 @@ export function ScrollStoryAct({ onJumpToWorkbench }: ScrollStoryActProps) {
                         <motion.span
                           initial={{ scale: 0.9, opacity: 0 }}
                           animate={{ scale: 1, opacity: 1 }}
-                          transition={{ type: "spring", duration: 0.4, delay: 0.08, bounce: 0.2 }}
+                          transition={{ type: "spring", stiffness: 420, damping: 26, delay: 0.08 }}
                           className="inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-semibold"
                           style={{
                             backgroundColor: "var(--nano-bg)",
@@ -530,7 +530,7 @@ export function ScrollStoryAct({ onJumpToWorkbench }: ScrollStoryActProps) {
                         <motion.span
                           initial={{ scale: 0.9, opacity: 0 }}
                           animate={{ scale: 1, opacity: 1 }}
-                          transition={{ type: "spring", duration: 0.4, delay: 0.16, bounce: 0.2 }}
+                          transition={{ type: "spring", stiffness: 420, damping: 26, delay: 0.16 }}
                           className="inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-semibold"
                           style={{
                             backgroundColor: "var(--nano-bg)",
@@ -556,11 +556,11 @@ export function ScrollStoryAct({ onJumpToWorkbench }: ScrollStoryActProps) {
                     </p>
                   </div>
                 ) : (
-                  /* Beat 4: Split Airgap Shield + Animated SVG Energy Beams */
+                  /* 0.75–1.00: Split Across Glowing Mint Airgap Wall */
                   <motion.div
                     initial={{ opacity: 0, scale: 0.97 }}
                     animate={{ opacity: 1, scale: 1 }}
-                    transition={{ type: "spring", duration: 0.45, bounce: 0.15 }}
+                    transition={{ type: "spring", stiffness: 360, damping: 26 }}
                     className="grid h-full grid-cols-[1fr_auto_1fr] items-center gap-3"
                   >
                     <div
@@ -571,7 +571,7 @@ export function ScrollStoryAct({ onJumpToWorkbench }: ScrollStoryActProps) {
                       }}
                     >
                       <p className="text-[10px] font-bold uppercase" style={{ color: "var(--mask-text)" }}>
-                        Deflected Locally
+                        Bounced Left
                       </p>
                       <p className="text-xl font-bold tabular-nums" style={{ color: "var(--mask-text)" }}>
                         10 BLOCKED
@@ -582,7 +582,7 @@ export function ScrollStoryAct({ onJumpToWorkbench }: ScrollStoryActProps) {
                     </div>
 
                     <div className="flex flex-col items-center gap-2">
-                      <BrandLogo size={38} animated />
+                      <BrandLogo size={36} />
                       <span
                         className="rounded-md border px-2 py-0.5 text-[10px] font-bold tabular-nums"
                         style={{
@@ -591,7 +591,7 @@ export function ScrollStoryAct({ onJumpToWorkbench }: ScrollStoryActProps) {
                           color: "var(--safe-text)",
                         }}
                       >
-                        0 / 10 LEAKED
+                        0 LEAKED
                       </span>
                     </div>
 
@@ -603,12 +603,12 @@ export function ScrollStoryAct({ onJumpToWorkbench }: ScrollStoryActProps) {
                       }}
                     >
                       <p className="text-[10px] font-bold uppercase" style={{ color: "var(--safe-text)" }}>
-                        Safe Cloud &amp; Sync
+                        Streamed Right
                       </p>
                       <div className="space-y-1.5 text-[11px]" style={{ color: "var(--text-primary)" }}>
                         <div className="flex items-center gap-1.5">
                           <Sparkles className="h-3.5 w-3.5" style={{ color: "var(--safe-text)" }} aria-hidden="true" />
-                          <span>Cloud Gemini RCA</span>
+                          <span>Cloud Gemini</span>
                         </div>
                         <div className="flex items-center gap-1.5">
                           <ShieldCheck className="h-3.5 w-3.5" style={{ color: "var(--nano-text)" }} aria-hidden="true" />
@@ -667,7 +667,7 @@ export function ScrollStoryAct({ onJumpToWorkbench }: ScrollStoryActProps) {
                     color: "var(--accent-on-primary)",
                   }}
                 >
-                  <span>Try It Live Below</span>
+                  <span>Jump to Live Workbench</span>
                   <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" />
                 </motion.button>
               </div>

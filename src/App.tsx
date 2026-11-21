@@ -44,7 +44,7 @@ import {
 import { AirgapSpine } from "./components/AirgapSpine";
 import { LivePipelineRail } from "./components/LivePipelineRail";
 import { RightWorkbenchPane } from "./components/RightWorkbenchPane";
-import { ScrollStoryAct } from "./components/ScrollStoryAct";
+import { StorySection } from "./components/StorySection";
 import { TelemetryHud, type WorkspaceView } from "./components/TelemetryHud";
 import { TriageInbox } from "./components/TriageInbox";
 import {
@@ -798,8 +798,8 @@ export function App() {
 
       {activeView === "triage" && (
         <>
-          {/* ACT 1: Sticky Scroll-Driven Story */}
-          <ScrollStoryAct onJumpToWorkbench={jumpToWorkbench} />
+          {/* ACT 1: Scroll-Driven Story */}
+          <StorySection onJumpToWorkbench={jumpToWorkbench} />
 
           {/* ACT 2: Live 100dvh Airgap Workbench */}
           <main
