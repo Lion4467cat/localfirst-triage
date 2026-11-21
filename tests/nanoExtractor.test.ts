@@ -1,5 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
+  buildNanoExtractionPrompt,
+  checkChromeNanoAvailability,
   chunkText,
   extractSemanticSecretsWithNano,
   parseDefensiveSemanticJson,
@@ -7,6 +9,10 @@ import {
 } from "../src/firewall/nanoExtractor";
 
 describe("nanoExtractor", () => {
+  afterEach(() => {
+    delete (globalThis as unknown as Record<string, unknown>).LanguageModel;
+  });
+
   it("strips pure stack-frame lines while preserving Error: header secrets", () => {
     const withStack = [
       'PostgresError: authentication failed for user "admin" with password "my_dogs_name_2026exclamation" on tenant "Project-Chimera"',
@@ -18,7 +24,10 @@ describe("nanoExtractor", () => {
     expect(prose).toContain("my_dogs_name_2026exclamation");
     expect(prose).toContain("Project-Chimera");
 
-    const longText = Array.from({ length: 120 }, (_, i) => `Sentence ${i}: normal log event happened here.`).join(" ");
+    const longText = Array.from(
+      { length: 120 },
+      (_, i) => `Sentence ${i}: normal log event happened here.`,
+    ).join(" ");
     const chunks = chunkText(longText, 1400, 120);
 
     expect(chunks.length).toBeGreaterThan(2);
@@ -59,6 +68,9 @@ describe("nanoExtractor", () => {
     expect(parsed.severity).toBe("P2");
     expect(parsed.runbookId).toBe("RB_OAUTH_CLOCK_SKEW");
     expect(parsed.entities).toEqual([{ phrase: "Manipal ICU Floor 3", category: "CONTEXTUAL_PHI" }]);
+
+    const nullStr = parseDefensiveSemanticJson('{"severity":"P3","runbookId":"null","entities":[]}');
+    expect(nullStr.runbookId).toBeNull();
   });
 
   it("enforces per-chunk timeout and returns UNAVAILABLE without throwing when Nano 4 hangs", async () => {
@@ -79,7 +91,7 @@ describe("nanoExtractor", () => {
     expect(result.spans).toEqual([]);
   });
 
-  it("surfaces MODEL_DOWNLOADING and triggers background download when Chrome reports downloadable", async () => {
+  it("surfaces MODEL_DOWNLOADING and triggers background download when Chrome reports after-download", async () => {
     const triggerDownload = vi.fn();
     const result = await extractSemanticSecretsWithNano("Some text", {
       checkAvailability: async () => "after-download",
@@ -89,5 +101,70 @@ describe("nanoExtractor", () => {
     expect(result.nanoStatus).toBe("MODEL_DOWNLOADING");
     expect(triggerDownload).toHaveBeenCalledTimes(1);
     expect(result.spans).toEqual([]);
+  });
+
+  it("surfaces DOWNLOADABLE without triggering un-gestured download and passes text-only expectedInputs to availability", async () => {
+    const availSpy = vi.fn(async () => "downloadable");
+    (globalThis as unknown as Record<string, unknown>).LanguageModel = {
+      availability: availSpy,
+    };
+
+    const avail = await checkChromeNanoAvailability();
+    expect(avail).toBe("downloadable");
+    expect(availSpy).toHaveBeenCalledWith({
+      expectedInputs: [{ type: "text", languages: ["en"] }],
+      expectedOutputs: [{ type: "text", languages: ["en"] }],
+    });
+
+    const triggerDownload = vi.fn();
+    const extracted = await extractSemanticSecretsWithNano("Some text", { triggerDownload });
+    expect(extracted.nanoStatus).toBe("DOWNLOADABLE");
+    expect(triggerDownload).not.toHaveBeenCalled();
+  });
+
+  it("injects valid runbookIds into Nano extraction prompt dynamically", () => {
+    const prompt = buildNanoExtractionPrompt("Sample chunk", [
+      {
+        id: "RB_CUSTOM_TEST",
+        title: "Custom Test Runbook",
+        category: "CUSTOM_TEST",
+        severity: "P2",
+        keywords: ["custom"],
+        resolution: "Do X",
+      },
+    ]);
+    expect(prompt).toContain("RB_CUSTOM_TEST (P2): Custom Test Runbook");
+  });
+
+  it("handles malformed Nano JSON gracefully without throwing", async () => {
+    const res = await extractSemanticSecretsWithNano("Normal ticket text", {
+      checkAvailability: async () => "readily",
+      callNano: async () => "Sorry, I cannot output JSON here {{{ broken",
+    });
+    expect(res.nanoStatus).toBe("READY");
+    expect(res.spans).toEqual([]);
+    expect(res.severity).toBe("P2");
+  });
+
+  it("caps on-device Nano 4 invocations to maxChunks on massive 50KB+ stack traces without stalling", async () => {
+    const hugeTrace = Array.from(
+      { length: 900 },
+      (_, i) => `Log line ${i}: service check event with payload marker ${i}.`,
+    ).join("\n");
+    expect(hugeTrace.length).toBeGreaterThan(50_000);
+
+    const callNano = vi.fn(async () =>
+      JSON.stringify({ severity: "P1", runbookId: null, entities: [] }),
+    );
+
+    const res = await extractSemanticSecretsWithNano(hugeTrace, {
+      checkAvailability: async () => "readily",
+      callNano,
+      maxChunks: 6,
+    });
+
+    expect(res.nanoStatus).toBe("READY");
+    expect(res.severity).toBe("P1");
+    expect(callNano).toHaveBeenCalledTimes(6);
   });
 });

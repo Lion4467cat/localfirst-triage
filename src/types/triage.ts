@@ -1,32 +1,45 @@
 export type DetectorSource =
   | "REGEX_FIREWALL"
+  | "ENTROPY_SCANNER"
   | "HEURISTIC_GUARD"
-  | "NANO_SEMANTIC_FIREWALL";
+  | "NANO_SEMANTIC_FIREWALL"
+  | "POLICY_TERM"
+  | "MANUAL_MASK";
 
 export type Severity = "P0" | "P1" | "P2" | "P3";
 
-export type NanoStatus = "READY" | "MODEL_DOWNLOADING" | "UNAVAILABLE";
+export type NanoStatus = "READY" | "DOWNLOADABLE" | "MODEL_DOWNLOADING" | "UNAVAILABLE";
 
 export type InferenceSource =
   | "ON_DEVICE"
   | "LOCAL_REGEX_FALLBACK"
   | "IN_CLOUD"
-  | "OFFLINE_BLOCKED";
+  | "OFFLINE_BLOCKED"
+  | "CLOUD_ERROR";
 
 export type Stage2Source =
   | "SKIPPED_LOCAL_RUNBOOK"
   | "PENDING_PRE_CLOUD"
   | "HELD_QUARANTINE"
   | "OFFLINE_BLOCKED"
+  | "OFFLINE_QUEUED"
   | "IN_CLOUD"
-  | "CLOUD_DISABLED";
+  | "ON_DEVICE_FALLBACK"
+  | "CLOUD_DISABLED"
+  | "CLOUD_ERROR";
 
 export type ResolutionMode =
   | "LOCAL_RUNBOOK"
   | "CLOUD_ESCALATION"
   | "LOCAL_FALLBACK_ONLY"
   | "QUARANTINED_PENDING_APPROVAL"
-  | "PRE_CLOUD_COUNTDOWN";
+  | "PRE_CLOUD_COUNTDOWN"
+  | "OFFLINE_QUEUED"
+  | "CLOUD_ERROR";
+
+export type AppCheckProviderKind = "RECAPTCHA_V3" | "RECAPTCHA_ENTERPRISE" | "UNCONFIGURED";
+
+export type RemoteConfigSource = "LOADED" | "DEFAULT_FALLBACK" | "TIMEOUT";
 
 export interface RedactionSpan {
   start: number;
@@ -36,11 +49,45 @@ export interface RedactionSpan {
   placeholder: string;
   matchedText: string;
   masked?: boolean;
+  constituentTexts?: string[];
 }
 
 export interface SemanticExtractionItem {
   phrase: string;
   category: string;
+}
+
+export interface CustomRunbook {
+  id: string;
+  title: string;
+  category: string;
+  severity: "P2" | "P3";
+  keywords: string[];
+  resolution: string;
+  builtIn?: boolean;
+}
+
+export interface PrivacyPolicy {
+  customTerms: string[];
+  enableEntropyScanner: boolean;
+  autoCountdownSeconds: number;
+}
+
+export interface ZeroLeakageAudit {
+  verified: boolean;
+  checkedSpansCount: number;
+  leakedSpansCount: number;
+  leakedCategories: string[];
+  outboundPromptPreview: string;
+  verifiedAt: number;
+}
+
+export interface HybridBriefResult {
+  summary: string;
+  stakeholderDraft: string;
+  inferenceSource: "ON_DEVICE" | "IN_CLOUD" | "LOCAL_FALLBACK";
+  latencyMs: number;
+  generatedAt: number;
 }
 
 export interface TriageResult {
@@ -63,6 +110,12 @@ export interface TriageResult {
   latencyMs: number;
   estimatedTokensSaved: number;
   createdAt: number;
+  activeCloudModel?: string;
+  cloudError?: string | null;
+  zeroLeakageAudit?: ZeroLeakageAudit | null;
+  hybridBrief?: HybridBriefResult | null;
+  importedFromExtension?: boolean;
+  queuedForReconnect?: boolean;
   loadedFromZeroPiiStore?: boolean;
 }
 
@@ -74,7 +127,12 @@ export interface HybridTelemetry {
   estimatedTokensSaved: number;
   lastLatencyMs: number;
   offlineMode: boolean;
+  browserOnline: boolean;
   activeCloudModel: string;
+  remoteConfigStatus: RemoteConfigSource;
+  appCheckProvider: AppCheckProviderKind;
+  downloadProgress: number | null;
+  queuedOfflineCount: number;
 }
 
 export interface DemoScenario {

@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
-import { escalateApprovedTicket, runTriagePipeline } from "../src/firewall/pipeline";
+import {
+  escalateApprovedTicket,
+  generateSanitizedHybridBrief,
+  runTriagePipeline,
+} from "../src/firewall/pipeline";
+import type { CustomRunbook } from "../src/types/triage";
 
 describe("pipeline", () => {
   it("resolves P2/P3 local runbook tickets via runbookId entirely on-device with zero cloud calls", async () => {
@@ -36,6 +41,7 @@ describe("pipeline", () => {
 
   it("fails closed into QUARANTINED_PENDING_APPROVAL when Nano 4 is UNAVAILABLE on P0/P1", async () => {
     const cloudCaller = vi.fn(async () => ({
+      ok: true,
       text: "Mitigate P0 incident.",
       inferenceSource: "IN_CLOUD" as const,
     }));
@@ -79,11 +85,13 @@ describe("pipeline", () => {
     expect(cloudCaller).toHaveBeenCalledTimes(1);
     expect(escalated.resolutionMode).toBe("CLOUD_ESCALATION");
     expect(escalated.inferenceSource).toBe("IN_CLOUD");
+    expect(escalated.zeroLeakageAudit?.verified).toBe(true);
   });
 
-  it("blocks cloud calls in Airplane/Offline mode and degrades gracefully", async () => {
+  it("blocks cloud calls in Airplane/Offline mode and queues sanitized ticket for reconnect", async () => {
     const cloudCaller = vi.fn();
-    const raw = "P0 Database outage after deploy with key sk-proj-abcdefghijklmnopqrstuvwxyz123456.";
+    const raw =
+      "P0 Database outage after deploy with key sk-proj-abcdefghijklmnopqrstuvwxyz123456.";
 
     const result = await runTriagePipeline(
       { id: "t-3", title: "Offline P0", rawText: raw, offlineMode: true },
@@ -107,6 +115,192 @@ describe("pipeline", () => {
 
     expect(cloudCaller).not.toHaveBeenCalled();
     expect(result.inferenceSource).toBe("OFFLINE_BLOCKED");
+    expect(result.resolutionMode).toBe("OFFLINE_QUEUED");
+    expect(result.queuedForReconnect).toBe(true);
     expect(result.sanitizedText).not.toContain("sk-proj-");
+
+    // Also verify escalateApprovedTicket honors offlineMode even if invoked on quarantined ticket
+    const blockedRetry = await escalateApprovedTicket(result, result.spans, {
+      offlineMode: true,
+      callCloud: cloudCaller,
+    });
+    expect(cloudCaller).not.toHaveBeenCalled();
+    expect(blockedRetry.resolutionMode).toBe("OFFLINE_QUEUED");
+  });
+
+  it("truthfully reports CLOUD_ERROR instead of OFFLINE_BLOCKED when cloud escalation fails", async () => {
+    const cloudCaller = vi.fn(async () => ({
+      ok: false,
+      text: "Cloud error: 403 App Check token rejected.",
+      inferenceSource: "CLOUD_ERROR" as const,
+      error: "403 App Check token rejected",
+    }));
+
+    const res = await runTriagePipeline(
+      {
+        id: "t-err",
+        title: "Cloud Error Test",
+        rawText: "P0 Outage with token ghp_1234567890abcdefghijklmnopqrstuvwxyz",
+        offlineMode: false,
+        approveCloudEscalation: true,
+      },
+      {
+        callCloud: cloudCaller,
+        extractWithNano: async () => ({
+          nanoStatus: "READY",
+          inferenceSource: "ON_DEVICE",
+          severity: "P0",
+          runbookId: null,
+          category: "OUTAGE",
+          spans: [],
+        }),
+        loadConfig: async () => ({
+          cloudModel: "gemini-3.5-flash-lite",
+          cloudFallbackModel: "gemini-3.8-flash",
+          enableCloudEscalation: true,
+        }),
+      },
+    );
+
+    expect(res.resolutionMode).toBe("CLOUD_ERROR");
+    expect(res.stage2Source).toBe("CLOUD_ERROR");
+    expect(res.inferenceSource).toBe("CLOUD_ERROR");
+    expect(res.cloudError).toContain("403");
+  });
+
+  it("aborts Stage 2 cloud call via Zero-Leakage Gate if a masked secret remains unredacted", async () => {
+    const cloudCaller = vi.fn();
+    const ticket = await runTriagePipeline(
+      {
+        id: "t-leak",
+        title: "Leak Gate Test",
+        rawText: "P0 outage with key AIzaSyD-1234567890abcdefghijklmnopqrs",
+        offlineMode: false,
+      },
+      {
+        extractWithNano: async () => ({
+          nanoStatus: "UNAVAILABLE",
+          inferenceSource: "LOCAL_REGEX_FALLBACK",
+          severity: "P0",
+          runbookId: null,
+          category: "OUTAGE",
+          spans: [],
+        }),
+      },
+    );
+
+    // Simulate a corrupted/skipped span replacement so raw API key stays in sanitizedText
+    const brokenSpans = ticket.spans.map((s) => ({ ...s, start: -1, end: -1 }));
+    const blocked = await escalateApprovedTicket(ticket, brokenSpans, {
+      callCloud: cloudCaller,
+    });
+
+    expect(cloudCaller).not.toHaveBeenCalled();
+    expect(blocked.resolutionMode).toBe("QUARANTINED_PENDING_APPROVAL");
+    expect(blocked.zeroLeakageAudit?.verified).toBe(false);
+    expect(blocked.zeroLeakageAudit?.leakedSpansCount).toBeGreaterThan(0);
+  });
+
+  it("streams Cloud RCA chunks via onStreamChunk and enforces PRE_CLOUD_COUNTDOWN when Nano 4 is READY", async () => {
+    const countdown = await runTriagePipeline(
+      {
+        id: "t-ready-p0",
+        title: "Ready Nano P0",
+        rawText: "P0 outage in checkout",
+        offlineMode: false,
+      },
+      {
+        extractWithNano: async () => ({
+          nanoStatus: "READY",
+          inferenceSource: "ON_DEVICE",
+          severity: "P0",
+          runbookId: null,
+          category: "OUTAGE",
+          spans: [],
+        }),
+      },
+    );
+    expect(countdown.resolutionMode).toBe("PRE_CLOUD_COUNTDOWN");
+
+    const streamedChunks: string[] = [];
+    const escalated = await escalateApprovedTicket(countdown, countdown.spans, {
+      onStreamChunk: (partial) => streamedChunks.push(partial),
+      callCloud: async (_prompt, _cfg, onChunk) => {
+        onChunk?.("### Root Cause\n");
+        onChunk?.("### Root Cause\nConnection pool saturated.");
+        return {
+          ok: true,
+          text: "### Root Cause\nConnection pool saturated.",
+          inferenceSource: "IN_CLOUD" as const,
+          modelUsed: "gemini-3.5-flash-lite",
+        };
+      },
+      loadConfig: async () => ({
+        cloudModel: "gemini-3.5-flash-lite",
+        cloudFallbackModel: "gemini-3.8-flash",
+        enableCloudEscalation: true,
+      }),
+    });
+
+    expect(streamedChunks).toHaveLength(2);
+    expect(escalated.resolutionMode).toBe("CLOUD_ESCALATION");
+    expect(escalated.activeCloudModel).toBe("gemini-3.5-flash-lite");
+  });
+
+  it("resolves user-created custom runbooks on-device and supports PREFER_ON_DEVICE hybrid brief", async () => {
+    const customRunbooks: CustomRunbook[] = [
+      {
+        id: "RB_VPN_SPLIT_DNS",
+        title: "Corp VPN Split DNS Loop",
+        category: "VPN_DNS",
+        severity: "P3",
+        keywords: ["split-dns", "vpn_dns_timeout"],
+        resolution: "Flush systemd-resolved cache and reconnect WireGuard.",
+      },
+    ];
+
+    const res = await runTriagePipeline(
+      {
+        id: "t-custom-rb",
+        title: "VPN DNS",
+        rawText: "Developer hitting vpn_dns_timeout on macOS.",
+        offlineMode: true,
+        customRunbooks,
+      },
+      {
+        extractWithNano: async () => ({
+          nanoStatus: "UNAVAILABLE",
+          inferenceSource: "LOCAL_REGEX_FALLBACK",
+          severity: "P3",
+          runbookId: null,
+          category: "GENERAL_INCIDENT",
+          spans: [],
+        }),
+      },
+    );
+
+    expect(res.resolutionMode).toBe("LOCAL_RUNBOOK");
+    expect(res.runbookId).toBe("RB_VPN_SPLIT_DNS");
+
+    const brief = await generateSanitizedHybridBrief(res, {
+      offlineMode: false,
+      deps: {
+        loadConfig: async () => ({
+          cloudModel: "gemini-3.5-flash-lite",
+          cloudFallbackModel: "gemini-3.8-flash",
+          enableCloudEscalation: true,
+        }),
+        callHybridBrief: async () => ({
+          text: "On-device brief generated cleanly.",
+          inferenceSource: "ON_DEVICE",
+        }),
+      },
+    });
+    expect(brief.inferenceSource).toBe("ON_DEVICE");
+    expect(brief.stakeholderDraft).toContain("On-device brief generated cleanly.");
+
+    const offlineBrief = await generateSanitizedHybridBrief(res, { offlineMode: true });
+    expect(offlineBrief.inferenceSource).toBe("LOCAL_FALLBACK");
+    expect(offlineBrief.stakeholderDraft).toContain("LocalFirst Privacy Firewall");
   });
 });

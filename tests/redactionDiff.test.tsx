@@ -4,7 +4,7 @@ import { RedactionDiff } from "../src/components/RedactionDiff";
 import type { RedactionSpan } from "../src/types/triage";
 
 describe("RedactionDiff", () => {
-  it("renders clickable redaction pills and invokes onToggleSpan", () => {
+  it("renders inline highlighted tokens and clickable audit pills invoking onToggleSpan", () => {
     const onToggleSpan = vi.fn();
     const spans: RedactionSpan[] = [
       {
@@ -18,7 +18,7 @@ describe("RedactionDiff", () => {
       },
     ];
 
-    const { getByRole } = render(
+    const { getAllByRole } = render(
       <RedactionDiff
         rawText="$42M valuation"
         sanitizedText="[REDACTED:M_AND_A_SECRET_1] valuation"
@@ -27,8 +27,43 @@ describe("RedactionDiff", () => {
       />,
     );
 
-    const pill = getByRole("button");
-    fireEvent.click(pill);
+    const buttons = getAllByRole("button");
+    // Raw inline mark, sanitized inline mark, copy button, and audit pill
+    expect(buttons.length).toBeGreaterThanOrEqual(3);
+    const pill = buttons.find((b) => b.textContent?.includes("[NANO_SEMANTIC_FIREWALL]"));
+    expect(pill).toBeDefined();
+    fireEvent.click(pill!);
     expect(onToggleSpan).toHaveBeenCalledWith(0);
+  });
+
+  it("disables unmasking when viewing a purged zero-PII record from disk", () => {
+    const onToggleSpan = vi.fn();
+    const spans: RedactionSpan[] = [
+      {
+        start: 0,
+        end: 4,
+        category: "API_KEY",
+        detector: "REGEX_FIREWALL",
+        placeholder: "[REDACTED:API_KEY_1]",
+        matchedText: "[REDACTED:API_KEY_1]",
+        masked: true,
+      },
+    ];
+
+    const { getByText, getAllByRole } = render(
+      <RedactionDiff
+        rawText="[PURGED_FROM_DISK_FOR_PRIVACY]"
+        sanitizedText="[REDACTED:API_KEY_1] trace"
+        spans={spans}
+        loadedFromZeroPiiStore={true}
+        onToggleSpan={onToggleSpan}
+      />,
+    );
+
+    expect(
+      getByText(/Loaded from zero-PII IndexedDB store/i),
+    ).toBeTruthy();
+    const pill = getAllByRole("button").find((b) => b.textContent?.includes("[REGEX_FIREWALL]"));
+    expect((pill as HTMLButtonElement).disabled).toBe(true);
   });
 });

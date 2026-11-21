@@ -1,4 +1,5 @@
-import { Play, Sparkles, Trash2 } from "lucide-react";
+import { useRef, useState } from "react";
+import { Play, RefreshCw, Sparkles, Trash2, Upload } from "lucide-react";
 import type { DemoScenario, TriageResult } from "../types/triage";
 
 interface TriageInboxProps {
@@ -6,30 +7,61 @@ interface TriageInboxProps {
   title: string;
   rawText: string;
   isRunning: boolean;
+  offlineMode: boolean;
   history: TriageResult[];
+  queuedTickets: TriageResult[];
+  importedFromExtension?: boolean;
   onTitleChange: (value: string) => void;
   onRawTextChange: (value: string) => void;
   onSelectScenario: (scenario: DemoScenario) => void;
   onRunTriage: () => void;
   onSelectHistory: (item: TriageResult) => void;
   onClearHistory: () => void;
+  onProcessOfflineQueue: () => void;
 }
+
+const SEVERITY_BADGE: Record<DemoScenario["expectedSeverity"], string> = {
+  P0: "bg-rose-500/20 text-rose-300 border border-rose-500/40",
+  P1: "bg-amber-500/20 text-amber-300 border border-amber-500/40",
+  P2: "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40",
+  P3: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40",
+};
 
 export function TriageInbox({
   scenarios,
   title,
   rawText,
   isRunning,
+  offlineMode,
   history,
+  queuedTickets,
+  importedFromExtension = false,
   onTitleChange,
   onRawTextChange,
   onSelectScenario,
   onRunTriage,
   onSelectHistory,
   onClearHistory,
+  onProcessOfflineQueue,
 }: TriageInboxProps) {
+  const [isDragging, setIsDragging] = useState(false);
+  const [uploadMessage, setUploadMessage] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const ingestFile = async (file: File) => {
+    if (file.size > 50 * 1024) {
+      setUploadMessage("File exceeds 50 KB local demo limit.");
+      return;
+    }
+    const content = await file.text();
+    onTitleChange(`Uploaded: ${file.name}`);
+    onRawTextChange(content);
+    setUploadMessage(`Loaded ${file.name} locally (${content.length} chars).`);
+    setTimeout(() => setUploadMessage(null), 2500);
+  };
+
   return (
-    <aside className="flex flex-col gap-4">
+    <aside className="flex min-w-0 flex-col gap-4">
       <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
         <div className="mb-3 flex items-center gap-2">
           <Sparkles className="h-4 w-4 text-indigo-400" />
@@ -37,17 +69,21 @@ export function TriageInbox({
             1-Click Demo Scenarios
           </h2>
         </div>
-        <div className="flex flex-col gap-2">
+        <div className="flex max-h-64 flex-col gap-2 overflow-auto pr-1">
           {scenarios.map((scenario) => (
             <button
               key={scenario.id}
               type="button"
               onClick={() => onSelectScenario(scenario)}
-              className="rounded-lg border border-slate-800 bg-slate-950/70 p-3 text-left transition hover:border-indigo-500/60 hover:bg-slate-900"
+              className="rounded-lg border border-slate-800 bg-slate-950/70 p-2.5 text-left transition hover:border-indigo-500/60 hover:bg-slate-900"
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-semibold text-slate-100">{scenario.title}</span>
-                <span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] text-indigo-300">
+                <span
+                  className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] ${
+                    SEVERITY_BADGE[scenario.expectedSeverity]
+                  }`}
+                >
                   {scenario.expectedSeverity}
                 </span>
               </div>
@@ -57,10 +93,52 @@ export function TriageInbox({
         </div>
       </div>
 
-      <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-        <label className="mb-1.5 block text-xs font-medium text-slate-300" htmlFor="ticket-title">
-          Incident Title
-        </label>
+      <div
+        onDragOver={(e) => {
+          e.preventDefault();
+          setIsDragging(true);
+        }}
+        onDragLeave={() => setIsDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setIsDragging(false);
+          const file = e.dataTransfer.files?.[0];
+          if (file) void ingestFile(file);
+        }}
+        className={`rounded-xl border bg-slate-900/70 p-4 transition ${
+          isDragging ? "border-cyan-400 bg-cyan-950/20" : "border-slate-800"
+        }`}
+      >
+        {importedFromExtension && (
+          <div className="mb-3 rounded-lg border border-cyan-500/40 bg-cyan-950/40 px-2.5 py-1.5 text-[11px] font-medium text-cyan-200">
+            Imported sanitized payload from Chrome Extension Side Panel.
+          </div>
+        )}
+
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <label className="block text-xs font-medium text-slate-300" htmlFor="ticket-title">
+            Incident Title
+          </label>
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-0.5 text-[11px] text-slate-300 hover:border-indigo-500/60 hover:text-white"
+          >
+            <Upload className="h-3 w-3" />
+            <span>Load .log/.txt</span>
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".log,.txt,.json,.csv"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void ingestFile(file);
+            }}
+          />
+        </div>
+
         <input
           id="ticket-title"
           type="text"
@@ -71,7 +149,7 @@ export function TriageInbox({
         />
 
         <label className="mb-1.5 block text-xs font-medium text-slate-300" htmlFor="ticket-body">
-          Raw Support / SRE Payload
+          Raw Support / SRE Payload (or drop log file here)
         </label>
         <textarea
           id="ticket-body"
@@ -81,6 +159,8 @@ export function TriageInbox({
           placeholder="Paste logs, stack traces, or customer messages containing PII/secrets..."
           className="w-full rounded-lg border border-slate-700 bg-slate-950 p-3 font-mono text-xs text-slate-100 focus:border-indigo-500 focus:outline-none"
         />
+
+        {uploadMessage && <p className="mt-1.5 text-[11px] text-cyan-300">{uploadMessage}</p>}
 
         <button
           type="button"
@@ -92,6 +172,25 @@ export function TriageInbox({
           <span>{isRunning ? "Running Local Privacy Firewall..." : "Run Hybrid Triage"}</span>
         </button>
       </div>
+
+      {queuedTickets.length > 0 && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-950/30 p-3.5 text-xs">
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-semibold text-amber-200">
+              Offline Queue: {queuedTickets.length} sanitized ticket(s)
+            </span>
+            <button
+              type="button"
+              disabled={offlineMode || isRunning}
+              onClick={onProcessOfflineQueue}
+              className="inline-flex items-center gap-1 rounded bg-amber-500 px-2.5 py-1 font-semibold text-slate-950 hover:bg-amber-400 disabled:opacity-50"
+            >
+              <RefreshCw className="h-3 w-3" />
+              <span>{offlineMode ? "Offline" : "Sync & Escalate"}</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
         <div className="mb-2 flex items-center justify-between">

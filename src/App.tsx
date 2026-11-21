@@ -1,29 +1,129 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Pause, Play, RefreshCw, ShieldAlert, Terminal } from "lucide-react";
-import { DEMO_SCENARIOS } from "./config/demoScenarios";
+import { DEMO_SCENARIOS, DEFAULT_RUNBOOKS } from "./config/demoScenarios";
+import {
+  getAppCheckProviderStatus,
+  loadRuntimeConfig,
+  warmupOnDeviceModel,
+} from "./config/firebase";
 import { checkChromeNanoAvailability } from "./firewall/nanoExtractor";
-import { escalateApprovedTicket, runTriagePipeline } from "./firewall/pipeline";
-import { applyMaskedSpans } from "./firewall/spanMerger";
+import {
+  escalateApprovedTicket,
+  generateSanitizedHybridBrief,
+  runTriagePipeline,
+} from "./firewall/pipeline";
+import { detectHighEntropySecrets, detectRegexSpans } from "./firewall/regexScrubber";
+import { addManualSpan, applyMaskedSpans, mergeAndRedactSpans } from "./firewall/spanMerger";
 import {
   clearSanitizedTickets,
+  DEFAULT_PRIVACY_POLICY,
   listSanitizedTickets,
+  loadCustomRunbooks,
+  loadPrivacyPolicy,
+  saveCustomRunbooks,
+  savePrivacyPolicy,
   saveSanitizedTicket,
 } from "./storage/ticketStore";
+import { PipelineStepper } from "./components/PipelineStepper";
 import { RedactionDiff } from "./components/RedactionDiff";
+import { ResolutionPanel } from "./components/ResolutionPanel";
+import { RunbookPolicyModal } from "./components/RunbookPolicyModal";
 import { TelemetryHud } from "./components/TelemetryHud";
 import { TriageInbox } from "./components/TriageInbox";
-import type { DemoScenario, HybridTelemetry, TriageResult } from "./types/triage";
+import type {
+  CustomRunbook,
+  DemoScenario,
+  HybridTelemetry,
+  NanoStatus,
+  PrivacyPolicy,
+  TriageResult,
+} from "./types/triage";
+
+function mapAvailabilityToStatus(avail: string): NanoStatus {
+  if (avail === "readily") return "READY";
+  if (avail === "downloadable") return "DOWNLOADABLE";
+  if (avail === "downloading" || avail === "after-download") return "MODEL_DOWNLOADING";
+  return "UNAVAILABLE";
+}
+
+const MAX_HANDOFF_ENCODED_CHARS = 65_536;
+const MAX_HANDOFF_TEXT_CHARS = 50_000;
+const MAX_HANDOFF_TITLE_CHARS = 200;
+
+function stripUnsafeControlChars(input: string): string {
+  // Strip ASCII control chars except \t (0x09), \n (0x0A), and \r (0x0D)
+  return input.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
+}
+
+export function decodeHandoffHash(hash: string): { title?: string; sanitizedText?: string } | null {
+  if (!hash || !hash.includes("handoff=")) return null;
+  try {
+    const encoded = hash.split("handoff=")[1]?.split("&")[0] ?? "";
+    if (
+      !encoded ||
+      encoded.length > MAX_HANDOFF_ENCODED_CHARS ||
+      !/^[A-Za-z0-9\-_]+=*$/.test(encoded)
+    ) {
+      return null;
+    }
+    const base64 = encoded.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+    const bytes = Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
+    const json = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    const parsed = JSON.parse(json) as { title?: unknown; sanitizedText?: unknown };
+    if (typeof parsed.sanitizedText === "string" && parsed.sanitizedText.trim()) {
+      const cleanBody = stripUnsafeControlChars(parsed.sanitizedText).slice(
+        0,
+        MAX_HANDOFF_TEXT_CHARS,
+      );
+      if (!cleanBody.trim()) return null;
+      // Defensive re-scrub: ensure tampered #handoff= links cannot smuggle raw deterministic secrets
+      const rescrubSpans = [
+        ...detectRegexSpans(cleanBody),
+        ...detectHighEntropySecrets(cleanBody),
+      ];
+      const { sanitizedText } = mergeAndRedactSpans(cleanBody, rescrubSpans);
+      const rawTitle =
+        typeof parsed.title === "string" && parsed.title.trim()
+          ? stripUnsafeControlChars(parsed.title.trim()).slice(0, MAX_HANDOFF_TITLE_CHARS)
+          : "Chrome Extension Capture";
+      return {
+        title: rawTitle || "Chrome Extension Capture",
+        sanitizedText,
+      };
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+export function prepareTicketForEscalation(ticket: TriageResult): TriageResult {
+  return ticket.loadedFromZeroPiiStore
+    ? { ...ticket, rawText: ticket.sanitizedText, spans: [] }
+    : ticket;
+}
 
 export function App() {
   const [title, setTitle] = useState(DEMO_SCENARIOS[0].title);
   const [rawText, setRawText] = useState(DEMO_SCENARIOS[0].rawText);
+  const [importedFromExtension, setImportedFromExtension] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
+  const [isGeneratingBrief, setIsGeneratingBrief] = useState(false);
   const [maskDirtySinceCloud, setMaskDirtySinceCloud] = useState(false);
   const [countdownMs, setCountdownMs] = useState<number | null>(null);
   const [countdownPaused, setCountdownPaused] = useState(false);
   const [currentResult, setCurrentResult] = useState<TriageResult | null>(null);
   const [history, setHistory] = useState<TriageResult[]>([]);
+  const [runbooks, setRunbooks] = useState<CustomRunbook[]>(DEFAULT_RUNBOOKS);
+  const [policy, setPolicy] = useState<PrivacyPolicy>(DEFAULT_PRIVACY_POLICY);
+  const [policyModalOpen, setPolicyModalOpen] = useState(false);
+
   const volatileSessionMap = useRef<Map<string, TriageResult>>(new Map());
+  const escalatedTicketIds = useRef<Set<string>>(new Set());
+  const inFlightRef = useRef(false);
+  const runGenerationRef = useRef(0);
+
+  const initialOnline = typeof navigator !== "undefined" ? navigator.onLine : true;
 
   const [telemetry, setTelemetry] = useState<HybridTelemetry>({
     nanoStatus: "UNAVAILABLE",
@@ -32,55 +132,138 @@ export function App() {
     cloudEscalatedCount: 0,
     estimatedTokensSaved: 0,
     lastLatencyMs: 0,
-    offlineMode: false,
+    offlineMode: !initialOnline,
+    browserOnline: initialOnline,
     activeCloudModel: "gemini-3.5-flash-lite",
+    remoteConfigStatus: "DEFAULT_FALLBACK",
+    appCheckProvider: getAppCheckProviderStatus(),
+    downloadProgress: null,
+    queuedOfflineCount: 0,
   });
+
+  const refreshNanoStatus = useCallback(async () => {
+    const avail = await checkChromeNanoAvailability();
+    setTelemetry((prev) => ({
+      ...prev,
+      nanoStatus: mapAvailabilityToStatus(avail),
+    }));
+  }, []);
 
   useEffect(() => {
     void (async () => {
-      const avail = await checkChromeNanoAvailability();
-      const nanoStatus =
-        avail === "readily"
-          ? "READY"
-          : avail === "after-download"
-            ? "MODEL_DOWNLOADING"
-            : "UNAVAILABLE";
-      const saved = await listSanitizedTickets();
+      const [avail, saved, loadedRunbooks, loadedPolicy, runtimeCfg] = await Promise.all([
+        checkChromeNanoAvailability(),
+        listSanitizedTickets(),
+        loadCustomRunbooks(),
+        loadPrivacyPolicy(),
+        loadRuntimeConfig(),
+      ]);
+
       setHistory(saved);
-      setTelemetry((prev) => ({ ...prev, nanoStatus }));
+      setRunbooks(loadedRunbooks);
+      setPolicy(loadedPolicy);
+
+      setTelemetry((prev) => ({
+        ...prev,
+        nanoStatus: mapAvailabilityToStatus(avail),
+        activeCloudModel: runtimeCfg.cloudModel,
+        remoteConfigStatus: runtimeCfg.source ?? "DEFAULT_FALLBACK",
+        appCheckProvider: getAppCheckProviderStatus(),
+        queuedOfflineCount: saved.filter((t) => t.queuedForReconnect).length,
+      }));
     })();
+
+    if (typeof window !== "undefined") {
+      const applyHandoffFromLocation = () => {
+        const handoff = decodeHandoffHash(window.location.hash);
+        if (handoff?.sanitizedText) {
+          setTitle(handoff.title ?? "Chrome Extension Capture");
+          setRawText(handoff.sanitizedText);
+          setImportedFromExtension(true);
+          window.history.replaceState(null, "", window.location.pathname + window.location.search);
+        }
+      };
+      applyHandoffFromLocation();
+
+      const handleOnline = () =>
+        setTelemetry((prev) => ({ ...prev, browserOnline: true }));
+      const handleOffline = () =>
+        setTelemetry((prev) => ({ ...prev, browserOnline: false, offlineMode: true }));
+
+      window.addEventListener("hashchange", applyHandoffFromLocation);
+      window.addEventListener("online", handleOnline);
+      window.addEventListener("offline", handleOffline);
+      return () => {
+        window.removeEventListener("hashchange", applyHandoffFromLocation);
+        window.removeEventListener("online", handleOnline);
+        window.removeEventListener("offline", handleOffline);
+      };
+    }
+  }, []);
+
+  const syncHistoryAndQueueCount = useCallback(async () => {
+    const updatedHistory = await listSanitizedTickets();
+    setHistory(updatedHistory);
+    setTelemetry((prev) => ({
+      ...prev,
+      queuedOfflineCount: updatedHistory.filter((t) => t.queuedForReconnect).length,
+    }));
   }, []);
 
   const handleApproveOrRerunCloud = useCallback(async () => {
-    if (!currentResult || isRunning) return;
+    if (!currentResult || isRunning || inFlightRef.current) return;
+    inFlightRef.current = true;
+    const gen = ++runGenerationRef.current;
+    const targetTicketId = currentResult.id;
     setCountdownMs(null);
     setCountdownPaused(false);
     setIsRunning(true);
     try {
-      const escalated = await escalateApprovedTicket(currentResult, currentResult.spans);
+      const safeTicket = prepareTicketForEscalation(currentResult);
+      const escalated = await escalateApprovedTicket(safeTicket, safeTicket.spans, {
+        offlineMode: telemetry.offlineMode,
+        onStreamChunk: (partial) => {
+          if (gen !== runGenerationRef.current) return;
+          setCurrentResult((prev) =>
+            prev && prev.id === targetTicketId ? { ...prev, resolution: partial } : prev,
+          );
+        },
+      });
+      if (gen !== runGenerationRef.current) return;
       volatileSessionMap.current.set(escalated.id, escalated);
       setCurrentResult(escalated);
       setMaskDirtySinceCloud(false);
       await saveSanitizedTicket(escalated);
-      const updatedHistory = await listSanitizedTickets();
-      setHistory(updatedHistory);
+      await syncHistoryAndQueueCount();
+
+      const didSucceedCloud =
+        escalated.resolutionMode === "CLOUD_ESCALATION" &&
+        !escalatedTicketIds.current.has(escalated.id);
+      if (didSucceedCloud) {
+        escalatedTicketIds.current.add(escalated.id);
+      }
+
       setTelemetry((prev) => ({
         ...prev,
-        cloudEscalatedCount:
-          prev.cloudEscalatedCount + (escalated.resolutionMode === "CLOUD_ESCALATION" ? 1 : 0),
+        cloudEscalatedCount: prev.cloudEscalatedCount + (didSucceedCloud ? 1 : 0),
         lastLatencyMs: escalated.latencyMs,
+        activeCloudModel: escalated.activeCloudModel ?? prev.activeCloudModel,
       }));
     } finally {
-      setIsRunning(false);
+      if (gen === runGenerationRef.current) {
+        inFlightRef.current = false;
+        setIsRunning(false);
+      }
     }
-  }, [currentResult, isRunning]);
+  }, [currentResult, isRunning, telemetry.offlineMode, syncHistoryAndQueueCount]);
 
   // 3.0s cancelable pre-cloud countdown timer when Nano 4 is READY
   useEffect(() => {
     if (
       currentResult?.resolutionMode !== "PRE_CLOUD_COUNTDOWN" ||
       countdownMs === null ||
-      countdownPaused
+      countdownPaused ||
+      telemetry.offlineMode
     ) {
       return;
     }
@@ -92,17 +275,30 @@ export function App() {
       setCountdownMs((prev) => (prev !== null ? Math.max(0, prev - 250) : null));
     }, 250);
     return () => clearTimeout(timer);
-  }, [currentResult?.resolutionMode, countdownMs, countdownPaused, handleApproveOrRerunCloud]);
+  }, [
+    currentResult?.resolutionMode,
+    countdownMs,
+    countdownPaused,
+    telemetry.offlineMode,
+    handleApproveOrRerunCloud,
+  ]);
 
   const handleSelectScenario = (scenario: DemoScenario) => {
+    runGenerationRef.current += 1;
+    inFlightRef.current = false;
+    setIsRunning(false);
     setTitle(scenario.title);
     setRawText(scenario.rawText);
+    setImportedFromExtension(false);
     setMaskDirtySinceCloud(false);
     setCountdownMs(null);
+    setCountdownPaused(false);
   };
 
   const handleRunTriage = async () => {
-    if (!rawText.trim() || isRunning) return;
+    if (!rawText.trim() || isRunning || inFlightRef.current) return;
+    inFlightRef.current = true;
+    const gen = ++runGenerationRef.current;
     setIsRunning(true);
     setMaskDirtySinceCloud(false);
     setCountdownMs(null);
@@ -112,16 +308,19 @@ export function App() {
         title: title.trim() || "Untitled Incident",
         rawText,
         offlineMode: telemetry.offlineMode,
+        customRunbooks: runbooks,
+        policy,
+        importedFromExtension,
       });
+      if (gen !== runGenerationRef.current) return;
 
       volatileSessionMap.current.set(result.id, result);
       setCurrentResult(result);
       await saveSanitizedTicket(result);
-      const updatedHistory = await listSanitizedTickets();
-      setHistory(updatedHistory);
+      await syncHistoryAndQueueCount();
 
       if (result.resolutionMode === "PRE_CLOUD_COUNTDOWN") {
-        setCountdownMs(3000);
+        setCountdownMs((policy.autoCountdownSeconds ?? 3) * 1000);
       }
 
       setTelemetry((prev) => ({
@@ -136,7 +335,10 @@ export function App() {
         lastLatencyMs: result.latencyMs,
       }));
     } finally {
-      setIsRunning(false);
+      if (gen === runGenerationRef.current) {
+        inFlightRef.current = false;
+        setIsRunning(false);
+      }
     }
   };
 
@@ -161,23 +363,134 @@ export function App() {
     }
   };
 
+  const handleAddManualSpan = (start: number, end: number) => {
+    if (!currentResult || currentResult.loadedFromZeroPiiStore) return;
+    if (currentResult.resolutionMode === "PRE_CLOUD_COUNTDOWN") {
+      setCountdownPaused(true);
+    }
+    const { sanitizedText, mergedSpans } = addManualSpan(
+      currentResult.rawText,
+      currentResult.spans,
+      start,
+      end,
+    );
+    const updatedResult: TriageResult = {
+      ...currentResult,
+      spans: mergedSpans,
+      sanitizedText,
+    };
+    volatileSessionMap.current.set(updatedResult.id, updatedResult);
+    setCurrentResult(updatedResult);
+    if (updatedResult.resolutionMode === "CLOUD_ESCALATION") {
+      setMaskDirtySinceCloud(true);
+    }
+  };
+
   const handleSelectHistory = (item: TriageResult) => {
+    runGenerationRef.current += 1;
+    inFlightRef.current = false;
+    setIsRunning(false);
     const volatile = volatileSessionMap.current.get(item.id);
     const selected = volatile ?? item;
     setTitle(selected.title);
-    if (!selected.loadedFromZeroPiiStore) {
-      setRawText(selected.rawText);
-    }
+    // Security fix: never leave previous ticket's unredacted rawText sitting in the editor when opening a purged disk record
+    setRawText(selected.loadedFromZeroPiiStore ? selected.sanitizedText : selected.rawText);
+    setImportedFromExtension(Boolean(selected.importedFromExtension));
     setMaskDirtySinceCloud(false);
     setCountdownMs(null);
+    setCountdownPaused(false);
     setCurrentResult(selected);
   };
 
   const handleClearHistory = async () => {
+    runGenerationRef.current += 1;
+    inFlightRef.current = false;
+    setIsRunning(false);
+    setCountdownMs(null);
+    setCountdownPaused(false);
     volatileSessionMap.current.clear();
+    escalatedTicketIds.current.clear();
     await clearSanitizedTickets();
     setHistory([]);
+    setTelemetry((prev) => ({ ...prev, queuedOfflineCount: 0 }));
   };
+
+  const handleWarmupNano = async () => {
+    setTelemetry((prev) => ({
+      ...prev,
+      nanoStatus: "MODEL_DOWNLOADING",
+      downloadProgress: 5,
+    }));
+    const res = await warmupOnDeviceModel((pct) => {
+      setTelemetry((prev) => ({
+        ...prev,
+        nanoStatus: pct >= 100 ? "READY" : "MODEL_DOWNLOADING",
+        downloadProgress: pct,
+      }));
+    });
+    if (res.ok) {
+      await refreshNanoStatus();
+    } else {
+      setTelemetry((prev) => ({ ...prev, downloadProgress: null }));
+      await refreshNanoStatus();
+    }
+  };
+
+  const handleGenerateHybridBrief = async () => {
+    if (!currentResult || isGeneratingBrief) return;
+    const targetId = currentResult.id;
+    setIsGeneratingBrief(true);
+    try {
+      const brief = await generateSanitizedHybridBrief(currentResult, {
+        offlineMode: telemetry.offlineMode,
+      });
+      setCurrentResult((prev) => {
+        if (!prev || prev.id !== targetId) return prev;
+        const updated = { ...prev, hybridBrief: brief };
+        volatileSessionMap.current.set(updated.id, updated);
+        void saveSanitizedTicket(updated);
+        return updated;
+      });
+    } finally {
+      setIsGeneratingBrief(false);
+    }
+  };
+
+  const handleProcessOfflineQueue = async () => {
+    if (telemetry.offlineMode || isRunning || inFlightRef.current) return;
+    const queued = history.filter((t) => t.queuedForReconnect);
+    if (queued.length === 0) return;
+
+    inFlightRef.current = true;
+    const gen = ++runGenerationRef.current;
+    setIsRunning(true);
+    try {
+      for (const item of queued) {
+        if (gen !== runGenerationRef.current) break;
+        const sourceTicket = volatileSessionMap.current.get(item.id) ?? item;
+        const safeTicket = prepareTicketForEscalation(sourceTicket);
+        const escalated = await escalateApprovedTicket(safeTicket, safeTicket.spans, {
+          offlineMode: false,
+        });
+        if (gen !== runGenerationRef.current) break;
+        volatileSessionMap.current.set(escalated.id, escalated);
+        await saveSanitizedTicket(escalated);
+        if (escalated.resolutionMode === "CLOUD_ESCALATION") {
+          setCurrentResult(escalated);
+        }
+      }
+      if (gen === runGenerationRef.current) {
+        await syncHistoryAndQueueCount();
+      }
+    } finally {
+      if (gen === runGenerationRef.current) {
+        inFlightRef.current = false;
+        setIsRunning(false);
+      }
+    }
+  };
+
+  const queuedTickets = history.filter((t) => t.queuedForReconnect);
 
   return (
     <div className="min-h-screen bg-slate-950 px-4 py-6 text-slate-100 sm:px-6 lg:px-8">
@@ -185,10 +498,24 @@ export function App() {
         <TelemetryHud
           telemetry={telemetry}
           currentResult={currentResult}
-          onToggleOffline={() =>
-            setTelemetry((prev) => ({ ...prev, offlineMode: !prev.offlineMode }))
-          }
+          onToggleOffline={() => {
+            setTelemetry((prev) => {
+              const nextOffline = !prev.offlineMode;
+              if (nextOffline) {
+                runGenerationRef.current += 1;
+                inFlightRef.current = false;
+                setIsRunning(false);
+                setCountdownPaused(true);
+              }
+              return { ...prev, offlineMode: nextOffline };
+            });
+          }}
+          onOpenPolicyModal={() => setPolicyModalOpen(true)}
+          onWarmupNano={() => void handleWarmupNano()}
+          onRecheckNano={() => void refreshNanoStatus()}
         />
+
+        <PipelineStepper currentResult={currentResult} isRunning={isRunning} />
 
         <div className="grid gap-5 lg:grid-cols-[360px_1fr]">
           <TriageInbox
@@ -196,16 +523,20 @@ export function App() {
             title={title}
             rawText={rawText}
             isRunning={isRunning}
+            offlineMode={telemetry.offlineMode}
             history={history}
+            queuedTickets={queuedTickets}
+            importedFromExtension={importedFromExtension}
             onTitleChange={setTitle}
             onRawTextChange={setRawText}
             onSelectScenario={handleSelectScenario}
-            onRunTriage={handleRunTriage}
+            onRunTriage={() => void handleRunTriage()}
             onSelectHistory={handleSelectHistory}
-            onClearHistory={handleClearHistory}
+            onClearHistory={() => void handleClearHistory()}
+            onProcessOfflineQueue={() => void handleProcessOfflineQueue()}
           />
 
-          <main className="flex flex-col gap-5">
+          <main className="flex min-w-0 flex-col gap-5">
             <div
               onMouseEnter={() => {
                 if (currentResult?.resolutionMode === "PRE_CLOUD_COUNTDOWN") {
@@ -219,107 +550,40 @@ export function App() {
                 spans={currentResult?.spans ?? []}
                 loadedFromZeroPiiStore={Boolean(currentResult?.loadedFromZeroPiiStore)}
                 onToggleSpan={handleToggleSpan}
+                onAddManualSpan={handleAddManualSpan}
               />
             </div>
 
-            <section className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <Terminal className="h-5 w-5 text-indigo-400" />
-                  <h2 className="text-sm font-semibold tracking-wide text-slate-100 uppercase">
-                    Triage Resolution & Routing
-                  </h2>
-                </div>
-                {currentResult && (
-                  <div className="flex flex-wrap gap-2 text-xs font-mono">
-                    <span className="rounded bg-indigo-500/20 px-2 py-0.5 text-indigo-200">
-                      {currentResult.severity} · {currentResult.category}
-                    </span>
-                    <span className="rounded bg-slate-800 px-2 py-0.5 text-emerald-300">
-                      {currentResult.resolutionMode}
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {currentResult?.resolutionMode === "PRE_CLOUD_COUNTDOWN" && (
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-cyan-500/50 bg-cyan-950/40 p-3">
-                  <div className="text-xs text-cyan-200">
-                    {countdownPaused
-                      ? "Pre-Cloud Review Gate PAUSED — edit redaction pills above, then escalate."
-                      : `Auto-escalating sanitized payload to Cloud Gemini in ${((countdownMs ?? 0) / 1000).toFixed(1)}s...`}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {!countdownPaused && (
-                      <button
-                        type="button"
-                        onClick={() => setCountdownPaused(true)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-cyan-500/50 px-2.5 py-1 text-xs font-semibold text-cyan-200 hover:bg-cyan-900/40"
-                      >
-                        <Pause className="h-3.5 w-3.5" />
-                        <span>Pause to Edit Pills</span>
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      disabled={isRunning}
-                      onClick={() => void handleApproveOrRerunCloud()}
-                      className="inline-flex items-center gap-1 rounded-lg bg-cyan-500 px-3 py-1 text-xs font-semibold text-slate-950 hover:bg-cyan-400 disabled:opacity-50"
-                    >
-                      <Play className="h-3.5 w-3.5" />
-                      <span>Escalate Now</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {currentResult?.resolutionMode === "QUARANTINED_PENDING_APPROVAL" && (
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/50 bg-amber-950/40 p-3">
-                  <div className="flex items-center gap-2 text-xs text-amber-200">
-                    <ShieldAlert className="h-4 w-4 shrink-0 text-amber-400" />
-                    <span>
-                      Fail-Closed Quarantine: Review masked tokens above before sending to Cloud.
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    disabled={isRunning}
-                    onClick={() => void handleApproveOrRerunCloud()}
-                    className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-slate-950 transition hover:bg-amber-400 disabled:opacity-50"
-                  >
-                    Approve & Escalate Sanitized Payload to Cloud
-                  </button>
-                </div>
-              )}
-
-              {maskDirtySinceCloud &&
-                currentResult?.resolutionMode === "CLOUD_ESCALATION" &&
-                !telemetry.offlineMode && (
-                  <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-cyan-500/50 bg-cyan-950/40 p-3">
-                    <span className="text-xs text-cyan-200">
-                      Masking pills changed since the last Cloud response.
-                    </span>
-                    <button
-                      type="button"
-                      disabled={isRunning}
-                      onClick={() => void handleApproveOrRerunCloud()}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-500 px-3 py-1.5 text-xs font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:opacity-50"
-                    >
-                      <RefreshCw className="h-3.5 w-3.5" />
-                      <span>Re-Run Cloud Analysis with Updated Mask</span>
-                    </button>
-                  </div>
-                )}
-
-              <div className="rounded-lg border border-slate-800 bg-slate-950/80 p-3.5 text-sm leading-relaxed text-slate-200 whitespace-pre-wrap">
-                {currentResult
-                  ? currentResult.resolution
-                  : "Click 'Run Hybrid Triage' to run Stage 1 (Regex + Gemini Nano 4 ONLY_ON_DEVICE) and view the sanitized diff and resolution."}
-              </div>
-            </section>
+            <ResolutionPanel
+              currentResult={currentResult}
+              isRunning={isRunning}
+              isGeneratingBrief={isGeneratingBrief}
+              offlineMode={telemetry.offlineMode}
+              countdownMs={countdownMs}
+              countdownPaused={countdownPaused}
+              maskDirtySinceCloud={maskDirtySinceCloud}
+              onPauseCountdown={() => setCountdownPaused(true)}
+              onApproveOrRerunCloud={() => void handleApproveOrRerunCloud()}
+              onGenerateHybridBrief={() => void handleGenerateHybridBrief()}
+            />
           </main>
         </div>
       </div>
+
+      <RunbookPolicyModal
+        open={policyModalOpen}
+        runbooks={runbooks}
+        policy={policy}
+        onClose={() => setPolicyModalOpen(false)}
+        onSaveRunbooks={(updated) => {
+          setRunbooks(updated);
+          void saveCustomRunbooks(updated);
+        }}
+        onSavePolicy={(updated) => {
+          setPolicy(updated);
+          void savePrivacyPolicy(updated);
+        }}
+      />
     </div>
   );
 }

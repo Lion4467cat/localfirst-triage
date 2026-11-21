@@ -1,6 +1,11 @@
-import { getGenerativeModel, InferenceMode } from "firebase/ai";
-import { getHybridAI } from "../config/firebase";
+import {
+  createOnDeviceFirewallModel,
+  getHybridAI,
+  TEXT_ONLY_ON_DEVICE_CREATE_OPTIONS,
+} from "../config/firebase";
+import { DEFAULT_RUNBOOKS } from "../config/demoScenarios";
 import type {
+  CustomRunbook,
   InferenceSource,
   NanoStatus,
   RedactionSpan,
@@ -18,11 +23,20 @@ export interface NanoExtractionResult {
   spans: RedactionSpan[];
 }
 
+export type ChromeRawAvailability =
+  | "readily"
+  | "downloadable"
+  | "downloading"
+  | "after-download"
+  | "no";
+
 export interface NanoExtractorDeps {
   timeoutMs?: number;
   maxChunkChars?: number;
   overlapChars?: number;
-  checkAvailability?: () => Promise<"readily" | "after-download" | "no">;
+  maxChunks?: number;
+  availableRunbooks?: CustomRunbook[];
+  checkAvailability?: () => Promise<ChromeRawAvailability>;
   triggerDownload?: () => void;
   callNano?: (prompt: string) => Promise<string>;
 }
@@ -32,6 +46,26 @@ interface ParsedNanoPayload {
   severity: Severity;
   runbookId: string | null;
 }
+
+export const NANO_EXTRACTION_SCHEMA = {
+  type: "object",
+  properties: {
+    severity: { type: "string", enum: ["P0", "P1", "P2", "P3"] },
+    runbookId: { type: ["string", "null"] },
+    entities: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          type: { type: "string" },
+          value: { type: "string" },
+        },
+        required: ["type", "value"],
+      },
+    },
+  },
+  required: ["severity", "runbookId", "entities"],
+};
 
 export function stripStackFrames(text: string): string {
   // Remove ONLY pure call-site stack frame lines and hex pointer lines;
@@ -134,7 +168,9 @@ export function parseDefensiveSemanticJson(raw: string): ParsedNanoPayload {
         : "P2";
 
     const runbookId =
-      typeof parsed.runbookId === "string" && parsed.runbookId.trim()
+      typeof parsed.runbookId === "string" &&
+      parsed.runbookId.trim() &&
+      parsed.runbookId.trim().toLowerCase() !== "null"
         ? parsed.runbookId.trim()
         : null;
 
@@ -147,12 +183,12 @@ export function parseDefensiveSemanticJson(raw: string): ParsedNanoPayload {
 export function triggerChromeNanoBackgroundDownload(): void {
   if (typeof globalThis === "undefined") return;
   const g = globalThis as unknown as {
-    LanguageModel?: { create?: () => Promise<unknown> };
-    ai?: { languageModel?: { create?: () => Promise<unknown> } };
+    LanguageModel?: { create?: (opts?: unknown) => Promise<unknown> };
+    ai?: { languageModel?: { create?: (opts?: unknown) => Promise<unknown> } };
   };
   try {
     if (g.LanguageModel?.create) {
-      void g.LanguageModel.create().catch(() => undefined);
+      void g.LanguageModel.create(TEXT_ONLY_ON_DEVICE_CREATE_OPTIONS).catch(() => undefined);
     } else if (g.ai?.languageModel?.create) {
       void g.ai.languageModel.create().catch(() => undefined);
     }
@@ -161,14 +197,14 @@ export function triggerChromeNanoBackgroundDownload(): void {
   }
 }
 
-export async function checkChromeNanoAvailability(): Promise<"readily" | "after-download" | "no"> {
+export async function checkChromeNanoAvailability(): Promise<ChromeRawAvailability> {
   if (typeof globalThis === "undefined") {
     return "no";
   }
 
   const g = globalThis as unknown as {
     LanguageModel?: {
-      availability?: () => Promise<string>;
+      availability?: (options?: unknown) => Promise<string>;
     };
     ai?: {
       languageModel?: {
@@ -179,20 +215,17 @@ export async function checkChromeNanoAvailability(): Promise<"readily" | "after-
 
   try {
     if (g.LanguageModel?.availability) {
-      const state = await g.LanguageModel.availability();
+      const state = await g.LanguageModel.availability(TEXT_ONLY_ON_DEVICE_CREATE_OPTIONS);
       if (state === "available" || state === "readily") return "readily";
-      if (state === "downloading" || state === "downloadable" || state === "after-download") {
-        return "after-download";
-      }
+      if (state === "downloading") return "downloading";
+      if (state === "downloadable" || state === "after-download") return "downloadable";
+      return "no";
     }
     if (g.ai?.languageModel?.capabilities) {
       const caps = await g.ai.languageModel.capabilities();
       if (caps?.available === "readily" || caps?.available === "available") return "readily";
-      if (
-        caps?.available === "after-download" ||
-        caps?.available === "downloadable" ||
-        caps?.available === "downloading"
-      ) {
+      if (caps?.available === "downloading") return "downloading";
+      if (caps?.available === "after-download" || caps?.available === "downloadable") {
         return "after-download";
       }
     }
@@ -208,16 +241,28 @@ async function defaultCallNanoOnDevice(prompt: string): Promise<string> {
   if (!ai) {
     throw new Error("Firebase AI not configured");
   }
-  const model = getGenerativeModel(ai, {
-    mode: InferenceMode.ONLY_ON_DEVICE,
-  });
-  const result = await model.generateContent(prompt);
-  return result.response.text();
+  try {
+    const model = createOnDeviceFirewallModel(ai, NANO_EXTRACTION_SCHEMA);
+    const result = await model.generateContent(prompt);
+    return result.response.text();
+  } catch {
+    // Fallback for Chrome builds rejecting responseConstraint while staying strictly ONLY_ON_DEVICE
+    const model = createOnDeviceFirewallModel(ai);
+    const result = await model.generateContent(prompt);
+    return result.response.text();
+  }
 }
 
 function heuristicSeverity(text: string): Severity {
   const lower = text.toLowerCase();
-  if (lower.includes("p0") || lower.includes("outage") || lower.includes("leaked")) return "P0";
+  if (
+    lower.includes("p0") ||
+    lower.includes("outage") ||
+    lower.includes("private key") ||
+    lower.includes("leaked")
+  ) {
+    return "P0";
+  }
   if (lower.includes("p1") || lower.includes("deadlock") || lower.includes("429")) return "P1";
   if (lower.includes("p3") || lower.includes("cert_has_expired") || lower.includes("localhost")) {
     return "P3";
@@ -227,6 +272,24 @@ function heuristicSeverity(text: string): Severity {
 
 const SEVERITY_RANK: Record<Severity, number> = { P0: 0, P1: 1, P2: 2, P3: 3 };
 
+export function buildNanoExtractionPrompt(
+  chunk: string,
+  runbooks: CustomRunbook[] = DEFAULT_RUNBOOKS,
+): string {
+  const runbookList = runbooks
+    .map((rb) => `- ${rb.id} (${rb.severity}): ${rb.title}`)
+    .join("\n");
+
+  return [
+    'Return ONLY valid JSON: {"severity":"P0|P1|P2|P3","runbookId":string|null,"entities":[{"type":"CONTEXTUAL_PHI|M_AND_A_SECRET|NATURAL_SECRET|PERSON_PII","value":"exact verbatim substring"}]}',
+    "Do NOT generate prose replies. Only copy exact verbatim sensitive substrings present in Text.",
+    "Valid local runbookId values (ONLY assign one if severity is P2 or P3 and it clearly matches):",
+    runbookList,
+    "Text:",
+    chunk,
+  ].join("\n");
+}
+
 export async function extractSemanticSecretsWithNano(
   text: string,
   deps: NanoExtractorDeps = {},
@@ -234,14 +297,17 @@ export async function extractSemanticSecretsWithNano(
   const timeoutMs = deps.timeoutMs ?? 8000;
   const maxChunkChars = deps.maxChunkChars ?? 1400;
   const overlapChars = deps.overlapChars ?? 120;
+  const maxChunks = Math.max(1, deps.maxChunks ?? 6);
+  const runbooks = deps.availableRunbooks ?? DEFAULT_RUNBOOKS;
   const checkAvail = deps.checkAvailability ?? checkChromeNanoAvailability;
   const triggerDownload = deps.triggerDownload ?? triggerChromeNanoBackgroundDownload;
   const callNano = deps.callNano ?? defaultCallNanoOnDevice;
 
   const availability = await checkAvail();
-  if (availability === "after-download") {
-    // Non-blocking trigger so Chrome actually starts pulling Nano weights
-    triggerDownload();
+  if (availability === "after-download" || availability === "downloading") {
+    if (availability === "after-download") {
+      triggerDownload();
+    }
     return {
       nanoStatus: "MODEL_DOWNLOADING",
       inferenceSource: "LOCAL_REGEX_FALLBACK",
@@ -252,7 +318,18 @@ export async function extractSemanticSecretsWithNano(
     };
   }
 
-  if (availability === "no" && !deps.callNano && !getHybridAI()) {
+  if (availability === "downloadable") {
+    return {
+      nanoStatus: "DOWNLOADABLE",
+      inferenceSource: "LOCAL_REGEX_FALLBACK",
+      severity: heuristicSeverity(text),
+      runbookId: null,
+      category: "GENERAL_INCIDENT",
+      spans: [],
+    };
+  }
+
+  if (availability === "no" && !deps.callNano) {
     return {
       nanoStatus: "UNAVAILABLE",
       inferenceSource: "LOCAL_REGEX_FALLBACK",
@@ -264,26 +341,31 @@ export async function extractSemanticSecretsWithNano(
   }
 
   const proseOnly = stripStackFrames(text) || text;
-  const chunks = chunkText(proseOnly, maxChunkChars, overlapChars);
+  const allChunks = chunkText(proseOnly, maxChunkChars, overlapChars);
+  const chunks =
+    allChunks.length <= maxChunks
+      ? allChunks
+      : [
+          ...allChunks.slice(0, Math.ceil(maxChunks * 0.67)),
+          ...allChunks.slice(-Math.max(1, maxChunks - Math.ceil(maxChunks * 0.67))),
+        ];
   const allItems: SemanticExtractionItem[] = [];
   let bestSeverity: Severity = "P3";
   let candidateRunbookId: string | null = null;
 
   try {
     for (const chunk of chunks) {
-      const prompt = [
-        'Return ONLY valid JSON: {"severity":"P0|P1|P2|P3","runbookId":string|null,"entities":[{"type":"CONTEXTUAL_PHI|M_AND_A_SECRET|NATURAL_SECRET","value":"exact verbatim substring"}]}',
-        "Do NOT generate prose replies. Only copy exact verbatim sensitive substrings.",
-        "Text:",
-        chunk,
-      ].join("\n");
+      const prompt = buildNanoExtractionPrompt(chunk, runbooks);
 
+      let timer: ReturnType<typeof setTimeout> | undefined;
       const raw = await Promise.race([
         callNano(prompt),
-        new Promise<string>((_, reject) =>
-          setTimeout(() => reject(new Error("NANO_TIMEOUT")), timeoutMs),
-        ),
-      ]);
+        new Promise<string>((_, reject) => {
+          timer = setTimeout(() => reject(new Error("NANO_TIMEOUT")), timeoutMs);
+        }),
+      ]).finally(() => {
+        if (timer !== undefined) clearTimeout(timer);
+      });
 
       const parsed = parseDefensiveSemanticJson(raw);
       allItems.push(...parsed.entities);

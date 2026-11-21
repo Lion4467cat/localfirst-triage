@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LocalFirst Triage — Side Panel</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <main class="panel">
+      <header class="header">
+        <div>
+          <h1>LocalFirst Triage</h1>
+          <p class="subtitle">Side Panel Privacy Firewall · Nano 4 On-Device</p>
+        </div>
+        <span id="nano-badge" class="badge">Checking Nano 4...</span>
+      </header>
+
+      <section class="actions">
+        <button id="btn-capture-tab" type="button" class="btn secondary">
+          Capture Active Tab
+        </button>
+        <button id="btn-run-firewall" type="button" class="btn primary">
+          Sanitize Locally
+        </button>
+      </section>
+
+      <section class="field">
+        <label for="ticket-title">Ticket / Page Title</label>
+        <input id="ticket-title" type="text" placeholder="Selected incident or ticket title" />
+      </section>
+
+      <section class="field">
+        <label for="raw-input">Raw Local Capture (Never Leaves Device Unredacted)</label>
+        <textarea
+          id="raw-input"
+          rows="6"
+          placeholder="Right-click any text on GitHub/Jira/Zendesk -> 'Sanitize & Triage with LocalFirst' or click 'Capture Active Tab'."
+        ></textarea>
+      </section>
+
+      <section class="stats" id="scan-stats">
+        <span>No local scan run yet.</span>
+      </section>
+
+      <section class="field">
+        <label for="sanitized-output">Sanitized Output (Zero-PII Safe)</label>
+        <pre id="sanitized-output" class="output">Run "Sanitize Locally" to inspect redacted payload.</pre>
+      </section>
+
+      <footer class="footer">
+        <button id="btn-copy" type="button" class="btn secondary" disabled>
+          Copy Sanitized
+        </button>
+        <button id="btn-handoff" type="button" class="btn accent" disabled>
+          Escalate Sanitized to Cloud Workbench
+        </button>
+      </footer>
+    </main>
+    <script type="module" src="sidepanel.js"></script>
+  </body>
+</html>

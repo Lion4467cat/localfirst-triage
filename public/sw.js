@@ -1,5 +1,11 @@
-const CACHE_NAME = "localfirst-triage-shell-v2";
-const BASE_ASSETS = ["/", "/index.html", "/manifest.json"];
+const CACHE_NAME = "localfirst-triage-shell-v3";
+const BASE_ASSETS = [
+  "/",
+  "/index.html",
+  "/manifest.json",
+  "/icons/icon-192.png",
+  "/icons/icon-512.png",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -45,7 +51,12 @@ self.addEventListener("fetch", (event) => {
       if (cached) return cached;
       return fetch(request)
         .then((response) => {
-          if (response.ok && (url.pathname.startsWith("/assets/") || url.pathname === "/")) {
+          if (
+            response.ok &&
+            (url.pathname.startsWith("/assets/") ||
+              url.pathname.startsWith("/icons/") ||
+              url.pathname === "/")
+          ) {
             const copy = response.clone();
             void caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
           }

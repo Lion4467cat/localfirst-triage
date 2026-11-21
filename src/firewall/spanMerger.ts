@@ -1,4 +1,9 @@
-import type { DetectorSource, RedactionSpan, SemanticExtractionItem } from "../types/triage";
+import type {
+  DetectorSource,
+  RedactionSpan,
+  SemanticExtractionItem,
+  ZeroLeakageAudit,
+} from "../types/triage";
 
 const TECHNICAL_ALLOWLIST = new Set([
   "pg_locks",
@@ -10,14 +15,25 @@ const TECHNICAL_ALLOWLIST = new Set([
   "etimedout",
   "typeerror",
   "referenceerror",
+  "http 500",
+  "http 502",
+  "http 503",
   "http 504",
   "http 429",
   "deadlock in pg_locks",
+  "postgresql",
+  "stripe",
+  "kubernetes",
+  "localhost",
+  "127.0.0.1",
 ]);
 
 const DETECTOR_PRIORITY: Record<DetectorSource, number> = {
-  NANO_SEMANTIC_FIREWALL: 3,
+  MANUAL_MASK: 5,
+  NANO_SEMANTIC_FIREWALL: 4,
+  POLICY_TERM: 3,
   REGEX_FIREWALL: 2,
+  ENTROPY_SCANNER: 2,
   HEURISTIC_GUARD: 1,
 };
 
@@ -100,7 +116,7 @@ export function mergeAndRedactSpans(
     return { sanitizedText: rawText, mergedSpans: [] };
   }
 
-  // Sort by start ascending, then longest span first, then detector priority (NANO_SEMANTIC_FIREWALL > REGEX_FIREWALL > HEURISTIC_GUARD)
+  // Sort by start ascending, then longest span first, then detector priority
   const sorted = [...spans].sort((a, b) => {
     if (a.start !== b.start) return a.start - b.start;
     const lenDiff = b.end - b.start - (a.end - a.start);
@@ -113,33 +129,122 @@ export function mergeAndRedactSpans(
     if (span.start < 0 || span.end > rawText.length || span.start >= span.end) {
       continue;
     }
-    if (isTechnicalAllowlisted(span.matchedText)) {
+    if (span.detector !== "MANUAL_MASK" && isTechnicalAllowlisted(span.matchedText)) {
       continue;
     }
     const prev = mergedSpans[mergedSpans.length - 1];
     if (!prev) {
-      mergedSpans.push({ ...span, masked: span.masked ?? true });
+      mergedSpans.push({
+        ...span,
+        masked: span.masked ?? true,
+        constituentTexts: [span.matchedText],
+      });
       continue;
     }
 
     if (span.start < prev.end) {
+      const existingConstituents = prev.constituentTexts ?? [prev.matchedText];
+      if (!existingConstituents.includes(span.matchedText)) {
+        existingConstituents.push(span.matchedText);
+      }
+      prev.constituentTexts = existingConstituents;
       if (span.end > prev.end) {
         prev.end = span.end;
         prev.matchedText = rawText.slice(prev.start, prev.end);
       }
-      // NANO_SEMANTIC_FIREWALL always wins attribution over HEURISTIC_GUARD / REGEX_FIREWALL on overlapping semantic entities
       if (DETECTOR_PRIORITY[span.detector] > DETECTOR_PRIORITY[prev.detector]) {
         prev.detector = span.detector;
         prev.category = span.category;
         prev.placeholder = span.placeholder;
       }
     } else {
-      mergedSpans.push({ ...span, masked: span.masked ?? true });
+      mergedSpans.push({
+        ...span,
+        masked: span.masked ?? true,
+        constituentTexts: [span.matchedText],
+      });
     }
   }
 
   return {
     sanitizedText: applyMaskedSpans(rawText, mergedSpans),
     mergedSpans,
+  };
+}
+
+export function addManualSpan(
+  rawText: string,
+  existingSpans: RedactionSpan[],
+  start: number,
+  end: number,
+  category = "MANUAL_SECRET",
+): { sanitizedText: string; mergedSpans: RedactionSpan[] } {
+  const safeStart = Math.max(0, start);
+  const safeEnd = Math.min(rawText.length, end);
+  if (safeEnd <= safeStart) {
+    return mergeAndRedactSpans(rawText, existingSpans);
+  }
+  const manualCount = existingSpans.filter((s) => s.detector === "MANUAL_MASK").length + 1;
+  const cleanCategory = category.toUpperCase().replace(/[^A-Z0-9_]/g, "_") || "MANUAL_SECRET";
+  const manualSpan: RedactionSpan = {
+    start: safeStart,
+    end: safeEnd,
+    category: cleanCategory,
+    detector: "MANUAL_MASK",
+    placeholder: `[REDACTED:${cleanCategory}_${manualCount}]`,
+    matchedText: rawText.slice(safeStart, safeEnd),
+    masked: true,
+  };
+  return mergeAndRedactSpans(rawText, [...existingSpans, manualSpan]);
+}
+
+/**
+ * Programmatic Zero-Leakage Gate executed immediately prior to Stage 2 Cloud calls.
+ * Asserts 0 active masked raw values appear verbatim inside the outbound prompt.
+ */
+export function verifyZeroLeakage(
+  outboundPrompt: string,
+  spans: RedactionSpan[],
+): ZeroLeakageAudit {
+  const activeMasked = spans.filter(
+    (s) => s.masked !== false && s.matchedText && s.matchedText.trim().length >= 3,
+  );
+  const leakedCategories: string[] = [];
+
+  for (const span of activeMasked) {
+    const candidates = new Set<string>([
+      span.matchedText,
+      ...(span.constituentTexts ?? []),
+    ]);
+
+    let leaked = false;
+    for (const rawCandidate of candidates) {
+      const candidate = rawCandidate.trim();
+      if (candidate.length < 3 || candidate.startsWith("[REDACTED:")) continue;
+      const urlEncoded = encodeURIComponent(candidate);
+      const jsonEscaped = JSON.stringify(candidate).slice(1, -1);
+
+      if (
+        outboundPrompt.includes(candidate) ||
+        (urlEncoded.length >= 3 && outboundPrompt.includes(urlEncoded)) ||
+        (jsonEscaped.length >= 3 && outboundPrompt.includes(jsonEscaped))
+      ) {
+        leaked = true;
+        break;
+      }
+    }
+
+    if (leaked) {
+      leakedCategories.push(span.category);
+    }
+  }
+
+  return {
+    verified: leakedCategories.length === 0,
+    checkedSpansCount: activeMasked.length,
+    leakedSpansCount: leakedCategories.length,
+    leakedCategories: [...new Set(leakedCategories)],
+    outboundPromptPreview: outboundPrompt,
+    verifiedAt: Date.now(),
   };
 }
