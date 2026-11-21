@@ -4,24 +4,38 @@
   const HOST_ID = "localfirst-paste-shield-host";
   const STORAGE_KEY_ENABLED = "shieldEnabled";
   const STORAGE_KEY_STATS = "shieldStats";
+  const STORAGE_KEY_TARGET = "workbenchTarget";
+  const TARGET_URLS = {
+    production: "https://para-1-2e22b.web.app/",
+    local: "http://localhost:4173/",
+  };
 
   let shieldEnabled = true;
+  let workbenchTarget = "production";
   let isInjectingSafePaste = false;
   let activeHud = null;
+  let typingDebounceTimer = null;
+  let bypassedDraftText = null;
 
   function loadInitialSettings() {
     if (typeof chrome === "undefined" || !chrome.storage?.local) return;
     try {
-      chrome.storage.local.get([STORAGE_KEY_ENABLED], (res) => {
+      chrome.storage.local.get([STORAGE_KEY_ENABLED, STORAGE_KEY_TARGET], (res) => {
         if (typeof res?.[STORAGE_KEY_ENABLED] === "boolean") {
           shieldEnabled = res[STORAGE_KEY_ENABLED];
         }
+        if (res?.[STORAGE_KEY_TARGET] === "local" || res?.[STORAGE_KEY_TARGET] === "production") {
+          workbenchTarget = res[STORAGE_KEY_TARGET];
+        }
       });
       chrome.storage.onChanged.addListener((changes, area) => {
-        if (area === "local" && changes[STORAGE_KEY_ENABLED]) {
-          if (typeof changes[STORAGE_KEY_ENABLED].newValue === "boolean") {
-            shieldEnabled = changes[STORAGE_KEY_ENABLED].newValue;
-          }
+        if (area !== "local") return;
+        if (changes[STORAGE_KEY_ENABLED] && typeof changes[STORAGE_KEY_ENABLED].newValue === "boolean") {
+          shieldEnabled = changes[STORAGE_KEY_ENABLED].newValue;
+        }
+        if (changes[STORAGE_KEY_TARGET]) {
+          const val = changes[STORAGE_KEY_TARGET].newValue;
+          if (val === "local" || val === "production") workbenchTarget = val;
         }
       });
     } catch {
@@ -159,6 +173,71 @@
     }
   }
 
+  function getTargetText(target) {
+    if (!target) return "";
+    if (target.tagName === "TEXTAREA" || target.tagName === "INPUT") {
+      return target.value || "";
+    }
+    return target.innerText || target.textContent || "";
+  }
+
+  function replaceTargetText(target, nextText) {
+    if (!target) return;
+    isInjectingSafePaste = true;
+    try {
+      target.focus();
+      if (target.tagName === "TEXTAREA" || target.tagName === "INPUT") {
+        const proto =
+          target.tagName === "TEXTAREA"
+            ? window.HTMLTextAreaElement.prototype
+            : window.HTMLInputElement.prototype;
+        const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+        if (setter) setter.call(target, nextText);
+        else target.value = nextText;
+        const caret = nextText.length;
+        if (typeof target.setSelectionRange === "function") {
+          target.setSelectionRange(caret, caret);
+        }
+        target.dispatchEvent(
+          new InputEvent("input", {
+            bubbles: true,
+            cancelable: true,
+            inputType: "insertReplacementText",
+            data: nextText,
+          }),
+        );
+        target.dispatchEvent(new Event("change", { bubbles: true }));
+      } else {
+        const sel = window.getSelection();
+        if (sel) {
+          const range = document.createRange();
+          range.selectNodeContents(target);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+        let replaced = false;
+        try {
+          replaced = document.execCommand("insertText", false, nextText);
+        } catch {
+          replaced = false;
+        }
+        if (!replaced) {
+          target.textContent = nextText;
+          target.dispatchEvent(
+            new InputEvent("input", {
+              bubbles: true,
+              cancelable: true,
+              inputType: "insertReplacementText",
+              data: nextText,
+            }),
+          );
+        }
+      }
+    } finally {
+      isInjectingSafePaste = false;
+    }
+  }
+
   const CATEGORY_LABELS = {
     AWS_ACCESS_KEY: "AWS Key",
     API_KEY: "API Key",
@@ -169,6 +248,8 @@
     US_SSN: "SSN",
     EMAIL: "Email",
     PHONE: "Phone",
+    PERSON: "Person Name",
+    ORG_TERM: "Company / Org",
     CONTEXTUAL_PHI: "Medical Info",
     M_AND_A_SECRET: "M&A Secret",
     NATURAL_SECRET: "Private Note",
@@ -185,11 +266,12 @@
     activeHud = null;
   }
 
-  function showShieldHud({ target, savedSel, rawText, initialScan }) {
+  function showShieldHud({ target, savedSel, rawText, initialScan, mode = "paste" }) {
     destroyHud();
 
     let currentScan = initialScan;
     let bypassArmed = false;
+    const isDraftMode = mode === "draft";
 
     const host = document.createElement("div");
     host.id = HOST_ID;
@@ -251,15 +333,28 @@
         new Set(currentScan.mergedSpans.map((s) => s.category)),
       ).slice(0, 6);
 
+      const headlineText = isDraftMode
+        ? `Detected ${count} secret${count === 1 ? "" : "s"} in draft — Scrub Before Sending?`
+        : `Blocked ${count} secret${count === 1 ? "" : "s"} locally`;
+      const primaryBtnText = isDraftMode ? "Scrub Draft Now" : "Paste Safe Version";
+      const bypassBtnText = isDraftMode
+        ? bypassArmed
+          ? "Confirm send anyway? (unsafe)"
+          : "Send Anyway (Unsafe)"
+        : bypassArmed
+          ? "Confirm raw paste? (unsafe)"
+          : "Bypass once (unsafe)";
+
       card.innerHTML = `
         <div class="lf-row">
           <div class="lf-title">
-            <svg viewBox="0 0 32 32" width="18" height="18" fill="none" aria-hidden="true">
-              <path d="M4 7a3 3 0 0 1 3-3h6v24H7a3 3 0 0 1-3-3V7Z" fill="#F8FAFC"/>
-              <rect x="15.25" y="2.5" width="1.5" height="27" rx="0.75" fill="#00E5A3"/>
-              <path d="M20 5h5a2 2 0 0 1 2 2v18a2 2 0 0 1-2 2h-5V5Z" stroke="#F8FAFC" stroke-width="2"/>
+            <svg viewBox="0 0 32 32" width="20" height="20" fill="none" aria-hidden="true">
+              <rect width="32" height="32" rx="7" fill="#0B0C10"/>
+              <path d="M5.5 8.5a2.5 2.5 0 0 1 2.5-2.5h5.2v20H8a2.5 2.5 0 0 1-2.5-2.5v-15Z" fill="#F8FAFC"/>
+              <rect x="15.25" y="4.5" width="1.5" height="23" rx="0.75" fill="#00E5A3"/>
+              <path d="M19.2 6.8h4.8a2 2 0 0 1 2 2v14.4a2 2 0 0 1-2 2h-4.8V6.8Z" stroke="#F8FAFC" stroke-width="1.9"/>
             </svg>
-            <span id="lf-headline">Blocked ${count} secret${count === 1 ? "" : "s"} locally</span>
+            <span id="lf-headline">${headlineText}</span>
           </div>
           <span class="lf-risk lf-risk-${risk.tier}">${risk.tier}</span>
         </div>
@@ -267,13 +362,13 @@
         <div class="lf-chips" id="lf-chips"></div>
         <div class="lf-preview" id="lf-preview"></div>
         <div class="lf-actions">
-          <button type="button" class="lf-btn lf-btn-primary" id="lf-paste-safe">Paste Safe Version</button>
+          <button type="button" class="lf-btn lf-btn-primary" id="lf-paste-safe">${primaryBtnText}</button>
           <button type="button" class="lf-btn lf-btn-secondary" id="lf-open-wb">Open in Workbench →</button>
           <button type="button" class="lf-btn lf-btn-ghost" id="lf-cancel">Cancel</button>
         </div>
         <div>
           <button type="button" class="lf-bypass ${bypassArmed ? "lf-bypass-armed" : ""}" id="lf-bypass">
-            ${bypassArmed ? "Confirm raw paste? (unsafe)" : "Bypass once (unsafe)"}
+            ${bypassBtnText}
           </button>
         </div>
       `;
@@ -299,13 +394,18 @@
     };
 
     const handlePasteSafe = () => {
-      insertSafeText(target, savedSel, currentScan.sanitizedText);
+      if (isDraftMode) {
+        replaceTargetText(target, currentScan.sanitizedText);
+        recordAggregateTelemetry(currentScan.mergedSpans.length);
+      } else {
+        insertSafeText(target, savedSel, currentScan.sanitizedText);
+      }
       card.innerHTML = `
         <div class="lf-toast">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5">
             <path d="M20 6 9 17l-5-5"/>
           </svg>
-          <span>Safe text pasted · 0 leaked</span>
+          <span>${isDraftMode ? "Safe draft scrubbed · 0 leaked" : "Safe text pasted · 0 leaked"}</span>
         </div>
       `;
       setTimeout(destroyHud, 1500);
@@ -313,9 +413,11 @@
 
     const handleOpenWorkbench = () => {
       const fw = globalThis.LocalFirstFirewall;
+      const baseUrl = TARGET_URLS[workbenchTarget] || TARGET_URLS.production;
       const url = fw.buildSanitizedHandoffUrl(
         `Paste Shield (${window.location.hostname || "web"})`,
         currentScan.sanitizedText,
+        baseUrl,
       );
       window.open(url, "_blank", "noopener,noreferrer");
       destroyHud();
@@ -327,7 +429,11 @@
         render();
         return;
       }
-      insertSafeText(target, savedSel, rawText);
+      if (isDraftMode) {
+        bypassedDraftText = rawText;
+      } else {
+        insertSafeText(target, savedSel, rawText);
+      }
       destroyHud();
     };
 
@@ -395,6 +501,57 @@
     showShieldHud({ target, savedSel, rawText, initialScan: scan });
   }
 
+  function onInput(event) {
+    if (!shieldEnabled || isInjectingSafePaste) return;
+    const target = resolveEditableTarget(event.target);
+    if (!target) return;
+    clearTimeout(typingDebounceTimer);
+    typingDebounceTimer = setTimeout(() => {
+      const fw = globalThis.LocalFirstFirewall;
+      if (!fw?.scrubSync) return;
+      const text = getTargetText(target);
+      if (!text.trim() || text === bypassedDraftText) return;
+      const scan = fw.scrubSync(text, true);
+      if (scan.mergedSpans.length >= 1) {
+        showShieldHud({
+          target,
+          savedSel: null,
+          rawText: text,
+          initialScan: scan,
+          mode: "draft",
+        });
+      }
+    }, 450);
+  }
+
+  function onSubmitKeyDown(event) {
+    if (!shieldEnabled || isInjectingSafePaste) return;
+    if (event.key !== "Enter" || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) {
+      return;
+    }
+    if (document.getElementById(HOST_ID)) return;
+    const target = resolveEditableTarget(event.target);
+    if (!target || target.tagName === "TEXTAREA") return;
+    const fw = globalThis.LocalFirstFirewall;
+    if (!fw?.scrubSync) return;
+    const text = getTargetText(target);
+    if (!text.trim() || text === bypassedDraftText) return;
+    const scan = fw.scrubSync(text, true);
+    if (scan.mergedSpans.length >= 1) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      showShieldHud({
+        target,
+        savedSel: null,
+        rawText: text,
+        initialScan: scan,
+        mode: "draft",
+      });
+    }
+  }
+
   loadInitialSettings();
   document.addEventListener("paste", onPaste, true);
+  document.addEventListener("input", onInput, true);
+  document.addEventListener("keydown", onSubmitKeyDown, true);
 })();

@@ -22,7 +22,8 @@ describe("Live Browser Paste Shield (firewall-core)", () => {
   });
 
   it("passes benign developer pastes with 0 masks and 0 false positives", () => {
-    const benign = "Please check why nginx returned 502 Bad Gateway on /api/v1/health after the v4.2.0 rollout.";
+    const benign =
+      "Please check why nginx returned 502 Bad Gateway on /api/v1/health after the v4.2.0 rollout.";
     const res = scrubSync(benign, true);
     expect(res.mergedSpans.length).toBe(0);
     expect(res.sanitizedText).toBe(benign);
@@ -33,7 +34,12 @@ describe("Live Browser Paste Shield (firewall-core)", () => {
   it("computes consistent quick risk tiers", () => {
     expect(computeQuickRiskScore([]).tier).toBe("LOW");
     expect(computeQuickRiskScore([{ category: "API_KEY" }]).tier).toBe("ELEVATED");
-    expect(computeQuickRiskScore([{ category: "API_KEY" }, { category: "AWS_ACCESS_KEY" }]).tier).toBe("HIGH");
+    expect(
+      computeQuickRiskScore([
+        { category: "API_KEY" },
+        { category: "AWS_ACCESS_KEY" },
+      ]).tier,
+    ).toBe("HIGH");
     expect(
       computeQuickRiskScore([
         { category: "API_KEY" },
@@ -41,5 +47,20 @@ describe("Live Browser Paste Shield (firewall-core)", () => {
         { category: "CONTEXTUAL_PHI" },
       ]).tier,
     ).toBe("CRITICAL");
+  });
+
+  it("catches natural-language bare phone, lowercase name, employer, and low-entropy labeled API key", () => {
+    const sample =
+      "my phone number is 9876543210 and my name is ravi and i work in Zenith company , and my api key is 23224324234kjjjkjl";
+    const res = scrubSync(sample, true);
+    expect(res.mergedSpans.length).toBe(4);
+    expect(res.sanitizedText).not.toContain("9876543210");
+    expect(res.sanitizedText).not.toContain("ravi");
+    expect(res.sanitizedText).not.toContain("Zenith company");
+    expect(res.sanitizedText).not.toContain("23224324234kjjjkjl");
+    expect(res.sanitizedText).toContain("[REDACTED:PHONE_");
+    expect(res.sanitizedText).toContain("[REDACTED:PERSON_");
+    expect(res.sanitizedText).toContain("[REDACTED:ORG_TERM_");
+    expect(res.sanitizedText).toContain("[REDACTED:API_KEY_");
   });
 });

@@ -8,12 +8,18 @@ const CAPTURE_STORAGE_KEY = "pendingCapture";
 const THEME_STORAGE_KEY = "localfirst-theme";
 const SHIELD_ENABLED_KEY = "shieldEnabled";
 const SHIELD_STATS_KEY = "shieldStats";
+const WORKBENCH_TARGET_KEY = "workbenchTarget";
+const WORKBENCH_URLS = {
+  production: "https://para-1-2e22b.web.app/",
+  local: "http://localhost:4173/",
+};
 
 const nanoBadge = document.getElementById("nano-badge");
 const shieldToggleBtn = document.getElementById("btn-shield-toggle");
 const shieldToggleLabel = document.getElementById("shield-toggle-label");
 const statBlockedPastes = document.getElementById("stat-blocked-pastes");
 const statSecretsBlocked = document.getElementById("stat-secrets-blocked");
+const workbenchTargetSelect = document.getElementById("workbench-target");
 const titleInput = document.getElementById("ticket-title");
 const rawInput = document.getElementById("raw-input");
 const scanStats = document.getElementById("scan-stats");
@@ -187,7 +193,12 @@ copyBtn.addEventListener("click", async () => {
 handoffBtn.addEventListener("click", async () => {
   if (!lastSanitizedText) return;
   // Strictly transmit sanitized payload ONLY — raw PII never crosses to the web workbench
-  const url = buildSanitizedHandoffUrl(titleInput.value || "Extension Capture", lastSanitizedText);
+  const targetKey = workbenchTargetSelect?.value === "local" ? "local" : "production";
+  const url = buildSanitizedHandoffUrl(
+    titleInput.value || "Extension Capture",
+    lastSanitizedText,
+    WORKBENCH_URLS[targetKey],
+  );
   if (typeof chrome !== "undefined" && chrome.tabs?.create) {
     await chrome.tabs.create({ url });
   } else {
@@ -228,16 +239,28 @@ function renderShieldStats(stats) {
 
 async function initPasteShieldControls() {
   if (typeof chrome === "undefined" || !chrome.storage?.local) return;
-  const res = await chrome.storage.local.get([SHIELD_ENABLED_KEY, SHIELD_STATS_KEY]);
+  const res = await chrome.storage.local.get([
+    SHIELD_ENABLED_KEY,
+    SHIELD_STATS_KEY,
+    WORKBENCH_TARGET_KEY,
+  ]);
   const enabled = typeof res?.[SHIELD_ENABLED_KEY] === "boolean" ? res[SHIELD_ENABLED_KEY] : true;
   renderShieldState(enabled);
   renderShieldStats(res?.[SHIELD_STATS_KEY]);
+  if (workbenchTargetSelect && (res?.[WORKBENCH_TARGET_KEY] === "local" || res?.[WORKBENCH_TARGET_KEY] === "production")) {
+    workbenchTargetSelect.value = res[WORKBENCH_TARGET_KEY];
+  }
 
   shieldToggleBtn?.addEventListener("click", async () => {
     const current = shieldToggleBtn.getAttribute("aria-checked") !== "false";
     const next = !current;
     renderShieldState(next);
     await chrome.storage.local.set({ [SHIELD_ENABLED_KEY]: next });
+  });
+
+  workbenchTargetSelect?.addEventListener("change", async () => {
+    const val = workbenchTargetSelect.value === "local" ? "local" : "production";
+    await chrome.storage.local.set({ [WORKBENCH_TARGET_KEY]: val });
   });
 }
 

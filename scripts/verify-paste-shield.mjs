@@ -128,7 +128,39 @@ async function main() {
       throw new Error(`Expected safe redacted text in #sim-github-issue, got '${taAfter}'`);
     }
 
-    // 4. Verify chrome.storage.local stats in Side Panel & toggle OFF
+    // 4. Typing natural-language secrets into contenteditable -> debounced Live Typed-Secret Guard + Scrub Draft Now
+    await page.waitForTimeout(1600);
+    await page.locator("#sim-ai-chat").evaluate((el) => {
+      el.textContent = "";
+      el.focus();
+    });
+    const nlSample =
+      "my phone number is 9876543210 and my name is ravi and i work in Zenith company , and my api key is 23224324234kjjjkjl";
+    await page.locator("#sim-ai-chat").type(nlSample, { delay: 2 });
+    await page.waitForTimeout(600);
+    await page.locator("#localfirst-paste-shield-host").waitFor();
+    const draftHeadline = await page.evaluate(
+      () => document.querySelector("#localfirst-paste-shield-host")?.shadowRoot?.querySelector("#lf-headline")?.textContent || "",
+    );
+    if (!draftHeadline.includes("Detected")) {
+      throw new Error(`Expected live typing draft HUD, got '${draftHeadline}'`);
+    }
+    await page.evaluate(() => {
+      document.querySelector("#localfirst-paste-shield-host")?.shadowRoot?.querySelector("#lf-paste-safe")?.click();
+    });
+    await page.waitForTimeout(200);
+    const scrubbedDraft = await page.locator("#sim-ai-chat").textContent();
+    if (
+      !scrubbedDraft ||
+      scrubbedDraft.includes("9876543210") ||
+      scrubbedDraft.includes("ravi") ||
+      scrubbedDraft.includes("Zenith company") ||
+      scrubbedDraft.includes("23224324234kjjjkjl")
+    ) {
+      throw new Error(`Expected all 4 natural-language secrets scrubbed from draft, got '${scrubbedDraft}'`);
+    }
+
+    // 5. Verify chrome.storage.local stats in Side Panel & toggle OFF
     let [sw] = context.serviceWorkers();
     if (!sw) {
       sw = await context.waitForEvent("serviceworker");

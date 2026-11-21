@@ -97,9 +97,38 @@
       pattern:
         /(?:\+?\d{1,3}[\s.-]?)?(?:\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}|\+?\d{1,3}[\s.-]\d{5}[\s.-]\d{5})\b/g,
     },
+    {
+      category: "PHONE",
+      detector: "REGEX_FIREWALL",
+      captureGroup: 1,
+      pattern:
+        /\b(?:phone|mobile|cell|call|whatsapp|contact|number|tel|ph)\b[^0-9\n]{0,25}((?:\+?\d{1,3}[\s.-]?)?\d{10})\b/gi,
+    },
+    {
+      category: "API_KEY",
+      detector: "REGEX_FIREWALL",
+      captureGroup: 1,
+      pattern:
+        /\b(?:(?:api\s+key|apikey|secret\s+key|access\s+key|auth\s+token|bearer\s+token|private\s+token|client\s+secret)(?:\s+(?:is|was|are))?\s*(?:[:=]|->)?|(?:api_key|password|passcode|passwd)\s+(?:is|was|are|->))\s*([^\s"',;]{6,})/gi,
+      validator: (m) => !m.startsWith("[REDACTED:"),
+    },
   ];
 
   const CONTEXTUAL_RULES = [
+    {
+      category: "PERSON",
+      detector: "HEURISTIC_GUARD",
+      captureGroup: 1,
+      pattern:
+        /\b(?:my\s+name\s+is|i\s+am\s+called|call\s+me|patient\s+name(?:\s+is)?|customer\s+name(?:\s+is)?|full\s+name(?:\s+is)?|name\s*[:=])\s+([a-zA-Z][a-zA-Z.'-]{1,24}(?:\s+(?!(?:and|from|at|in|who|with|is|for|on|to)\b)[a-zA-Z][a-zA-Z.'-]{1,24})?)/gi,
+    },
+    {
+      category: "ORG_TERM",
+      detector: "HEURISTIC_GUARD",
+      captureGroup: 1,
+      pattern:
+        /\b(?:work(?:ing)?\s+(?:in|at|for)|employed\s+(?:at|by|with)|employee\s+(?:at|of))\s+(?!(?:a|an|the|my|our|this|that)\b)([A-Za-z0-9&._-]{2,28}(?:\s+(?:company|corp|corporation|inc|ltd|pvt|bank|insurance|technologies|tech|labs|group))?)/gi,
+    },
     {
       category: "CONTEXTUAL_PHI",
       detector: "HEURISTIC_GUARD",
@@ -142,14 +171,21 @@
       let match;
       while ((match = regex.exec(text)) !== null) {
         if (!match[0]) break;
-        if (rule.validator && !rule.validator(match[0])) continue;
+        const matchedText =
+          typeof rule.captureGroup === "number" ? (match[rule.captureGroup] || "") : match[0];
+        if (!matchedText) continue;
+        if (rule.validator && !rule.validator(matchedText)) continue;
+        const start =
+          typeof rule.captureGroup === "number"
+            ? match.index + Math.max(0, match[0].lastIndexOf(matchedText))
+            : match.index;
         spans.push({
-          start: match.index,
-          end: match.index + match[0].length,
+          start,
+          end: start + matchedText.length,
           category: rule.category,
           detector: rule.detector,
           placeholder: `[REDACTED:${rule.category}_${counter++}]`,
-          matchedText: match[0],
+          matchedText,
         });
       }
     }
@@ -182,13 +218,20 @@
         let match;
         while ((match = regex.exec(text)) !== null) {
           if (!match[0]) break;
+          const matchedText =
+            typeof rule.captureGroup === "number" ? (match[rule.captureGroup] || "") : match[0];
+          if (!matchedText) continue;
+          const start =
+            typeof rule.captureGroup === "number"
+              ? match.index + Math.max(0, match[0].lastIndexOf(matchedText))
+              : match.index;
           spans.push({
-            start: match.index,
-            end: match.index + match[0].length,
+            start,
+            end: start + matchedText.length,
             category: rule.category,
             detector: rule.detector,
             placeholder: `[REDACTED:${rule.category}_${counter++}]`,
-            matchedText: match[0],
+            matchedText,
           });
         }
       }

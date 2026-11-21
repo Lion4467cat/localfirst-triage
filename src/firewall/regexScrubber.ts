@@ -5,6 +5,7 @@ interface RegexRule {
   category: string;
   detector: DetectorSource;
   pattern: RegExp;
+  captureGroup?: number;
   validator?: (matched: string) => boolean;
 }
 
@@ -104,9 +105,38 @@ const DETERMINISTIC_REGEX_RULES: RegexRule[] = [
     pattern:
       /(?:\+?\d{1,3}[\s.-]?)?(?:\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}|\+?\d{1,3}[\s.-]\d{5}[\s.-]\d{5})\b/g,
   },
+  {
+    category: "PHONE",
+    detector: "REGEX_FIREWALL",
+    captureGroup: 1,
+    pattern:
+      /\b(?:phone|mobile|cell|call|whatsapp|contact|number|tel|ph)\b[^0-9\n]{0,25}((?:\+?\d{1,3}[\s.-]?)?\d{10})\b/gi,
+  },
+  {
+    category: "API_KEY",
+    detector: "REGEX_FIREWALL",
+    captureGroup: 1,
+    pattern:
+      /\b(?:(?:api\s+key|apikey|secret\s+key|access\s+key|auth\s+token|bearer\s+token|private\s+token|client\s+secret)(?:\s+(?:is|was|are))?\s*(?:[:=]|->)?|(?:api_key|password|passcode|passwd)\s+(?:is|was|are|->))\s*([^\s"',;]{6,})/gi,
+    validator: (m) => !m.startsWith("[REDACTED:"),
+  },
 ];
 
 const CONTEXTUAL_HEURISTIC_RULES: RegexRule[] = [
+  {
+    category: "PERSON",
+    detector: "HEURISTIC_GUARD",
+    captureGroup: 1,
+    pattern:
+      /\b(?:my\s+name\s+is|i\s+am\s+called|call\s+me|patient\s+name(?:\s+is)?|customer\s+name(?:\s+is)?|full\s+name(?:\s+is)?|name\s*[:=])\s+([a-zA-Z][a-zA-Z.'-]{1,24}(?:\s+(?!(?:and|from|at|in|who|with|is|for|on|to)\b)[a-zA-Z][a-zA-Z.'-]{1,24})?)/gi,
+  },
+  {
+    category: "ORG_TERM",
+    detector: "HEURISTIC_GUARD",
+    captureGroup: 1,
+    pattern:
+      /\b(?:work(?:ing)?\s+(?:in|at|for)|employed\s+(?:at|by|with)|employee\s+(?:at|of))\s+(?!(?:a|an|the|my|our|this|that)\b)([A-Za-z0-9&._-]{2,28}(?:\s+(?:company|corp|corporation|inc|ltd|pvt|bank|insurance|technologies|tech|labs|group))?)/gi,
+  },
   {
     category: "CONTEXTUAL_PHI",
     detector: "HEURISTIC_GUARD",
@@ -141,16 +171,26 @@ function runRules(text: string, rules: RegexRule[], startCounter = 1): Redaction
     const regex = new RegExp(rule.pattern.source, rule.pattern.flags);
     let match: RegExpExecArray | null;
     while ((match = regex.exec(text)) !== null) {
-      const matchedText = match[0];
-      if (!matchedText) {
+      const fullMatch = match[0];
+      if (!fullMatch) {
         break;
+      }
+      const groupIdx = rule.captureGroup;
+      const matchedText =
+        typeof groupIdx === "number" ? (match[groupIdx] ?? "") : fullMatch;
+      if (!matchedText) {
+        continue;
       }
       if (rule.validator && !rule.validator(matchedText)) {
         continue;
       }
+      const start =
+        typeof groupIdx === "number"
+          ? match.index + Math.max(0, fullMatch.lastIndexOf(matchedText))
+          : match.index;
       spans.push({
-        start: match.index,
-        end: match.index + matchedText.length,
+        start,
+        end: start + matchedText.length,
         category: rule.category,
         detector: rule.detector,
         placeholder: `[REDACTED:${rule.category}_${counter++}]`,

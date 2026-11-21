@@ -194,4 +194,19 @@ describe("regexScrubber", () => {
     expect(hardenedScan.sanitizedText).not.toContain("Project-Valkyrie");
     expect(hardenedScan.sanitizedText).toContain("[REDACTED:REMOTE_POLICY_");
   });
+
+  it("catches natural-language bare phone, lowercase name, employer, and low-entropy labeled API key", () => {
+    const sample =
+      "my phone number is 9876543210 and my name is ravi and i work in Zenith company , and my api key is 23224324234kjjjkjl";
+    const res = scanAndRedactLocal(sample, { includeHeuristics: true });
+    expect(res.mergedSpans.length).toBe(4);
+    expect(res.sanitizedText).not.toContain("9876543210");
+    expect(res.sanitizedText).not.toContain("ravi");
+    expect(res.sanitizedText).not.toContain("Zenith company");
+    expect(res.sanitizedText).not.toContain("23224324234kjjjkjl");
+    expect(res.sanitizedText).toContain("[REDACTED:PHONE_");
+    expect(res.sanitizedText).toContain("[REDACTED:PERSON_");
+    expect(res.sanitizedText).toContain("[REDACTED:ORG_TERM_");
+    expect(res.sanitizedText).toContain("[REDACTED:API_KEY_");
+  });
 });
