@@ -1,6 +1,7 @@
 package com.localfirst.triage.firewall
 
 import com.localfirst.triage.model.DetectorSource
+import com.localfirst.triage.model.ProtectionLevel
 import com.localfirst.triage.model.RedactionSpan
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -57,5 +58,19 @@ class RiskRouterTest {
         assertEquals(RiskTier.CRITICAL, profile.tier)
         assertEquals(RiskRoutingAction.CRITICAL_AIRGAP_LOCKDOWN, profile.action)
         assertTrue(profile.reasons.isNotEmpty())
+    }
+
+    @Test
+    fun `HIGH protection level lowers CRITICAL_AIRGAP_LOCKDOWN threshold to 50`() {
+        val spans = listOf(
+            span("API_KEY", DetectorSource.REGEX_FIREWALL),
+            span("PHONE", DetectorSource.REGEX_FIREWALL),
+        )
+        // 30 + 20 = 50 -> HYBRID_GATED_REVIEW in MEDIUM, CRITICAL_AIRGAP_LOCKDOWN in HIGH
+        val mediumProfile = RiskRouter.computeRiskProfile(spans, protectionLevel = ProtectionLevel.MEDIUM)
+        val highProfile = RiskRouter.computeRiskProfile(spans, protectionLevel = ProtectionLevel.HIGH)
+        assertEquals(50, mediumProfile.score)
+        assertEquals(RiskRoutingAction.HYBRID_GATED_REVIEW, mediumProfile.action)
+        assertEquals(RiskRoutingAction.CRITICAL_AIRGAP_LOCKDOWN, highProfile.action)
     }
 }

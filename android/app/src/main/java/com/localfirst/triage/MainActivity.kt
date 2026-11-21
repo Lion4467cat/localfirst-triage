@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.localfirst.triage.model.ProtectionLevel
 import com.localfirst.triage.ui.TriageViewModel
 import com.localfirst.triage.ui.screens.DiffEscalateScreen
 import com.localfirst.triage.ui.screens.SyncedFeedScreen
@@ -78,6 +79,9 @@ class MainActivity : ComponentActivity() {
         val initialMode = runCatching {
             AppThemeMode.valueOf(prefs.getString("theme_mode", AppThemeMode.SYSTEM.name) ?: AppThemeMode.SYSTEM.name)
         }.getOrDefault(AppThemeMode.SYSTEM)
+        val initialLevel = runCatching {
+            ProtectionLevel.valueOf(prefs.getString("protection_level", ProtectionLevel.MEDIUM.name) ?: ProtectionLevel.MEDIUM.name)
+        }.getOrDefault(ProtectionLevel.MEDIUM)
 
         setContent {
             var themeMode by remember { mutableStateOf(initialMode) }
@@ -87,6 +91,12 @@ class MainActivity : ComponentActivity() {
                 val state by vm.uiState.collectAsStateWithLifecycle()
                 var activeTab by remember { mutableIntStateOf(0) }
                 val sharedPayload by pendingSharedText
+
+                LaunchedEffect(Unit) {
+                    if (vm.uiState.value.protectionLevel != initialLevel) {
+                        vm.setProtectionLevel(initialLevel)
+                    }
+                }
 
                 LaunchedEffect(sharedPayload) {
                     val payload = sharedPayload ?: return@LaunchedEffect
@@ -190,6 +200,10 @@ class MainActivity : ComponentActivity() {
                             onSelectScenario = vm::selectScenario,
                             onTitleChange = vm::updateTitle,
                             onRawTextChange = vm::updateRawText,
+                            onSelectProtectionLevel = { level ->
+                                prefs.edit().putString("protection_level", level.name).apply()
+                                vm.setProtectionLevel(level)
+                            },
                             onAddCustomTerm = vm::addCustomPolicyTerm,
                             onToggleOffline = vm::toggleOfflineMode,
                             onRefreshRemoteConfig = { vm.refreshRemoteConfig(force = true) },

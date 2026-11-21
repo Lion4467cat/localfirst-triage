@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.sp
 import com.localfirst.triage.firewall.LocalFirewallEngine
 import com.localfirst.triage.model.DemoScenario
 import com.localfirst.triage.model.NanoStatus
+import com.localfirst.triage.model.ProtectionLevel
 import com.localfirst.triage.model.RemoteConfigSource
 import com.localfirst.triage.model.Severity
 import com.localfirst.triage.ui.MainUiState
@@ -76,6 +77,7 @@ fun TriageScreen(
     onSelectScenario: (DemoScenario) -> Unit,
     onTitleChange: (String) -> Unit,
     onRawTextChange: (String) -> Unit,
+    onSelectProtectionLevel: (ProtectionLevel) -> Unit = {},
     onAddCustomTerm: (String) -> Unit,
     onToggleOffline: () -> Unit,
     onRefreshRemoteConfig: () -> Unit,
@@ -95,6 +97,58 @@ fun TriageScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        // 3-Level Protection Dial (Low / Medium / High)
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, tokens.borderSubtle),
+        ) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    ProtectionLevel.entries.forEach { level ->
+                        val active = state.protectionLevel == level
+                        val (bg, border, fg) = when {
+                            !active -> Triple(tokens.subtleSurface, tokens.borderSubtle, tokens.textMuted)
+                            level == ProtectionLevel.HIGH -> Triple(tokens.maskBg, tokens.maskBorder, tokens.maskText)
+                            level == ProtectionLevel.MEDIUM -> Triple(tokens.safeBg, tokens.safeBorder, tokens.safeText)
+                            else -> Triple(MaterialTheme.colorScheme.surface, tokens.borderSubtle, MaterialTheme.colorScheme.onSurface)
+                        }
+                        Surface(
+                            onClick = { onSelectProtectionLevel(level) },
+                            shape = RoundedCornerShape(8.dp),
+                            color = bg,
+                            border = BorderStroke(1.dp, border),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(
+                                text = when (level) {
+                                    ProtectionLevel.LOW -> "Low"
+                                    ProtectionLevel.MEDIUM -> "Medium"
+                                    ProtectionLevel.HIGH -> "High"
+                                },
+                                color = fg,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(vertical = 8.dp, horizontal = 10.dp),
+                            )
+                        }
+                    }
+                }
+                Text(
+                    text = when (state.protectionLevel) {
+                        ProtectionLevel.LOW -> "Secrets Only: traps API keys, JWT, PEM, DB URIs, Gov IDs & cards."
+                        ProtectionLevel.MEDIUM -> "Balanced (Default): traps secrets + phones, emails, names, orgs & Nano 4 PHI."
+                        ProtectionLevel.HIGH -> "Strict Zero-Trust: Medium + addresses, M&A, tight entropy & 50-pt lockdown."
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                )
+            }
+        }
+
         // Offline + Status Strip
         Row(
             modifier = Modifier.fillMaxWidth(),

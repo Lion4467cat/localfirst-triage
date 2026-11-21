@@ -3,6 +3,7 @@ package com.localfirst.triage.firewall
 import com.localfirst.triage.model.CustomRunbook
 import com.localfirst.triage.model.DemoScenario
 import com.localfirst.triage.model.DetectorSource
+import com.localfirst.triage.model.ProtectionLevel
 import com.localfirst.triage.model.RedactionSpan
 import com.localfirst.triage.model.RuntimeConfigValues
 import com.localfirst.triage.model.SemanticExtractionItem
@@ -18,6 +19,8 @@ object LocalFirewallEngine {
         val category: String,
         val detector: DetectorSource,
         val pattern: Regex,
+        val captureGroup: Int? = null,
+        val minLevel: ProtectionLevel = ProtectionLevel.LOW,
         val validator: ((String) -> Boolean)? = null,
     )
 
@@ -108,23 +111,95 @@ object LocalFirewallEngine {
             pattern = Regex("""\b(?!000|666|9\d{2})\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b"""),
         ),
         RegexRule(
+            category = "GOV_ID",
+            detector = DetectorSource.REGEX_FIREWALL,
+            pattern = Regex("""\b[A-Z]{5}[0-9]{4}[A-Z]\b"""),
+        ),
+        RegexRule(
+            category = "GOV_ID",
+            detector = DetectorSource.REGEX_FIREWALL,
+            captureGroup = 1,
+            pattern = Regex(
+                """\b(?:aadhaar|aadhar|uid|uidai)\b[^0-9\n]{0,20}(\d{4}[\s-]?\d{4}[\s-]?\d{4})\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+        ),
+        RegexRule(
+            category = "GOV_ID",
+            detector = DetectorSource.REGEX_FIREWALL,
+            pattern = Regex("""\b\d{4}[\s-]\d{4}[\s-]\d{4}\b"""),
+        ),
+        RegexRule(
             category = "EMAIL",
             detector = DetectorSource.REGEX_FIREWALL,
+            minLevel = ProtectionLevel.MEDIUM,
             pattern = Regex("""\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"""),
         ),
         RegexRule(
             category = "PHONE",
             detector = DetectorSource.REGEX_FIREWALL,
+            minLevel = ProtectionLevel.MEDIUM,
             pattern = Regex(
                 """(?:\+?\d{1,3}[\s.-]?)?(?:\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}|\+?\d{1,3}[\s.-]\d{5}[\s.-]\d{5})\b""",
             ),
+        ),
+        RegexRule(
+            category = "PHONE",
+            detector = DetectorSource.REGEX_FIREWALL,
+            captureGroup = 1,
+            minLevel = ProtectionLevel.MEDIUM,
+            pattern = Regex(
+                """\b(?:phone|mobile|cell|call|whatsapp|contact|number|tel|ph)\b[^0-9\n]{0,25}((?:\+?\d{1,3}[\s.-]?)?\d{10})\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+        ),
+        RegexRule(
+            category = "API_KEY",
+            detector = DetectorSource.REGEX_FIREWALL,
+            captureGroup = 1,
+            pattern = Regex(
+                """\b(?:(?:api\s+key|apikey|secret\s+key|access\s+key|auth\s+token|bearer\s+token|private\s+token|client\s+secret)(?:\s+(?:is|was|are))?\s*(?:[:=]|->)?|(?:api_key|password|passcode|passwd)\s+(?:is|was|are|->))\s*([^\s"',;]{6,})""",
+                RegexOption.IGNORE_CASE,
+            ),
+            validator = { !it.startsWith("[REDACTED:") },
         ),
     )
 
     private val CONTEXTUAL_HEURISTIC_RULES: List<RegexRule> = listOf(
         RegexRule(
+            category = "PERSON",
+            detector = DetectorSource.HEURISTIC_GUARD,
+            captureGroup = 1,
+            minLevel = ProtectionLevel.MEDIUM,
+            pattern = Regex(
+                """\b(?:my\s+name\s+is|i\s+am\s+called|call\s+me|patient\s+name(?:\s+is)?|customer\s+name(?:\s+is)?|full\s+name(?:\s+is)?|name\s*[:=])\s+([a-zA-Z][a-zA-Z.'-]{1,24}(?:\s+(?!(?:and|from|at|in|who|with|is|for|on|to)\b)[a-zA-Z][a-zA-Z.'-]{1,24})?)""",
+                RegexOption.IGNORE_CASE,
+            ),
+        ),
+        RegexRule(
+            category = "ORG_TERM",
+            detector = DetectorSource.HEURISTIC_GUARD,
+            captureGroup = 1,
+            minLevel = ProtectionLevel.MEDIUM,
+            pattern = Regex(
+                """\b(?:work(?:ing)?\s+(?:in|at|for)|employed\s+(?:at|by|with)|employee\s+(?:at|of))\s+(?!(?:a|an|the|my|our|this|that)\b)([A-Za-z0-9&._-]{2,28}(?:\s+(?:company|corp|corporation|inc|ltd|pvt|bank|insurance|technologies|tech|labs|group))?)""",
+                RegexOption.IGNORE_CASE,
+            ),
+        ),
+        RegexRule(
+            category = "ADDRESS",
+            detector = DetectorSource.HEURISTIC_GUARD,
+            captureGroup = 1,
+            minLevel = ProtectionLevel.HIGH,
+            pattern = Regex(
+                """\b(?:live(?:s|d)?\s+(?:at|in|near)|home\s+address\s*(?:is|:)?|address\s*(?:is|:))\s+([^\n,.]{4,48})""",
+                RegexOption.IGNORE_CASE,
+            ),
+        ),
+        RegexRule(
             category = "CONTEXTUAL_PHI",
             detector = DetectorSource.HEURISTIC_GUARD,
+            minLevel = ProtectionLevel.MEDIUM,
             pattern = Regex(
                 """\b(?:(?:admitted to|discharged from|diagnosed with|treated at|hospitalized at|undergoing)\s+[^.\n;)]{3,70}|(?:patient|daughter|son|wife|husband|mother|father)\b[^.\n;]{0,55}\b(?:ICU|ER|NICU|ward|hospital|clinic|chemo|chemotherapy|surgery|seizure|oncology|cardiology|biopsy|MRN|prescription)\b[^.\n;)]{0,40}\)?|(?:MRN|DOB|diagnosis)\s*[:#]\s*[^\n,;]+)""",
                 RegexOption.IGNORE_CASE,
@@ -133,6 +208,7 @@ object LocalFirewallEngine {
         RegexRule(
             category = "M_AND_A_SECRET",
             detector = DetectorSource.HEURISTIC_GUARD,
+            minLevel = ProtectionLevel.MEDIUM,
             pattern = Regex(
                 """(?:\$\d+(?:\.\d+)?\s?(?:[MBK]|million|billion)\s+(?:valuation|offer|deal|acquisition|buyout|term sheet|round)|\bProject-[A-Za-z0-9_-]{2,}\b|\b(?:acquisition target|merger with|undisclosed bid|term sheet)\b)""",
                 RegexOption.IGNORE_CASE,
@@ -141,6 +217,7 @@ object LocalFirewallEngine {
         RegexRule(
             category = "NATURAL_SECRET",
             detector = DetectorSource.HEURISTIC_GUARD,
+            minLevel = ProtectionLevel.MEDIUM,
             pattern = Regex(
                 """\b(?:(?:log\s*in|sign\s*in|unlock|authenticate)\s+using\s+(?:[^.\n'"]|'[A-Za-z]){4,80}|(?:password|passcode|passphrase|pin|credentials?)\s+(?:is|was|are|:)\s+(?:[^.\n'"]|'[A-Za-z]){3,80}|(?:admin|root|prod)\s+(?:password|passphrase)\s*[:=]\s*[^\s,;]+)""",
                 RegexOption.IGNORE_CASE,
@@ -149,6 +226,7 @@ object LocalFirewallEngine {
         RegexRule(
             category = "PERSONAL_PII_LOCATION",
             detector = DetectorSource.HEURISTIC_GUARD,
+            minLevel = ProtectionLevel.MEDIUM,
             pattern = Regex(
                 """(?:\b(?:lives?\s+(?:near|at|on|in)|home\s+address|resides?\s+at)\s+[A-Z0-9][^.\n;)]{3,60}|\b(?:VP|CEO|CFO|CTO|Director|Customer|Client|Patient)\s+(?:of\s+[A-Za-z]+\s+)?\([A-Z][a-z]+\s+[A-Z][a-z]+[^)\n]{0,60}\))""",
             ),
@@ -352,18 +430,27 @@ object LocalFirewallEngine {
         return Regex("""^(?:http\s+\d{3}|err_[a-z0-9_]+)$""", RegexOption.IGNORE_CASE).matches(normalized)
     }
 
-    private fun runRules(text: String, rules: List<RegexRule>, startCounter: Int): List<RedactionSpan> {
+    private fun runRules(
+        text: String,
+        rules: List<RegexRule>,
+        startCounter: Int,
+        protectionLevel: ProtectionLevel = ProtectionLevel.MEDIUM,
+    ): List<RedactionSpan> {
         val spans = mutableListOf<RedactionSpan>()
         var counter = startCounter
         for (rule in rules) {
+            if (protectionLevel.ordinal < rule.minLevel.ordinal) continue
             for (match in rule.pattern.findAll(text)) {
-                val matchedText = match.value
+                val group = rule.captureGroup?.let { match.groups[it] }
+                val matchedText = if (rule.captureGroup != null) group?.value.orEmpty() else match.value
+                val start = if (rule.captureGroup != null) group?.range?.first ?: continue else match.range.first
+                val end = if (rule.captureGroup != null) (group?.range?.last ?: continue) + 1 else match.range.last + 1
                 if (matchedText.isEmpty()) continue
                 if (rule.validator != null && !rule.validator.invoke(matchedText)) continue
                 spans.add(
                     RedactionSpan(
-                        start = match.range.first,
-                        end = match.range.last + 1,
+                        start = start,
+                        end = end,
                         category = rule.category,
                         detector = rule.detector,
                         placeholder = "[REDACTED:${rule.category}_${counter++}]",
@@ -376,8 +463,11 @@ object LocalFirewallEngine {
         return spans
     }
 
-    fun detectRegexSpans(text: String): List<RedactionSpan> =
-        runRules(text, DETERMINISTIC_REGEX_RULES, 1)
+    fun detectRegexSpans(
+        text: String,
+        protectionLevel: ProtectionLevel = ProtectionLevel.MEDIUM,
+    ): List<RedactionSpan> =
+        runRules(text, DETERMINISTIC_REGEX_RULES, 1, protectionLevel)
 
     fun detectHighEntropySecrets(
         text: String,
@@ -417,8 +507,11 @@ object LocalFirewallEngine {
         return spans
     }
 
-    fun detectContextualHeuristicSpans(text: String): List<RedactionSpan> =
-        runRules(text, CONTEXTUAL_HEURISTIC_RULES, 100)
+    fun detectContextualHeuristicSpans(
+        text: String,
+        protectionLevel: ProtectionLevel = ProtectionLevel.MEDIUM,
+    ): List<RedactionSpan> =
+        runRules(text, CONTEXTUAL_HEURISTIC_RULES, 100, protectionLevel)
 
     fun detectPolicyTermSpans(
         text: String,
@@ -563,9 +656,10 @@ object LocalFirewallEngine {
     }
 
     data class ScanOptions(
+        val protectionLevel: ProtectionLevel = ProtectionLevel.MEDIUM,
         val includeHeuristics: Boolean = true,
         val enableEntropyScanner: Boolean = true,
-        val entropyThreshold: Double = RuntimeConfigValues.DEFAULT_ENTROPY_THRESHOLD,
+        val entropyThreshold: Double? = null,
         val customTerms: List<String> = emptyList(),
         val remoteBlockedTerms: List<String> = emptyList(),
         val extraSpans: List<RedactionSpan> = emptyList(),
@@ -575,20 +669,32 @@ object LocalFirewallEngine {
         rawText: String,
         options: ScanOptions = ScanOptions(),
     ): Pair<String, List<RedactionSpan>> {
-        val regexSpans = detectRegexSpans(rawText)
+        val level = options.protectionLevel
+        val resolvedEntropy = options.entropyThreshold ?: when (level) {
+            ProtectionLevel.LOW -> 3.8
+            ProtectionLevel.MEDIUM -> RuntimeConfigValues.DEFAULT_ENTROPY_THRESHOLD
+            ProtectionLevel.HIGH -> 2.9
+        }
+        val regexSpans = detectRegexSpans(rawText, level)
         val entropySpans =
-            if (options.enableEntropyScanner) detectHighEntropySecrets(rawText, options.entropyThreshold)
+            if (options.enableEntropyScanner) detectHighEntropySecrets(rawText, resolvedEntropy)
             else emptyList()
         val policySpans = detectPolicyTermSpans(rawText, options.customTerms, "POLICY_TERM", 200)
         val remotePolicySpans = detectPolicyTermSpans(rawText, options.remoteBlockedTerms, "REMOTE_POLICY", 300)
         val heuristicSpans =
-            if (options.includeHeuristics) detectContextualHeuristicSpans(rawText) else emptyList()
+            if (options.includeHeuristics) detectContextualHeuristicSpans(rawText, level) else emptyList()
 
         return mergeAndRedactSpans(
             rawText,
             regexSpans + entropySpans + policySpans + remotePolicySpans + heuristicSpans + options.extraSpans,
         )
     }
+
+    fun scrub(
+        rawText: String,
+        protectionLevel: ProtectionLevel = ProtectionLevel.MEDIUM,
+    ): Pair<String, List<RedactionSpan>> =
+        scanAndRedactLocal(rawText, ScanOptions(protectionLevel = protectionLevel))
 
     private fun escapeJsonSlice(value: String): String {
         val sb = StringBuilder(value.length + 8)

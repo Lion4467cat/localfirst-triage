@@ -8,6 +8,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import com.localfirst.triage.firewall.LocalFirewallEngine
+import com.localfirst.triage.model.ProtectionLevel
 
 data class ProcessTextScrubOutcome(
     val sanitizedText: String,
@@ -15,13 +16,13 @@ data class ProcessTextScrubOutcome(
 )
 
 object ProcessTextScrubLogic {
-    fun scrub(rawText: String): ProcessTextScrubOutcome {
-        val (sanitizedText, spans) = LocalFirewallEngine.scanAndRedactLocal(
+    fun scrub(
+        rawText: String,
+        protectionLevel: ProtectionLevel = ProtectionLevel.MEDIUM,
+    ): ProcessTextScrubOutcome {
+        val (sanitizedText, spans) = LocalFirewallEngine.scrub(
             rawText = rawText,
-            options = LocalFirewallEngine.ScanOptions(
-                includeHeuristics = true,
-                enableEntropyScanner = true,
-            ),
+            protectionLevel = protectionLevel,
         )
         return ProcessTextScrubOutcome(
             sanitizedText = sanitizedText,
@@ -43,13 +44,21 @@ class ProcessTextScrubActivity : Activity() {
             return
         }
 
-        val outcome = ProcessTextScrubLogic.scrub(rawText)
+        val prefs = getSharedPreferences("localfirst_ui_prefs", Context.MODE_PRIVATE)
+        val level = runCatching {
+            ProtectionLevel.valueOf(
+                prefs.getString("protection_level", ProtectionLevel.MEDIUM.name)
+                    ?: ProtectionLevel.MEDIUM.name,
+            )
+        }.getOrDefault(ProtectionLevel.MEDIUM)
+
+        val outcome = ProcessTextScrubLogic.scrub(rawText, level)
 
         if (!readonly) {
             val resultIntent = Intent().putExtra(Intent.EXTRA_PROCESS_TEXT, outcome.sanitizedText)
             setResult(RESULT_OK, resultIntent)
             val msg = if (outcome.blockedCount > 0) {
-                "LocalFirst blocked ${outcome.blockedCount} secret(s) on-device · 0 leaked"
+                "LocalFirst [${level.name}] blocked ${outcome.blockedCount} secret(s) · 0 leaked"
             } else {
                 "LocalFirst: No secrets detected"
             }

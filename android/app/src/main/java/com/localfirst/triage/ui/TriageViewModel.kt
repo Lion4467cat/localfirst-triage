@@ -15,6 +15,7 @@ import com.localfirst.triage.model.CustomRunbook
 import com.localfirst.triage.model.DemoScenario
 import com.localfirst.triage.model.NanoStatus
 import com.localfirst.triage.model.PrivacyPolicy
+import com.localfirst.triage.model.ProtectionLevel
 import com.localfirst.triage.model.RedactionSpan
 import com.localfirst.triage.model.ResolutionMode
 import com.localfirst.triage.model.RuntimeConfigValues
@@ -30,6 +31,7 @@ data class MainUiState(
     val titleInput: String = LocalFirewallEngine.DEMO_SCENARIOS[0].title,
     val rawTextInput: String = LocalFirewallEngine.DEMO_SCENARIOS[0].rawText,
     val offlineMode: Boolean = false,
+    val protectionLevel: ProtectionLevel = ProtectionLevel.MEDIUM,
     val isRunning: Boolean = false,
     val isGeneratingBrief: Boolean = false,
     val isRefreshingPolicy: Boolean = false,
@@ -237,6 +239,13 @@ class TriageViewModel(
         }
     }
 
+    fun setProtectionLevel(level: ProtectionLevel) {
+        _uiState.update { it.copy(protectionLevel = level) }
+        if (_uiState.value.currentResult != null) {
+            runHybridTriage()
+        }
+    }
+
     fun ingestSharedText(sharedText: String, sharedTitle: String? = null) {
         val clean = sharedText.trim()
         if (clean.isEmpty()) return
@@ -262,13 +271,15 @@ class TriageViewModel(
                 offlineMode = state.offlineMode,
                 customRunbooks = state.runbooks,
                 policy = state.policy,
+                protectionLevel = state.protectionLevel,
                 runtimeConfig = state.runtimeConfig,
             )
             val riskProfile = RiskRouter.computeRiskProfile(
                 spans = rawResult.spans,
                 isLocalRunbook = rawResult.resolutionMode == ResolutionMode.LOCAL_RUNBOOK,
+                protectionLevel = state.protectionLevel,
             )
-            val result = rawResult.copy(riskProfile = riskProfile)
+            val result = rawResult.copy(riskProfile = riskProfile, protectionLevel = state.protectionLevel)
             if (gen != runGeneration) return@launch
             volatileRawMap[result.id] = result
             val nextFeed = (listOf(result) + _uiState.value.syncedTickets.filter { it.id != result.id }).take(50)
@@ -296,6 +307,7 @@ class TriageViewModel(
         val updatedRisk = RiskRouter.computeRiskProfile(
             spans = updatedSpans,
             isLocalRunbook = ticket.resolutionMode == ResolutionMode.LOCAL_RUNBOOK,
+            protectionLevel = _uiState.value.protectionLevel,
         )
         val updated = ticket.copy(
             spans = updatedSpans,

@@ -20,6 +20,7 @@ import com.localfirst.triage.model.HybridBriefResult
 import com.localfirst.triage.model.InferenceSource
 import com.localfirst.triage.model.NanoStatus
 import com.localfirst.triage.model.PrivacyPolicy
+import com.localfirst.triage.model.ProtectionLevel
 import com.localfirst.triage.model.RedactionSpan
 import com.localfirst.triage.model.ResolutionMode
 import com.localfirst.triage.model.RuntimeConfigValues
@@ -192,6 +193,7 @@ class HybridAiClient(
         offlineMode: Boolean,
         customRunbooks: List<CustomRunbook> = LocalFirewallEngine.DEFAULT_RUNBOOKS,
         policy: PrivacyPolicy = PrivacyPolicy(),
+        protectionLevel: ProtectionLevel = ProtectionLevel.MEDIUM,
         runtimeConfig: RuntimeConfigValues = RuntimeConfigValues(),
         approveCloudEscalation: Boolean = false,
         onStreamChunk: ((String) -> Unit)? = null,
@@ -232,13 +234,18 @@ class HybridAiClient(
         val (sanitizedText, mergedSpans) = LocalFirewallEngine.scanAndRedactLocal(
             rawText = rawText,
             options = LocalFirewallEngine.ScanOptions(
+                protectionLevel = protectionLevel,
                 // Defense-in-Depth Union: keep HEURISTIC_GUARD enabled even when Nano 4 is READY
                 includeHeuristics = true,
                 enableEntropyScanner = policy.enableEntropyScanner,
-                entropyThreshold = runtimeConfig.entropyThreshold,
+                entropyThreshold = when (protectionLevel) {
+                    ProtectionLevel.LOW -> 3.8
+                    ProtectionLevel.HIGH -> 2.9
+                    ProtectionLevel.MEDIUM -> runtimeConfig.entropyThreshold
+                },
                 customTerms = policy.customTerms,
                 remoteBlockedTerms = runtimeConfig.enterpriseBlockedTerms,
-                extraSpans = extraSemanticSpans,
+                extraSpans = if (protectionLevel == ProtectionLevel.LOW) emptyList() else extraSemanticSpans,
             ),
         )
 

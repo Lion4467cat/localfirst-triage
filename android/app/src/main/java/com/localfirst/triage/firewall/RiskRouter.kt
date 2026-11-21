@@ -1,6 +1,7 @@
 package com.localfirst.triage.firewall
 
 import com.localfirst.triage.model.DetectorSource
+import com.localfirst.triage.model.ProtectionLevel
 import com.localfirst.triage.model.RedactionSpan
 
 enum class RiskTier {
@@ -40,6 +41,8 @@ object RiskRouter {
         "FIREBASE_KEY",
         "STRIPE_KEY",
         "WEBHOOK_SECRET",
+        "GOV_ID",
+        "US_SSN",
     )
 
     private val SENSITIVE_PII_PHI_CATEGORIES = setOf(
@@ -48,9 +51,10 @@ object RiskRouter {
         "CREDIT_CARD",
         "PHONE",
         "EMAIL",
-        "US_SSN",
         "SSN",
         "PERSONAL_PII_LOCATION",
+        "PERSON",
+        "ADDRESS",
     )
 
     private val CORPORATE_CATEGORIES = setOf(
@@ -64,6 +68,7 @@ object RiskRouter {
     fun computeRiskProfile(
         spans: List<RedactionSpan>,
         isLocalRunbook: Boolean = false,
+        protectionLevel: ProtectionLevel = ProtectionLevel.MEDIUM,
     ): RiskProfile {
         val activeSpans = spans.filter { it.masked }
 
@@ -102,9 +107,10 @@ object RiskRouter {
             score >= 25 -> RiskTier.ELEVATED
             else -> RiskTier.LOW
         }
+        val lockdownThreshold = if (protectionLevel == ProtectionLevel.HIGH) 50 else 80
         val action = when {
             isLocalRunbook -> RiskRoutingAction.LOCAL_RUNBOOK
-            score >= 80 -> RiskRoutingAction.CRITICAL_AIRGAP_LOCKDOWN
+            score >= lockdownThreshold -> RiskRoutingAction.CRITICAL_AIRGAP_LOCKDOWN
             score >= 40 -> RiskRoutingAction.HYBRID_GATED_REVIEW
             else -> RiskRoutingAction.LOCAL_RUNBOOK
         }
