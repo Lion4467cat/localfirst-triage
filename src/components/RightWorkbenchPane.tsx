@@ -19,6 +19,13 @@ import {
 } from "lucide-react";
 import { formatCategoryLabel, getSeverityStyle } from "../config/displayLabels";
 import type { RuntimeConfigValues } from "../config/firebase";
+import { verifyAuditReceipt } from "../firewall/auditReceipt";
+import {
+  getVaultSummary,
+  purgeRehydrationVault,
+  rehydrateTextForLocalView,
+} from "../firewall/rehydrationVault";
+import { clearDedupCache, getDedupCacheStats, type DedupCacheStats } from "../storage/dedupCache";
 import type {
   DetectorSource,
   HybridTelemetry,
@@ -46,7 +53,8 @@ interface RightWorkbenchPaneProps {
   onToggleSpan: (spanIndex: number) => void;
   onAddManualSpan: (start: number, end: number) => void;
   onPauseCountdown: () => void;
-  onApproveOrRerunCloud: () => void;
+  onApproveOrRerunCloud: (options?: { bypassCache?: boolean }) => void;
+  onPurgeRamVault?: () => void;
   onGenerateHybridBrief: () => void;
   onRefreshRemoteConfig: () => void;
   onWarmupNano: () => void;
@@ -105,10 +113,50 @@ function downloadBlobFile(filename: string, content: string, mimeType: string) {
   URL.revokeObjectURL(url);
 }
 
-function renderInlineCodeAndBold(line: string): ReactNode[] {
+function renderInlineCodeAndBold(
+  line: string,
+  rehydrateCtx?: { ticketId: string; enabled: boolean },
+): ReactNode[] {
   const parts = line.split(/(\[REDACTED:[A-Z0-9_]+\]|`[^`]+`|\*\*[^*]+\*\*)/g);
   return parts.map((part, i) => {
     if (/^\[REDACTED:[A-Z0-9_]+\]$/.test(part)) {
+      if (rehydrateCtx?.enabled) {
+        const rehydrated = rehydrateTextForLocalView(rehydrateCtx.ticketId, part, true);
+        const seg = rehydrated.segments[0];
+        if (seg && seg.kind === "rehydrated") {
+          return (
+            <span
+              key={i}
+              title={`Rehydrated in RAM only from ${part} (never sent to Cloud)`}
+              className="mx-0.5 inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] font-semibold"
+              style={{
+                backgroundColor: "var(--nano-bg)",
+                borderColor: "var(--nano-border)",
+                color: "var(--nano-text)",
+              }}
+            >
+              <span>{seg.value}</span>
+              <span className="opacity-75">· local RAM</span>
+            </span>
+          );
+        }
+        return (
+          <span
+            key={i}
+            title="Permanently locked credential/PHI (cannot be rehydrated)"
+            className="mx-0.5 inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] font-semibold"
+            style={{
+              backgroundColor: "var(--mask-bg)",
+              borderColor: "var(--mask-border)",
+              color: "var(--mask-text)",
+            }}
+          >
+            <Lock className="h-2.5 w-2.5" aria-hidden="true" />
+            <span>{part}</span>
+          </span>
+        );
+      }
+
       return (
         <span
           key={i}
@@ -149,7 +197,13 @@ function renderInlineCodeAndBold(line: string): ReactNode[] {
   });
 }
 
-function SafeMarkdownView({ content }: { content: string }) {
+function SafeMarkdownView({
+  content,
+  rehydrateCtx,
+}: {
+  content: string;
+  rehydrateCtx?: { ticketId: string; enabled: boolean };
+}) {
   const lines = content.split("\n");
   const firstNonEmpty = lines.find((l) => l.trim().length > 0)?.trim() ?? "";
   const needsRootCauseHeader =
@@ -220,7 +274,7 @@ function SafeMarkdownView({ content }: { content: string }) {
           className="mt-2.5 text-xs font-semibold uppercase tracking-wider"
           style={{ color: "var(--text-primary)" }}
         >
-          {renderInlineCodeAndBold(heading)}
+          {renderInlineCodeAndBold(heading, rehydrateCtx)}
         </h4>
       );
       return;
@@ -246,7 +300,7 @@ function SafeMarkdownView({ content }: { content: string }) {
           >
             {checked ? <Check className="h-2.5 w-2.5" /> : null}
           </span>
-          <span>{renderInlineCodeAndBold(checklistMatch[2])}</span>
+          <span>{renderInlineCodeAndBold(checklistMatch[2], rehydrateCtx)}</span>
         </div>
       );
       return;
@@ -260,7 +314,7 @@ function SafeMarkdownView({ content }: { content: string }) {
           style={{ color: "var(--text-secondary)" }}
         >
           <span style={{ color: "var(--text-muted)" }}>•</span>
-          <span>{renderInlineCodeAndBold(trimmed.slice(2))}</span>
+          <span>{renderInlineCodeAndBold(trimmed.slice(2), rehydrateCtx)}</span>
         </div>
       );
       return;
@@ -277,7 +331,7 @@ function SafeMarkdownView({ content }: { content: string }) {
           <span className="font-mono font-semibold tabular-nums" style={{ color: "var(--text-primary)" }}>
             {numMatch[1]}
           </span>
-          <span>{renderInlineCodeAndBold(numMatch[2])}</span>
+          <span>{renderInlineCodeAndBold(numMatch[2], rehydrateCtx)}</span>
         </div>
       );
       return;
@@ -285,7 +339,7 @@ function SafeMarkdownView({ content }: { content: string }) {
 
     blocks.push(
       <p key={`p-${idx}`} className="text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-        {renderInlineCodeAndBold(trimmed)}
+        {renderInlineCodeAndBold(trimmed, rehydrateCtx)}
       </p>
     );
   });
@@ -316,6 +370,7 @@ export function RightWorkbenchPane({
   onAddManualSpan,
   onPauseCountdown,
   onApproveOrRerunCloud,
+  onPurgeRamVault,
   onGenerateHybridBrief,
   onRefreshRemoteConfig,
   onWarmupNano,
@@ -324,6 +379,24 @@ export function RightWorkbenchPane({
   const [activeTab, setActiveTab] = useState<RightPaneTab>("sanitized");
   const [copiedSlack, setCopiedSlack] = useState(false);
   const [copiedRca, setCopiedRca] = useState(false);
+  const [rehydrateEnabled, setRehydrateEnabled] = useState(false);
+  const [criticalOverrideArmed, setCriticalOverrideArmed] = useState(false);
+  const [receiptVerifyState, setReceiptVerifyState] = useState<{
+    valid: boolean;
+    reason?: string;
+  } | null>(null);
+  const [dedupStats, setDedupStats] = useState<DedupCacheStats>({
+    entryCount: 0,
+    totalHits: 0,
+    totalSavedCloudCalls: 0,
+  });
+
+  useEffect(() => {
+    setCriticalOverrideArmed(false);
+    setReceiptVerifyState(null);
+    setRehydrateEnabled(false);
+    void getDedupCacheStats().then(setDedupStats).catch(() => {});
+  }, [currentResult?.id, currentResult?.auditReceipt?.receiptId]);
 
   // Auto-focus AI Solution when Cloud RCA streams or Local Runbook resolves
   useEffect(() => {
@@ -608,12 +681,46 @@ export function RightWorkbenchPane({
             color: "var(--text-secondary)",
           }}
         >
-          <span>
-            <strong style={{ color: "var(--mask-text)" }}>{maskedCount} Blocked</strong>{" "}
-            ({nanoCount} Nano 4 · {heuristicCount} Heuristic · {regexCount} Regex) ·{" "}
+          <span className="flex flex-wrap items-center gap-1.5">
+            <strong style={{ color: "var(--mask-text)" }}>{maskedCount} Blocked</strong>
+            <span>({nanoCount} Nano 4 · {heuristicCount} Heuristic · {regexCount} Regex) ·</span>
             <strong style={{ color: unmaskedCount === 0 ? "var(--safe-text)" : "var(--warn-text)" }}>
               {unmaskedCount === 0 ? "0 Leaked" : `${unmaskedCount} Unmasked`}
             </strong>
+            {currentResult.riskProfile && (
+              <span
+                data-testid="risk-score-pill"
+                className="rounded border px-1.5 py-0.5 font-bold"
+                style={{
+                  backgroundColor:
+                    currentResult.riskProfile.tier === "CRITICAL"
+                      ? "var(--mask-bg)"
+                      : currentResult.riskProfile.tier === "HIGH"
+                        ? "var(--warn-bg)"
+                        : currentResult.riskProfile.tier === "ELEVATED"
+                          ? "var(--nano-bg)"
+                          : "var(--safe-bg)",
+                  borderColor:
+                    currentResult.riskProfile.tier === "CRITICAL"
+                      ? "var(--mask-border)"
+                      : currentResult.riskProfile.tier === "HIGH"
+                        ? "var(--warn-border)"
+                        : currentResult.riskProfile.tier === "ELEVATED"
+                          ? "var(--nano-border)"
+                          : "var(--safe-border)",
+                  color:
+                    currentResult.riskProfile.tier === "CRITICAL"
+                      ? "var(--mask-text)"
+                      : currentResult.riskProfile.tier === "HIGH"
+                        ? "var(--warn-text)"
+                        : currentResult.riskProfile.tier === "ELEVATED"
+                          ? "var(--nano-text)"
+                          : "var(--safe-text)",
+                }}
+              >
+                Risk {currentResult.riskProfile.score}/100 · {currentResult.riskProfile.tier}
+              </span>
+            )}
           </span>
           <span style={{ color: "var(--text-muted)" }}>
             Stage 2: {stage2ProofLabel}
@@ -877,7 +984,15 @@ export function RightWorkbenchPane({
         )}
 
         {/* TAB 2: AI SOLUTION */}
-        {currentResult && activeTab === "solution" && (
+        {currentResult && activeTab === "solution" && (() => {
+          const rehydrationResolution = rehydrateTextForLocalView(
+            currentResult.id,
+            currentResult.resolution,
+            rehydrateEnabled,
+          );
+          const vaultSummary = getVaultSummary(currentResult.id);
+
+          return (
           <div className="space-y-3">
             <div
               className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2"
@@ -892,7 +1007,7 @@ export function RightWorkbenchPane({
                     : "var(--safe-border)",
               }}
             >
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {currentResult.resolutionMode === "CLOUD_ERROR" ? (
                   <AlertTriangle className="h-4 w-4" style={{ color: "var(--warn-text)" }} aria-hidden="true" />
                 ) : (
@@ -907,17 +1022,84 @@ export function RightWorkbenchPane({
                         : "var(--safe-text)",
                   }}
                 >
-                  {currentResult.resolutionMode === "LOCAL_RUNBOOK"
-                    ? `Instant On-Device Fix ($0) · ${currentResult.runbookId ?? "Runbook"}`
-                    : currentResult.resolutionMode === "CLOUD_ESCALATION"
-                      ? `Safe Cloud Analysis · ${currentResult.activeCloudModel ?? "Gemini"}`
-                      : currentResult.resolutionMode === "CLOUD_ERROR"
-                        ? "Local Deterministic Fallback"
-                        : "On-Device Firewall Hold"}
+                  {currentResult.dedupCacheHit?.hit
+                    ? `Semantic Cache Hit · <5ms · $0 Cloud`
+                    : currentResult.resolutionMode === "LOCAL_RUNBOOK"
+                      ? `Instant On-Device Fix ($0) · ${currentResult.runbookId ?? "Runbook"}`
+                      : currentResult.resolutionMode === "CLOUD_ESCALATION"
+                        ? `Safe Cloud Analysis · ${currentResult.activeCloudModel ?? "Gemini"}`
+                        : currentResult.resolutionMode === "CLOUD_ERROR"
+                          ? "Local Deterministic Fallback"
+                          : "On-Device Firewall Hold"}
                 </span>
+                {currentResult.dedupCacheHit?.hit && (
+                  <button
+                    type="button"
+                    disabled={isRunning || offlineMode}
+                    onClick={() => onApproveOrRerunCloud({ bypassCache: true })}
+                    className="rounded border px-2 py-0.5 font-mono text-[10px] font-medium disabled:opacity-45"
+                    style={{
+                      backgroundColor: "var(--bg-surface)",
+                      borderColor: "var(--border-subtle)",
+                      color: "var(--text-primary)",
+                    }}
+                  >
+                    Bypass Cache &amp; Re-run Cloud
+                  </button>
+                )}
               </div>
               <span className="font-mono text-[11px] tabular-nums" style={{ color: "var(--text-secondary)" }}>
-                {currentResult.latencyMs}ms
+                {currentResult.dedupCacheHit?.hit ? `${currentResult.dedupCacheHit.latencyMs}ms` : `${currentResult.latencyMs}ms`}
+              </span>
+            </div>
+
+            {/* Ephemeral RAM-Only Rehydration Controls */}
+            <div
+              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2"
+              style={{
+                backgroundColor: "var(--bg-subtle)",
+                borderColor: "var(--border-subtle)",
+              }}
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={rehydrateEnabled}
+                  onClick={() => setRehydrateEnabled((v) => !v)}
+                  className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium"
+                  style={{
+                    backgroundColor: rehydrateEnabled ? "var(--nano-bg)" : "var(--bg-surface)",
+                    borderColor: rehydrateEnabled ? "var(--nano-border)" : "var(--border-subtle)",
+                    color: rehydrateEnabled ? "var(--nano-text)" : "var(--text-primary)",
+                  }}
+                >
+                  {rehydrateEnabled ? <Unlock className="h-3 w-3" aria-hidden="true" /> : <Lock className="h-3 w-3" aria-hidden="true" />}
+                  Unmask Safe Context (RAM-Only)
+                </button>
+                {vaultSummary.rehydratableCount + vaultSummary.lockedCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      purgeRehydrationVault(currentResult.id);
+                      onPurgeRamVault?.();
+                      setRehydrateEnabled(false);
+                    }}
+                    className="rounded-md border px-2 py-1 font-mono text-[10px] font-medium"
+                    style={{
+                      backgroundColor: "var(--bg-surface)",
+                      borderColor: "var(--border-subtle)",
+                      color: "var(--text-secondary)",
+                    }}
+                  >
+                    Purge RAM Vault
+                  </button>
+                )}
+              </div>
+              <span className="font-mono text-[10px] tabular-nums" style={{ color: "var(--text-muted)" }}>
+                {rehydrateEnabled
+                  ? `${rehydrationResolution.unmaskedContextCount} context items unmasked in RAM · ${vaultSummary.lockedCount} credentials permanently locked`
+                  : `${vaultSummary.rehydratableCount} safe context · ${vaultSummary.lockedCount} credentials locked`}
               </span>
             </div>
 
@@ -938,7 +1120,10 @@ export function RightWorkbenchPane({
                   </span>
                 </div>
                 <p className="text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-                  {currentResult.hybridBrief.stakeholderDraft || currentResult.hybridBrief.summary}
+                  {renderInlineCodeAndBold(
+                    currentResult.hybridBrief.stakeholderDraft || currentResult.hybridBrief.summary,
+                    { ticketId: currentResult.id, enabled: rehydrateEnabled },
+                  )}
                 </p>
               </div>
             )}
@@ -950,10 +1135,14 @@ export function RightWorkbenchPane({
                 borderColor: "var(--border-subtle)",
               }}
             >
-              <SafeMarkdownView content={currentResult.resolution} />
+              <SafeMarkdownView
+                content={currentResult.resolution}
+                rehydrateCtx={{ ticketId: currentResult.id, enabled: rehydrateEnabled }}
+              />
             </div>
           </div>
-        )}
+          );
+        })()}
 
         {/* TAB 3: PROOF & SDK */}
         {activeTab === "proof" && (
@@ -1112,6 +1301,119 @@ export function RightWorkbenchPane({
                 )}
               </div>
             </div>
+
+            {/* Weighted Risk Router Breakdown */}
+            {currentResult?.riskProfile && (
+              <div className="lf-subtle-box rounded-lg p-3">
+                <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-mono text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+                    Weighted Risk Router
+                  </p>
+                  <span className="font-mono text-[11px] font-bold tabular-nums" style={{ color: "var(--text-primary)" }}>
+                    {currentResult.riskProfile.score}/100 · {currentResult.riskProfile.tier} · {currentResult.riskProfile.action}
+                  </span>
+                </div>
+                <ul className="space-y-0.5 font-mono text-[10px]" style={{ color: "var(--text-secondary)" }}>
+                  {currentResult.riskProfile.reasons.map((r, i) => (
+                    <li key={i}>• {r}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Zero-PII Semantic Dedup Cache */}
+            <div className="lf-subtle-box flex flex-wrap items-center justify-between gap-2 rounded-lg p-3">
+              <div className="space-y-0.5 text-[11px]">
+                <p className="font-mono font-semibold" style={{ color: "var(--text-primary)" }}>
+                  Zero-PII Semantic Dedup Cache
+                </p>
+                <p className="font-mono text-[10px] tabular-nums" style={{ color: "var(--text-secondary)" }}>
+                  {dedupStats.entryCount} templates · {dedupStats.totalSavedCloudCalls} $0 cached hits
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  void clearDedupCache().then(() => getDedupCacheStats().then(setDedupStats));
+                }}
+                className="rounded-md border px-2.5 py-1 text-[11px] font-medium"
+                style={{
+                  backgroundColor: "var(--bg-surface)",
+                  borderColor: "var(--border-subtle)",
+                  color: "var(--text-primary)",
+                }}
+              >
+                Clear Dedup Cache
+              </button>
+            </div>
+
+            {/* Cryptographic Zero-Leakage Audit Receipt (ECDSA P-256) */}
+            {currentResult?.auditReceipt && (
+              <div className="lf-subtle-box space-y-2 rounded-lg p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="font-mono text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+                      Cryptographic Zero-Leakage Receipt (ECDSA P-256)
+                    </p>
+                    <p className="mt-0.5 font-mono text-[10px]" style={{ color: "var(--text-secondary)" }}>
+                      ID: {currentResult.auditReceipt.receiptId.slice(0, 12)}… · SHA-256: {currentResult.auditReceipt.sanitizedSha256.slice(0, 14)}…
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!currentResult.auditReceipt) return;
+                        void verifyAuditReceipt(currentResult.auditReceipt).then(setReceiptVerifyState);
+                      }}
+                      className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[11px] font-medium"
+                      style={{
+                        backgroundColor: "var(--bg-surface)",
+                        borderColor: "var(--border-subtle)",
+                        color: "var(--text-primary)",
+                      }}
+                    >
+                      <ShieldCheck className="h-3 w-3" aria-hidden="true" />
+                      Verify Cryptographic Signature
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        downloadBlobFile(
+                          `${currentResult.id}-signed-receipt.json`,
+                          JSON.stringify(currentResult.auditReceipt, null, 2),
+                          "application/json",
+                        )
+                      }
+                      className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[11px] font-medium"
+                      style={{
+                        backgroundColor: "var(--bg-surface)",
+                        borderColor: "var(--border-subtle)",
+                        color: "var(--text-primary)",
+                      }}
+                    >
+                      <Download className="h-3 w-3" aria-hidden="true" />
+                      Download Signed Receipt (.json)
+                    </button>
+                  </div>
+                </div>
+                {receiptVerifyState && (
+                  <div
+                    data-testid="receipt-verify-banner"
+                    className="rounded border px-2.5 py-1.5 font-mono text-[10px] font-bold"
+                    style={{
+                      backgroundColor: receiptVerifyState.valid ? "var(--safe-bg)" : "var(--mask-bg)",
+                      borderColor: receiptVerifyState.valid ? "var(--safe-border)" : "var(--mask-border)",
+                      color: receiptVerifyState.valid ? "var(--safe-text)" : "var(--mask-text)",
+                    }}
+                  >
+                    {receiptVerifyState.valid
+                      ? `VALID ECDSA-P256 SIGNATURE · ${currentResult.auditReceipt.leakedCount} LEAKED`
+                      : `INVALID SIGNATURE: ${receiptVerifyState.reason}`}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Exports */}
             {currentResult && (
@@ -1329,25 +1631,44 @@ export function RightWorkbenchPane({
                   {autoCloudMode ? "Auto-Cloud" : "Pause at Airgap"}
                 </button>
 
-                <button
-                  type="button"
-                  disabled={!canEscalate}
-                  onClick={() => {
-                    onApproveOrRerunCloud();
-                    setActiveTab("solution");
-                  }}
-                  className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg px-3.5 text-xs font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-45"
-                  style={{
-                    backgroundColor: "var(--accent-primary)",
-                    color: "var(--accent-on-primary)",
-                  }}
-                >
-                  <span>
-                    {currentResult.resolutionMode === "CLOUD_ERROR"
-                      ? "Retry Safe AI Solution"
-                      : "Approve & Get Safe AI Solution →"}
-                  </span>
-                </button>
+                {currentResult.riskProfile?.action === "CRITICAL_AIRGAP_LOCKDOWN" && !criticalOverrideArmed ? (
+                  <button
+                    type="button"
+                    disabled={!canEscalate}
+                    onClick={() => setCriticalOverrideArmed(true)}
+                    className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border px-3.5 text-xs font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-45"
+                    style={{
+                      backgroundColor: "var(--mask-bg)",
+                      borderColor: "var(--mask-border)",
+                      color: "var(--mask-text)",
+                    }}
+                  >
+                    <span>Unlock Critical Lockdown ({currentResult.riskProfile.score}/100)</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={!canEscalate}
+                    onClick={() => {
+                      setCriticalOverrideArmed(false);
+                      onApproveOrRerunCloud();
+                      setActiveTab("solution");
+                    }}
+                    className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg px-3.5 text-xs font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-45"
+                    style={{
+                      backgroundColor: "var(--accent-primary)",
+                      color: "var(--accent-on-primary)",
+                    }}
+                  >
+                    <span>
+                      {criticalOverrideArmed
+                        ? "Confirm Critical Override →"
+                        : currentResult.resolutionMode === "CLOUD_ERROR"
+                          ? "Retry Safe AI Solution"
+                          : "Approve & Get Safe AI Solution →"}
+                    </span>
+                  </button>
+                )}
               </div>
             </div>
           )}

@@ -20,6 +20,7 @@ import {
   toggleTicketSpanMask,
 } from "./firewall/pipeline";
 import { decodeHandoffPayload } from "./firewall/regexScrubber";
+import { purgeRehydrationVault } from "./firewall/rehydrationVault";
 import {
   clearWorkspaceTicketsInFirestore,
   signInOrLinkWithGoogle,
@@ -440,7 +441,7 @@ export function App() {
     }));
   };
 
-  const handleApproveOrRerunCloud = useCallback(async () => {
+  const handleApproveOrRerunCloud = useCallback(async (options?: { bypassCache?: boolean }) => {
     if (!currentResult || isRunning || inFlightRef.current) return;
     inFlightRef.current = true;
     const gen = ++runGenerationRef.current;
@@ -452,6 +453,7 @@ export function App() {
       const safeTicket = prepareTicketForEscalation(currentResult);
       const escalated = await escalateApprovedTicket(safeTicket, safeTicket.spans, {
         offlineMode: telemetry.offlineMode,
+        bypassCache: options?.bypassCache,
         onStreamChunk: (partial) => {
           if (gen !== runGenerationRef.current) return;
           setCurrentResult((prev) =>
@@ -479,11 +481,17 @@ export function App() {
   }, [currentResult, isRunning, telemetry.offlineMode, syncHistoryAndQueueCount, syncTicketIfSignedIn]);
 
   // Auto-Cloud choreography: brief 700ms beat at Airgap Gate, then escalate automatically
+  // Never auto-escalate if Risk Router forces HYBRID_GATED_REVIEW (score >= 40) or CRITICAL_AIRGAP_LOCKDOWN (score >= 80)
   useEffect(() => {
+    const riskScore = currentResult?.riskProfile?.score ?? 0;
+    const riskAction = currentResult?.riskProfile?.action;
     if (
       !autoCloudMode ||
       telemetry.offlineMode ||
       isRunning ||
+      riskScore >= 40 ||
+      riskAction === "CRITICAL_AIRGAP_LOCKDOWN" ||
+      riskAction === "HYBRID_GATED_REVIEW" ||
       (currentResult?.resolutionMode !== "QUARANTINED_PENDING_APPROVAL" &&
         currentResult?.resolutionMode !== "PRE_CLOUD_COUNTDOWN")
     ) {
@@ -499,6 +507,8 @@ export function App() {
     isRunning,
     currentResult?.id,
     currentResult?.resolutionMode,
+    currentResult?.riskProfile?.score,
+    currentResult?.riskProfile?.action,
     handleApproveOrRerunCloud,
   ]);
 
@@ -568,7 +578,11 @@ export function App() {
       await syncHistoryAndQueueCount();
       void syncTicketIfSignedIn(result);
 
-      if (result.resolutionMode === "PRE_CLOUD_COUNTDOWN") {
+      if (
+        result.resolutionMode === "PRE_CLOUD_COUNTDOWN" &&
+        (result.riskProfile?.score ?? 0) < 40 &&
+        result.riskProfile?.action !== "CRITICAL_AIRGAP_LOCKDOWN"
+      ) {
         setCountdownMs((policy.autoCountdownSeconds ?? 3) * 1000);
       }
 
@@ -638,6 +652,7 @@ export function App() {
     const idsToDelete = history.map((h) => h.id);
     volatileSessionMap.current.clear();
     escalatedTicketIds.current.clear();
+    purgeRehydrationVault();
     await clearSanitizedTickets();
     if (authUidRef.current && !offlineModeRef.current && idsToDelete.length > 0) {
       void clearWorkspaceTicketsInFirestore(authUidRef.current, idsToDelete);
@@ -928,7 +943,8 @@ export function App() {
                 onToggleSpan={handleToggleSpan}
                 onAddManualSpan={handleAddManualSpan}
                 onPauseCountdown={() => setCountdownPaused(true)}
-                onApproveOrRerunCloud={() => void handleApproveOrRerunCloud()}
+                onApproveOrRerunCloud={(opts) => void handleApproveOrRerunCloud(opts)}
+                onPurgeRamVault={() => purgeRehydrationVault()}
                 onGenerateHybridBrief={() => void handleGenerateHybridBrief()}
                 onRefreshRemoteConfig={() => void handleRefreshRemoteConfig()}
                 onWarmupNano={() => void handleWarmupNano()}

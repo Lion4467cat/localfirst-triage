@@ -115,14 +115,17 @@ async function main() {
       }
     }
 
-    // 2. Run Scenario 1 via Ctrl+Enter / Cmd+Enter -> Paused for Review + Approve & Get Safe AI Solution + Proof & SDK tab
+    // 2. Run Scenario 1 via Ctrl+Enter / Cmd+Enter -> Paused for Review + Critical Lockdown Override + Proof & SDK tab
     await page.locator("#ticket-body").focus();
     await page.keyboard.press("Control+Enter");
     await page.waitForSelector("text=Paused for Review");
-    const approveBtn = page.getByRole("button", { name: /Approve & Get Safe AI Solution/i });
+    const unlockBtn = page.getByRole("button", { name: /Unlock Critical Lockdown/i });
+    await unlockBtn.waitFor();
+    await unlockBtn.click();
+    const approveBtn = page.getByRole("button", { name: /Confirm Critical Override|Approve & Get Safe AI Solution/i });
     await approveBtn.waitFor();
     if (await approveBtn.isDisabled()) {
-      throw new Error("Expected Approve & Get Safe AI Solution button to be enabled after Stage 1");
+      throw new Error("Expected Critical Override / Approve button to be enabled after Stage 1");
     }
     await approveBtn.click();
     await page.waitForSelector("text=AI Solution");
@@ -210,6 +213,21 @@ async function main() {
       await page.setViewportSize({ width: 1280, height: 720 });
     }
 
+    // 10. Verify Sprint 1 Backend Novelties (Risk Score Pill, RAM Rehydration Toggle, ECDSA-P256 Receipt Verification)
+    await page.getByRole("button", { name: /P0 Outage \+ PHI/i }).click();
+    await page.getByRole("button", { name: /Scrub & (Analyze|Fix Offline)/i }).click();
+    await page.waitForSelector('[data-testid="risk-score-pill"]');
+    await page.getByRole("tab", { name: /AI Solution/i }).click();
+    const rehydrateSwitch = page.getByRole("switch", { name: /Unmask Safe Context \(RAM-Only\)/i });
+    await rehydrateSwitch.click();
+    await page.getByRole("tab", { name: /Proof & SDK/i }).click();
+    await page.getByRole("button", { name: /Verify Cryptographic Signature/i }).click();
+    await page.waitForSelector('[data-testid="receipt-verify-banner"]');
+    const bannerText = await page.locator('[data-testid="receipt-verify-banner"]').textContent();
+    if (!bannerText?.includes("VALID ECDSA-P256 SIGNATURE")) {
+      throw new Error(`Expected valid ECDSA signature banner, got: ${bannerText}`);
+    }
+
     if (pageErrors.length > 0) {
       throw new Error(`Uncaught page errors: ${pageErrors.join("; ")}`);
     }
@@ -217,7 +235,7 @@ async function main() {
       throw new Error(`@firebase/ai hybrid config warnings: ${consoleWarnings.join("; ")}`);
     }
 
-    console.log("PLAYWRIGHT E2E VERIFICATION PASSED (all 9 flows, Light+Dark, 0 page errors, 0 SDK warnings).");
+    console.log("PLAYWRIGHT E2E VERIFICATION PASSED (all 10 flows, Light+Dark, 0 page errors, 0 SDK warnings).");
   } finally {
     await browser.close();
     server.kill("SIGTERM");
