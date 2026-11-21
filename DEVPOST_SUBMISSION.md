@@ -1,5 +1,9 @@
 # LocalFirst Triage (`v4.0`) — #BuildHybridAI 2026 Submission
 
+- **Live Web PWA:** [`https://para-1-2e22b.web.app/`](https://para-1-2e22b.web.app/)
+- **Public GitHub Repository:** [`https://github.com/Lion4467cat/localfirst-triage`](https://github.com/Lion4467cat/localfirst-triage)
+- **Android Companion APK (`v4.0.0`):** [`https://github.com/Lion4467cat/localfirst-triage/releases/tag/v4.0.0`](https://github.com/Lion4467cat/localfirst-triage/releases/tag/v4.0.0) (`localfirst-triage-v4.0.0-android-debug.apk`)
+
 ## Elevator Pitch
 **Zero-Leakage Hybrid AI Incident Copilot across Web PWA, Chrome Extension (MV3), and Native Android (`com.localfirst.triage`).** Sanitizes secrets, clinical PHI, password hints, and M&A deal terms strictly on-device with **Gemini Nano 4 (`ONLY_ON_DEVICE`) + Defense-in-Depth Heuristics** before a single byte ever reaches Cloud Gemini or Firestore—running 100% on **$0.00 Firebase Spark** infrastructure.
 

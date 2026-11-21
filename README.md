@@ -5,6 +5,8 @@
 Built for **#BuildHybridAI 2026** on **100% `$0.00` Firebase Spark Tier** infrastructure (`para-1-2e22b`).
 
 - **Live Web PWA:** [`https://para-1-2e22b.web.app/`](https://para-1-2e22b.web.app/)
+- **Public GitHub Repo:** [`https://github.com/Lion4467cat/localfirst-triage`](https://github.com/Lion4467cat/localfirst-triage)
+- **Android Companion (`v4.0.0` APK):** [`github.com/Lion4467cat/localfirst-triage/releases/tag/v4.0.0`](https://github.com/Lion4467cat/localfirst-triage/releases/tag/v4.0.0) (`localfirst-triage-v4.0.0-android-debug.apk`)
 - **Platforms:** React/TypeScript Web PWA + Manifest V3 Chrome Extension + Native Kotlin/Jetpack Compose Android App (`com.localfirst.triage`)
 - **License:** [Apache-2.0](./LICENSE)
 
