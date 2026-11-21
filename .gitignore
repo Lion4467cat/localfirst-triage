@@ -4,3 +4,9 @@ dist/
 .env.*.local
 graphify-out/
 .firebase/
+android/app/google-services.json
+android/local.properties
+android/.gradle/
+android/build/
+android/app/build/
+android/.idea/
