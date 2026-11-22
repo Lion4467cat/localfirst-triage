@@ -9,6 +9,7 @@ const THEME_STORAGE_KEY = "localfirst-theme";
 const SFX_STORAGE_KEY = "cordon_sfx_enabled";
 const SETUP_STATE_KEY = "cordon_ext_setup_state";
 const GEMMA4_ENABLED_KEY = "cordon_gemma4_enabled";
+const GEMMA4_PENDING_RELAUNCH_KEY = "cordon_gemma4_pending_relaunch";
 const SHIELD_ENABLED_KEY = "shieldEnabled";
 const SHIELD_STATS_KEY = "shieldStats";
 const PROTECTION_LEVEL_KEY = "protectionLevel";
@@ -235,7 +236,32 @@ function setupThemeSwitcher() {
 
 let lastAvailability = "unavailable";
 let gemma4Enabled = false;
+let gemma4PendingRelaunch = false;
 let currentSetupState = null;
+let isDownloadingModel = false;
+
+function renderDownloadControlState() {
+  if (!setupDownloadBtn) return;
+  if (isDownloadingModel) {
+    setupDownloadBtn.disabled = true;
+    setupDownloadBtn.textContent = "Downloading…";
+    return;
+  }
+  if (gemma4Enabled && gemma4PendingRelaunch) {
+    setupDownloadBtn.disabled = true;
+    setupDownloadBtn.textContent = "Relaunch Chrome to Unlock Download";
+    if (setupModelFeedback) {
+      setupModelFeedback.hidden = false;
+      setupModelFeedback.textContent =
+        "Chrome must be relaunched after enabling #gemma4-for-built-in-ai, otherwise Gemini Nano will be downloaded instead.";
+    }
+    return;
+  }
+  setupDownloadBtn.disabled = false;
+  setupDownloadBtn.textContent = gemma4Enabled
+    ? "Download Gemma 4 Model"
+    : "Download Gemini Nano (Default)";
+}
 
 function renderActiveModelBadge() {
   if (!activeModelBadge) return;
@@ -265,6 +291,7 @@ function syncSetupModeView(avail) {
   if (setupDownloadView) setupDownloadView.hidden = !downloadable;
   if (setupUnavailableView) setupUnavailableView.hidden = ready || downloadable;
   renderActiveModelBadge();
+  renderDownloadControlState();
 }
 
 async function refreshNanoStatus() {
@@ -299,6 +326,7 @@ async function refreshNanoStatus() {
 async function initSetupGate() {
   let state = null;
   let gemma = false;
+  let pendingRelaunch = false;
   try {
     state = window.localStorage.getItem(SETUP_STATE_KEY);
     gemma = window.localStorage.getItem(GEMMA4_ENABLED_KEY) === "true";
@@ -310,9 +338,17 @@ async function initSetupGate() {
       if (typeof res?.[GEMMA4_ENABLED_KEY] === "boolean") gemma = res[GEMMA4_ENABLED_KEY];
     } catch { /* ignore */ }
   }
+  if (typeof chrome !== "undefined" && chrome.storage?.session) {
+    try {
+      const sres = await chrome.storage.session.get([GEMMA4_PENDING_RELAUNCH_KEY]);
+      pendingRelaunch = sres?.[GEMMA4_PENDING_RELAUNCH_KEY] === true;
+    } catch { /* ignore */ }
+  }
   currentSetupState = state;
   gemma4Enabled = gemma;
+  gemma4PendingRelaunch = gemma && pendingRelaunch;
   renderActiveModelBadge();
+  renderDownloadControlState();
   if (setupGate) {
     setupGate.hidden = Boolean(state);
   }
@@ -332,14 +368,53 @@ async function persistSetupState(nextState) {
 }
 
 gemma4ConfirmBtn?.addEventListener("click", async () => {
-  gemma4Enabled = !gemma4Enabled;
-  try { window.localStorage.setItem(GEMMA4_ENABLED_KEY, String(gemma4Enabled)); } catch { /* ignore */ }
+  const nextGemma = !gemma4Enabled;
+  gemma4Enabled = nextGemma;
+
+  try { window.localStorage.setItem(GEMMA4_ENABLED_KEY, String(nextGemma)); } catch { /* ignore */ }
   try {
     if (typeof chrome !== "undefined" && chrome.storage?.local) {
-      await chrome.storage.local.set({ [GEMMA4_ENABLED_KEY]: gemma4Enabled });
+      await chrome.storage.local.set({ [GEMMA4_ENABLED_KEY]: nextGemma });
     }
   } catch { /* ignore */ }
+
+  if (nextGemma) {
+    gemma4PendingRelaunch = true;
+    try {
+      if (typeof chrome !== "undefined" && chrome.storage?.session) {
+        await chrome.storage.session.set({ [GEMMA4_PENDING_RELAUNCH_KEY]: true });
+      }
+    } catch { /* ignore */ }
+    if (setupModelFeedback) {
+      setupModelFeedback.hidden = false;
+      setupModelFeedback.textContent =
+        "Chrome must be relaunched after enabling #gemma4-for-built-in-ai, otherwise Gemini Nano will be downloaded instead.";
+    }
+  } else {
+    gemma4PendingRelaunch = false;
+    currentSetupState = null;
+    try { window.localStorage.removeItem(SETUP_STATE_KEY); } catch { /* ignore */ }
+    try {
+      if (typeof chrome !== "undefined" && chrome.storage?.local) {
+        await chrome.storage.local.remove([SETUP_STATE_KEY]);
+      }
+    } catch { /* ignore */ }
+    try {
+      if (typeof chrome !== "undefined" && chrome.storage?.session) {
+        await chrome.storage.session.remove([GEMMA4_PENDING_RELAUNCH_KEY]);
+      }
+    } catch { /* ignore */ }
+    if (setupGate) setupGate.hidden = false;
+    if (setupDetWarning) setupDetWarning.hidden = true;
+    if (setupModelFeedback) {
+      setupModelFeedback.hidden = false;
+      setupModelFeedback.textContent =
+        "Switched back to Chrome Default (Gemini Nano). If you enabled #gemma4-for-built-in-ai, set it back to Default & relaunch.";
+    }
+  }
+
   renderActiveModelBadge();
+  renderDownloadControlState();
   await refreshNanoStatus();
 });
 
@@ -370,9 +445,13 @@ setupDownloadBtn?.addEventListener("click", async () => {
     await refreshNanoStatus();
     return;
   }
+  if (gemma4Enabled && gemma4PendingRelaunch) {
+    renderDownloadControlState();
+    return;
+  }
 
-  setupDownloadBtn.disabled = true;
-  setupDownloadBtn.textContent = "Downloading…";
+  isDownloadingModel = true;
+  renderDownloadControlState();
   if (setupDownloadProgress) setupDownloadProgress.hidden = false;
   if (setupProgressFill) setupProgressFill.style.width = "0%";
   if (setupProgressPct) setupProgressPct.textContent = "0%";
@@ -461,8 +540,8 @@ setupDownloadBtn?.addEventListener("click", async () => {
     }
   } finally {
     if (pollTimer) clearInterval(pollTimer);
-    setupDownloadBtn.disabled = false;
-    if (!settled) setupDownloadBtn.textContent = "Download On-Device Model";
+    isDownloadingModel = false;
+    renderDownloadControlState();
   }
 });
 

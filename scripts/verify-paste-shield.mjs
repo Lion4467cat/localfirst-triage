@@ -257,6 +257,19 @@ async function main() {
     if (!modelBadgeText?.includes("Gemma 4 (Chosen)")) {
       throw new Error(`Expected #active-model-badge to show 'Gemma 4 (Chosen)', got '${modelBadgeText}'`);
     }
+    const pendingRelaunch = await spPage.evaluate(
+      () => new Promise((resolve) => chrome.storage.session.get("cordon_gemma4_pending_relaunch", (r) => resolve(r.cordon_gemma4_pending_relaunch))),
+    );
+    if (pendingRelaunch !== true) {
+      throw new Error(`Expected cordon_gemma4_pending_relaunch === true, got '${pendingRelaunch}'`);
+    }
+    // Toggle Gemma 4 back OFF: resets setup state & clears pending relaunch
+    await spPage.locator("#btn-gemma4-confirm").click();
+    await spPage.waitForTimeout(100);
+    const resetBadgeText = await spPage.locator("#active-model-badge").textContent();
+    if (!resetBadgeText?.includes("Deterministic Rules Only")) {
+      throw new Error(`Expected #active-model-badge to revert after toggling Gemma 4 OFF, got '${resetBadgeText}'`);
+    }
     await spPage.locator("#btn-setup-skip-unavail").click();
     await spPage.locator("#btn-setup-confirm-det").click();
     await spPage.waitForTimeout(100);
