@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import type { ResolvedTheme, ThemePreference } from "../config/theme";
 import type { HybridTelemetry } from "../types/triage";
-import { isSfxEnabled, setSfxEnabled } from "../utils/soundFx";
+import { isSfxEnabled, playClick, setSfxEnabled } from "../utils/soundFx";
 import { CordonWordmark } from "./CordonWordmark";
 
 export type WorkspaceView = "triage" | "history" | "rules" | "runbooks";
@@ -67,6 +67,9 @@ export function TelemetryHud({
     const next = !sfxEnabled;
     setSfxEnabled(next);
     setSfxState(next);
+    if (next) {
+      playClick();
+    }
   };
 
   useEffect(() => {
@@ -128,13 +131,13 @@ export function TelemetryHud({
       <div className="mx-auto flex min-h-12 max-w-[1680px] flex-wrap items-center justify-between gap-2 py-1.5 lg:h-12 lg:flex-nowrap lg:py-0">
         {/* Left: Kinetic Cordon Airgap Wordmark + Word-First Hardware Status */}
         <div className="flex min-w-0 items-center gap-2.5">
-          <div className="flex items-center gap-2">
+          <div className="flex items-baseline gap-2">
             <CordonWordmark />
             <span
-              className="hidden font-mono text-[10px] font-medium uppercase tracking-wider sm:inline"
+              className="hidden font-mono text-[10.5px] font-medium uppercase tracking-wider sm:inline"
               style={{ color: "var(--text-muted)" }}
             >
-              v4.2 · HYBRID AIRGAP
+              V4.2 · HYBRID AIRGAP
             </span>
           </div>
 
@@ -265,9 +268,9 @@ export function TelemetryHud({
             onClick={handleToggleSfx}
             className="inline-flex min-h-[30px] items-center justify-center rounded-lg border px-2 text-xs transition-colors"
             style={{
-              backgroundColor: "var(--bg-subtle)",
-              borderColor: "var(--border-subtle)",
-              color: sfxEnabled ? "var(--text-primary)" : "var(--text-muted)",
+              backgroundColor: sfxEnabled ? "var(--safe-bg)" : "var(--bg-subtle)",
+              borderColor: sfxEnabled ? "var(--safe-border)" : "var(--border-subtle)",
+              color: sfxEnabled ? "var(--safe-text)" : "var(--text-muted)",
             }}
           >
             {sfxEnabled ? (

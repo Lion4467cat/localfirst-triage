@@ -1,16 +1,17 @@
 import { useEffect, useRef } from "react";
 
-const INTERACTIVE_SELECTOR =
-  'button, a, [role="button"], [role="tab"], input, textarea, [data-interactive]';
+const EDGE_GLOW_SELECTOR =
+  '.lf-card, .lf-spotlight-card, .lf-btn-primary, button, a, [data-interactive]';
 
 export function PointerField() {
   const auraRef = useRef<HTMLDivElement>(null);
-  const ringRef = useRef<HTMLDivElement>(null);
+  const crosshairXRef = useRef<HTMLDivElement>(null);
+  const crosshairYRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (typeof window === "undefined" || !window.matchMedia) return;
     if (
-      window.matchMedia("(pointer: coarse)").matches ||
+      !window.matchMedia("(pointer: fine)").matches ||
       window.matchMedia("(prefers-reduced-motion: reduce)").matches
     ) {
       return;
@@ -20,40 +21,44 @@ export function PointerField() {
     let targetY = window.innerHeight * 0.3;
     let currentX = targetX;
     let currentY = targetY;
-    let currentScale = 1;
-    let targetScale = 1;
-    let isInteractive = false;
-    let isPressed = false;
     let isVisible = false;
     let rafId: number | null = null;
+    let hoveredEdgeEl: HTMLElement | null = null;
 
-    const updateVisualStyles = () => {
-      const ring = ringRef.current;
-      if (!ring) return;
-      ring.style.opacity = isVisible ? "1" : "0";
-      ring.style.borderColor =
-        isInteractive || isPressed ? "var(--accent-primary)" : "var(--border-strong)";
+    const setVisibility = (visible: boolean) => {
+      const opacity = visible ? "1" : "0";
+      if (auraRef.current) auraRef.current.style.opacity = opacity;
+      if (crosshairXRef.current) crosshairXRef.current.style.opacity = opacity;
+      if (crosshairYRef.current) crosshairYRef.current.style.opacity = opacity;
     };
 
     const tick = () => {
       const dx = targetX - currentX;
       const dy = targetY - currentY;
-      const ds = targetScale - currentScale;
 
-      currentX += dx * 0.22;
-      currentY += dy * 0.22;
-      currentScale += ds * 0.28;
+      currentX += dx * 0.28;
+      currentY += dy * 0.28;
 
       if (auraRef.current) {
-        auraRef.current.style.setProperty("--pointer-x", `${currentX.toFixed(1)}px`);
-        auraRef.current.style.setProperty("--pointer-y", `${currentY.toFixed(1)}px`);
+        auraRef.current.style.setProperty("--px", `${currentX.toFixed(1)}px`);
+        auraRef.current.style.setProperty("--py", `${currentY.toFixed(1)}px`);
       }
 
-      if (ringRef.current) {
-        ringRef.current.style.transform = `translate3d(${(currentX - 12).toFixed(1)}px, ${(currentY - 12).toFixed(1)}px, 0) scale(${currentScale.toFixed(3)})`;
+      if (crosshairXRef.current) {
+        crosshairXRef.current.style.transform = `translate3d(0, ${currentY.toFixed(1)}px, 0)`;
       }
 
-      if (Math.abs(dx) < 0.2 && Math.abs(dy) < 0.2 && Math.abs(ds) < 0.005) {
+      if (crosshairYRef.current) {
+        crosshairYRef.current.style.transform = `translate3d(${currentX.toFixed(1)}px, 0, 0)`;
+      }
+
+      if (hoveredEdgeEl) {
+        const rect = hoveredEdgeEl.getBoundingClientRect();
+        hoveredEdgeEl.style.setProperty("--local-x", `${(targetX - rect.left).toFixed(1)}px`);
+        hoveredEdgeEl.style.setProperty("--local-y", `${(targetY - rect.top).toFixed(1)}px`);
+      }
+
+      if (Math.abs(dx) < 0.2 && Math.abs(dy) < 0.2) {
         rafId = null;
         return;
       }
@@ -73,68 +78,61 @@ export function PointerField() {
       targetY = ev.clientY;
       if (!isVisible) {
         isVisible = true;
-        if (auraRef.current) auraRef.current.style.opacity = "1";
+        setVisibility(true);
       }
 
       const targetEl = ev.target as Element | null;
-      const nextInteractive = Boolean(targetEl?.closest(INTERACTIVE_SELECTOR));
-      if (nextInteractive !== isInteractive) {
-        isInteractive = nextInteractive;
-        targetScale = isPressed ? 0.85 : isInteractive ? 1.45 : 1;
+      const nextEdgeEl = (targetEl?.closest(EDGE_GLOW_SELECTOR) as HTMLElement | null) ?? null;
+      if (hoveredEdgeEl && hoveredEdgeEl !== nextEdgeEl) {
+        hoveredEdgeEl.removeAttribute("data-edge-active");
       }
-      updateVisualStyles();
-      scheduleLoop();
-    };
+      hoveredEdgeEl = nextEdgeEl;
+      if (hoveredEdgeEl) {
+        hoveredEdgeEl.setAttribute("data-edge-active", "true");
+      }
 
-    const onPointerDown = (ev: PointerEvent) => {
-      if (ev.pointerType === "touch") return;
-      isPressed = true;
-      targetScale = 0.85;
-      updateVisualStyles();
-      scheduleLoop();
-    };
-
-    const onPointerUp = () => {
-      isPressed = false;
-      targetScale = isInteractive ? 1.45 : 1;
-      updateVisualStyles();
       scheduleLoop();
     };
 
     const onPointerLeave = () => {
       isVisible = false;
-      if (auraRef.current) auraRef.current.style.opacity = "0";
-      updateVisualStyles();
+      setVisibility(false);
+      if (hoveredEdgeEl) {
+        hoveredEdgeEl.removeAttribute("data-edge-active");
+        hoveredEdgeEl = null;
+      }
     };
 
     window.addEventListener("pointermove", onPointerMove, { passive: true });
-    window.addEventListener("pointerdown", onPointerDown, { passive: true });
-    window.addEventListener("pointerup", onPointerUp, { passive: true });
     document.addEventListener("mouseleave", onPointerLeave, { passive: true });
 
     return () => {
       if (rafId !== null) cancelAnimationFrame(rafId);
+      if (hoveredEdgeEl) hoveredEdgeEl.removeAttribute("data-edge-active");
       window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("pointerup", onPointerUp);
       document.removeEventListener("mouseleave", onPointerLeave);
     };
   }, []);
 
   return (
-    <div className="cordon-pointer-layer pointer-events-none fixed inset-0 overflow-hidden" aria-hidden="true">
-      {/* Soft GPU-composited Grid Spotlight Aura */}
+    <div
+      className="cordon-pointer-layer pointer-events-none fixed inset-0 z-10 overflow-hidden"
+      aria-hidden="true"
+    >
+      {/* Localized Grid Illumination Aura */}
       <div
         ref={auraRef}
         className="cordon-pointer-aura fixed inset-0 opacity-0 transition-opacity duration-300"
       />
-      {/* Crisp 24px Hairline Precision Reticle Ring */}
+      {/* Horizontal Airgap Scanline */}
       <div
-        ref={ringRef}
-        className="fixed left-0 top-0 z-[9999] h-6 w-6 rounded-full border opacity-0 transition-[opacity,border-color] duration-150 will-change-transform"
-        style={{
-          borderColor: "var(--border-strong)",
-        }}
+        ref={crosshairXRef}
+        className="cordon-crosshair-x fixed left-0 top-0 h-px w-full opacity-0 transition-opacity duration-200 will-change-transform"
+      />
+      {/* Vertical Airgap Scanline */}
+      <div
+        ref={crosshairYRef}
+        className="cordon-crosshair-y fixed left-0 top-0 h-full w-px opacity-0 transition-opacity duration-200 will-change-transform"
       />
     </div>
   );

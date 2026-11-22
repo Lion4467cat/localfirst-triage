@@ -1,8 +1,11 @@
 const SFX_STORAGE_KEY = "cordon_sfx_enabled";
+const CONTROL_SELECTOR =
+  'button, a, [role="button"], [role="tab"], input, textarea, select, label, [data-interactive], #localfirst-paste-shield-host';
 
 let audioCtx: AudioContext | null = null;
 let sfxEnabledCache: boolean | null = null;
 let lastHoverTickAt = 0;
+let lastSurfaceTapAt = 0;
 
 function getAudioContextCtor(): (new () => AudioContext) | null {
   if (typeof window === "undefined") return null;
@@ -41,7 +44,7 @@ export function setSfxEnabled(enabled: boolean): void {
   }
 }
 
-function ensureUnlockedAudioContext(): AudioContext | null {
+function ensureUnlockedAudioContext(onUnlocked?: (ctx: AudioContext) => void): AudioContext | null {
   if (!isSfxEnabled()) return null;
   const Ctor = getAudioContextCtor();
   if (!Ctor) return null;
@@ -56,7 +59,14 @@ function ensureUnlockedAudioContext(): AudioContext | null {
 
   if (audioCtx.state === "suspended") {
     try {
-      void audioCtx.resume();
+      const p = audioCtx.resume();
+      if (onUnlocked && p && typeof p.then === "function") {
+        void p.then(() => {
+          if (audioCtx && audioCtx.state === "running") {
+            onUnlocked(audioCtx);
+          }
+        });
+      }
     } catch {
       return null;
     }
@@ -65,35 +75,77 @@ function ensureUnlockedAudioContext(): AudioContext | null {
   return audioCtx;
 }
 
-/**
- * Ultra-crisp 18ms high-passed mechanical tick (~1800Hz -> 900Hz).
- */
-export function playClick(): void {
-  const ctx = ensureUnlockedAudioContext();
-  if (!ctx || ctx.state !== "running") return;
-
+function triggerControlClickOnCtx(ctx: AudioContext): void {
   const now = ctx.currentTime;
   const osc = ctx.createOscillator();
   const filter = ctx.createBiquadFilter();
   const gain = ctx.createGain();
 
   osc.type = "triangle";
-  osc.frequency.setValueAtTime(1800, now);
-  osc.frequency.exponentialRampToValueAtTime(900, now + 0.018);
+  osc.frequency.setValueAtTime(950, now);
+  osc.frequency.exponentialRampToValueAtTime(320, now + 0.032);
 
-  filter.type = "highpass";
-  filter.frequency.setValueAtTime(750, now);
+  filter.type = "bandpass";
+  filter.frequency.setValueAtTime(1100, now);
+  filter.Q.setValueAtTime(1.1, now);
 
   gain.gain.setValueAtTime(0.0001, now);
-  gain.gain.linearRampToValueAtTime(0.045, now + 0.002);
-  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.018);
+  gain.gain.linearRampToValueAtTime(0.12, now + 0.003);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.032);
 
   osc.connect(filter);
   filter.connect(gain);
   gain.connect(ctx.destination);
 
   osc.start(now);
-  osc.stop(now + 0.02);
+  osc.stop(now + 0.036);
+}
+
+function triggerSurfaceTapOnCtx(ctx: AudioContext): void {
+  const now = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const filter = ctx.createBiquadFilter();
+  const gain = ctx.createGain();
+
+  osc.type = "triangle";
+  osc.frequency.setValueAtTime(230, now);
+  osc.frequency.exponentialRampToValueAtTime(110, now + 0.03);
+
+  filter.type = "lowpass";
+  filter.frequency.setValueAtTime(420, now);
+
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.linearRampToValueAtTime(0.055, now + 0.004);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.03);
+
+  osc.connect(filter);
+  filter.connect(gain);
+  gain.connect(ctx.destination);
+
+  osc.start(now);
+  osc.stop(now + 0.034);
+}
+
+/**
+ * Crisp ~32ms mechanical switch click (950Hz -> 320Hz, 0.12 peak gain).
+ */
+export function playClick(): void {
+  const ctx = ensureUnlockedAudioContext((unlocked) => triggerControlClickOnCtx(unlocked));
+  if (!ctx || ctx.state !== "running") return;
+  triggerControlClickOnCtx(ctx);
+}
+
+/**
+ * Softer, muted low-end surface tap (~230Hz -> 110Hz through ~420Hz low-pass, 0.055 gain, >= 75ms throttle).
+ */
+export function playSurfaceTap(): void {
+  const perfNow = typeof performance !== "undefined" ? performance.now() : Date.now();
+  if (perfNow - lastSurfaceTapAt < 75) return;
+  lastSurfaceTapAt = perfNow;
+
+  const ctx = ensureUnlockedAudioContext((unlocked) => triggerSurfaceTapOnCtx(unlocked));
+  if (!ctx || ctx.state !== "running") return;
+  triggerSurfaceTapOnCtx(ctx);
 }
 
 /**
@@ -127,14 +179,13 @@ export function playHoverTick(): void {
 }
 
 /**
- * Clean 2-step muted harmonic lock chime (520Hz -> 780Hz, 110ms total).
+ * Clean 120ms two-tone confirmation chime (540Hz -> 810Hz, 0.11 gain).
  */
 export function playAirgapLock(): void {
   const ctx = ensureUnlockedAudioContext();
   if (!ctx || ctx.state !== "running") return;
 
   const now = ctx.currentTime;
-
   const playNote = (freq: number, startOffset: number, duration: number, peakGain: number) => {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
@@ -152,23 +203,50 @@ export function playAirgapLock(): void {
     osc.stop(now + startOffset + duration + 0.005);
   };
 
-  playNote(520, 0, 0.055, 0.055);
-  playNote(780, 0.042, 0.068, 0.06);
+  playNote(540, 0, 0.06, 0.1);
+  playNote(810, 0.048, 0.072, 0.11);
 }
 
 /**
- * Installs a single delegated capture-phase pointerdown listener and keydown unlocker.
+ * Installs delegated capture-phase gesture listeners for unlocking AudioContext
+ * and playing control clicks vs. non-control surface taps.
  */
 export function installGlobalClickSfx(): () => void {
   if (typeof document === "undefined") return () => {};
 
+  let lastDownAt = 0;
+
+  const dispatchSoundForTarget = (target: EventTarget | null) => {
+    const el = target instanceof Element ? target : null;
+    const control = el?.closest(CONTROL_SELECTOR);
+    if (control) {
+      if (!(control as HTMLButtonElement).disabled) {
+        playClick();
+      }
+      return;
+    }
+    playSurfaceTap();
+  };
+
   const onPointerDown = (ev: PointerEvent) => {
+    lastDownAt = typeof performance !== "undefined" ? performance.now() : Date.now();
     ensureUnlockedAudioContext();
-    const target = ev.target as Element | null;
-    if (!target) return;
-    const clickable = target.closest('button, a, [role="tab"], [role="button"]');
-    if (clickable && !(clickable as HTMLButtonElement).disabled) {
-      playClick();
+    dispatchSoundForTarget(ev.target);
+  };
+
+  const onMouseDown = () => {
+    ensureUnlockedAudioContext();
+  };
+
+  const onClickFallback = (ev: MouseEvent) => {
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+    // Only act as a fallback when pointerdown wasn't just processed or ctx wasn't running yet
+    if (audioCtx && audioCtx.state !== "running") {
+      ensureUnlockedAudioContext(() => dispatchSoundForTarget(ev.target));
+      return;
+    }
+    if (now - lastDownAt > 250) {
+      dispatchSoundForTarget(ev.target);
     }
   };
 
@@ -177,10 +255,14 @@ export function installGlobalClickSfx(): () => void {
   };
 
   document.addEventListener("pointerdown", onPointerDown, { capture: true, passive: true });
+  document.addEventListener("mousedown", onMouseDown, { capture: true, passive: true });
+  document.addEventListener("click", onClickFallback, { capture: true, passive: true });
   document.addEventListener("keydown", onKeyDown, { capture: true, passive: true });
 
   return () => {
     document.removeEventListener("pointerdown", onPointerDown, { capture: true });
+    document.removeEventListener("mousedown", onMouseDown, { capture: true });
+    document.removeEventListener("click", onClickFallback, { capture: true });
     document.removeEventListener("keydown", onKeyDown, { capture: true });
   };
 }

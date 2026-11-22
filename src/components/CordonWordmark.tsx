@@ -87,17 +87,17 @@ export function CordonWordmark() {
       style={{ color: "var(--text-primary)" }}
     >
       <BrandLogo
-        size={22}
+        size={24}
         className={`transition-transform duration-200 ${
           hovered || mountPulse ? "scale-105" : "scale-100"
         }`}
         beamGlow={hovered || mountPulse}
       />
 
-      <span className="inline-flex items-center font-display text-sm font-bold tracking-tight uppercase">
+      <span className="inline-flex items-center font-display text-lg font-extrabold tracking-[-0.03em] uppercase sm:text-[20px]">
         <span
           aria-hidden="true"
-          className="mr-0.5 inline-block font-mono text-xs transition-all duration-200"
+          className="mr-0.5 inline-block font-mono text-xs font-bold transition-all duration-200"
           style={{
             color: "var(--safe-text)",
             opacity: hovered ? 0.95 : 0,
@@ -113,12 +113,7 @@ export function CordonWordmark() {
               className="inline-block text-center transition-colors duration-150"
               style={{
                 width: "0.72em",
-                color:
-                  ch !== TARGET[idx]
-                    ? "var(--safe-text)"
-                    : hovered
-                      ? "var(--text-primary)"
-                      : "var(--text-primary)",
+                color: ch !== TARGET[idx] ? "var(--safe-text)" : "var(--text-primary)",
               }}
             >
               {ch}
@@ -127,7 +122,7 @@ export function CordonWordmark() {
         </span>
         <span
           aria-hidden="true"
-          className="ml-0.5 inline-block font-mono text-xs transition-all duration-200"
+          className="ml-0.5 inline-block font-mono text-xs font-bold transition-all duration-200"
           style={{
             color: "var(--safe-text)",
             opacity: hovered ? 0.95 : 0,
