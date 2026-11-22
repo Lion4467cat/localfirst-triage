@@ -6,6 +6,7 @@ import {
 
 const CAPTURE_STORAGE_KEY = "pendingCapture";
 const THEME_STORAGE_KEY = "localfirst-theme";
+const SFX_STORAGE_KEY = "cordon_sfx_enabled";
 const SHIELD_ENABLED_KEY = "shieldEnabled";
 const SHIELD_STATS_KEY = "shieldStats";
 const PROTECTION_LEVEL_KEY = "protectionLevel";
@@ -42,6 +43,8 @@ const LEVEL_CAPABILITIES = {
 };
 
 const nanoBadge = document.getElementById("nano-badge");
+const sfxToggleBtn = document.getElementById("btn-sfx-toggle");
+const sfxToggleLabel = document.getElementById("sfx-toggle-label");
 const shieldToggleBtn = document.getElementById("btn-shield-toggle");
 const shieldToggleLabel = document.getElementById("shield-toggle-label");
 const tabStatusPill = document.getElementById("tab-status-pill");
@@ -69,6 +72,77 @@ const themeButtons = Array.from(document.querySelectorAll("[data-theme-choice]")
 let activeProtectionLevel = "medium";
 let activeTabId = null;
 let lastSanitizedText = "";
+let sfxAudioCtx = null;
+let sfxEnabled = true;
+
+try {
+  sfxEnabled = window.localStorage.getItem(SFX_STORAGE_KEY) !== "false";
+} catch {
+  sfxEnabled = true;
+}
+
+function getSfxCtx() {
+  if (!sfxEnabled || typeof window === "undefined") return null;
+  const Ctor = window.AudioContext || window.webkitAudioContext;
+  if (!Ctor) return null;
+  if (!sfxAudioCtx) {
+    try { sfxAudioCtx = new Ctor(); } catch { return null; }
+  }
+  if (sfxAudioCtx.state === "suspended") {
+    try { void sfxAudioCtx.resume(); } catch { return null; }
+  }
+  return sfxAudioCtx;
+}
+
+function playPanelClick() {
+  const ctx = getSfxCtx();
+  if (!ctx || ctx.state !== "running") return;
+  const now = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = "triangle";
+  osc.frequency.setValueAtTime(950, now);
+  osc.frequency.exponentialRampToValueAtTime(320, now + 0.028);
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.linearRampToValueAtTime(0.08, now + 0.002);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.028);
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(now);
+  osc.stop(now + 0.032);
+}
+
+function playPanelLock() {
+  const ctx = getSfxCtx();
+  if (!ctx || ctx.state !== "running") return;
+  const now = ctx.currentTime;
+  for (const [freq, offset, dur] of [[540, 0, 0.055], [810, 0.045, 0.07]]) {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(freq, now + offset);
+    gain.gain.setValueAtTime(0.0001, now + offset);
+    gain.gain.linearRampToValueAtTime(0.08, now + offset + 0.005);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + dur);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now + offset);
+    osc.stop(now + offset + dur + 0.005);
+  }
+}
+
+function renderSfxState(enabled) {
+  sfxEnabled = enabled;
+  if (!sfxToggleBtn || !sfxToggleLabel) return;
+  sfxToggleBtn.setAttribute("aria-pressed", String(enabled));
+  sfxToggleBtn.title = enabled ? "UI sound effects: On" : "UI sound effects: Off";
+  sfxToggleLabel.textContent = enabled ? "SFX" : "MUTE";
+}
+
+document.addEventListener("pointerdown", (ev) => {
+  const target = ev.target instanceof Element ? ev.target.closest("button, summary, select") : null;
+  if (target && !target.disabled) playPanelClick();
+}, { capture: true, passive: true });
 
 function readThemePreference() {
   try {
@@ -204,6 +278,7 @@ async function runFirewall() {
       : `Protected (${engine}) · ${count} secret(s) scrubbed`;
   copyBtn.disabled = false;
   handoffBtn.disabled = false;
+  if (count > 0) playPanelLock();
 }
 
 async function loadPendingCapture() {
@@ -349,6 +424,19 @@ async function initPasteShieldControls() {
     await chrome.storage.local.set({ [WORKBENCH_TARGET_KEY]: val });
   });
 }
+
+renderSfxState(sfxEnabled);
+sfxToggleBtn?.addEventListener("click", async () => {
+  const next = !sfxEnabled;
+  renderSfxState(next);
+  try { window.localStorage.setItem(SFX_STORAGE_KEY, String(next)); } catch { /* ignore */ }
+  try {
+    if (typeof chrome !== "undefined" && chrome.storage?.local) {
+      await chrome.storage.local.set({ [SFX_STORAGE_KEY]: next });
+    }
+  } catch { /* ignore */ }
+  if (next) playPanelClick();
+});
 
 setupThemeSwitcher();
 void initPasteShieldControls();

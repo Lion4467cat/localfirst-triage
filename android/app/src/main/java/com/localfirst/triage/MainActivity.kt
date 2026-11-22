@@ -6,6 +6,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -194,48 +196,54 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                 ) { innerPadding ->
-                    when (activeTab) {
-                        0 -> TriageScreen(
-                            state = state,
-                            onSelectScenario = vm::selectScenario,
-                            onTitleChange = vm::updateTitle,
-                            onRawTextChange = vm::updateRawText,
-                            onSelectProtectionLevel = { level ->
-                                prefs.edit().putString("protection_level", level.name).apply()
-                                vm.setProtectionLevel(level)
-                            },
-                            onAddCustomTerm = vm::addCustomPolicyTerm,
-                            onToggleOffline = vm::toggleOfflineMode,
-                            onRefreshRemoteConfig = { vm.refreshRemoteConfig(force = true) },
-                            onRecheckNano = vm::refreshNanoStatus,
-                            onWarmupNano = vm::downloadAndWarmUpNano,
-                            onRunTriage = {
-                                vm.runHybridTriage()
-                                activeTab = 1
-                            },
-                            modifier = Modifier.padding(innerPadding),
-                        )
+                    Crossfade(
+                        targetState = activeTab,
+                        animationSpec = tween(durationMillis = 180),
+                        label = "cordon-tab-crossfade",
+                    ) { tab ->
+                        when (tab) {
+                            0 -> TriageScreen(
+                                state = state,
+                                onSelectScenario = vm::selectScenario,
+                                onTitleChange = vm::updateTitle,
+                                onRawTextChange = vm::updateRawText,
+                                onSelectProtectionLevel = { level ->
+                                    prefs.edit().putString("protection_level", level.name).apply()
+                                    vm.setProtectionLevel(level)
+                                },
+                                onAddCustomTerm = vm::addCustomPolicyTerm,
+                                onToggleOffline = vm::toggleOfflineMode,
+                                onRefreshRemoteConfig = { vm.refreshRemoteConfig(force = true) },
+                                onRecheckNano = vm::refreshNanoStatus,
+                                onWarmupNano = vm::downloadAndWarmUpNano,
+                                onRunTriage = {
+                                    vm.runHybridTriage()
+                                    activeTab = 1
+                                },
+                                modifier = Modifier.padding(innerPadding),
+                            )
 
-                        1 -> DiffEscalateScreen(
-                            state = state,
-                            onToggleSpan = vm::toggleSpanMask,
-                            onApproveEscalate = vm::approveAndEscalateToCloud,
-                            onSyncToFirestore = vm::syncCurrentTicketToFirestore,
-                            modifier = Modifier.padding(innerPadding),
-                        )
+                            1 -> DiffEscalateScreen(
+                                state = state,
+                                onToggleSpan = vm::toggleSpanMask,
+                                onApproveEscalate = vm::approveAndEscalateToCloud,
+                                onSyncToFirestore = vm::syncCurrentTicketToFirestore,
+                                modifier = Modifier.padding(innerPadding),
+                            )
 
-                        else -> SyncedFeedScreen(
-                            state = state,
-                            onSignInAnonymous = vm::signInAnonymously,
-                            onSignInGoogle = { vm.signInWithGoogle(this@MainActivity) },
-                            onSignOut = vm::signOut,
-                            onGenerateBrief = vm::generateHybridBrief,
-                            onOpenTicket = { item ->
-                                vm.openSyncedTicket(item)
-                                activeTab = 1
-                            },
-                            modifier = Modifier.padding(innerPadding),
-                        )
+                            else -> SyncedFeedScreen(
+                                state = state,
+                                onSignInAnonymous = vm::signInAnonymously,
+                                onSignInGoogle = { vm.signInWithGoogle(this@MainActivity) },
+                                onSignOut = vm::signOut,
+                                onGenerateBrief = vm::generateHybridBrief,
+                                onOpenTicket = { item ->
+                                    vm.openSyncedTicket(item)
+                                    activeTab = 1
+                                },
+                                modifier = Modifier.padding(innerPadding),
+                            )
+                        }
                     }
                 }
             }

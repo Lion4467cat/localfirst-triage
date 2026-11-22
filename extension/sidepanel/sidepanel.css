@@ -1,9 +1,9 @@
 :root {
   color-scheme: light dark;
-  --bg-canvas: #f4f6f9;
+  --bg-canvas: #f8fafc;
   --bg-surface: #ffffff;
-  --bg-subtle: #ebeef3;
-  --text-primary: #0b0c10;
+  --bg-subtle: #f1f5f9;
+  --text-primary: #0f172a;
   --text-secondary: #475569;
   --border-subtle: rgba(15, 23, 42, 0.1);
   --border-strong: rgba(15, 23, 42, 0.2);
@@ -17,19 +17,19 @@
   --danger: #dc2626;
   --danger-bg: rgba(220, 38, 38, 0.1);
   --danger-border: rgba(220, 38, 38, 0.32);
-  --accent-primary: #0b0c10;
-  --accent-on-primary: #f8fafc;
+  --accent-primary: #059669;
+  --accent-on-primary: #ffffff;
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg-canvas: #0b0c10;
-  --bg-surface: #12141b;
-  --bg-subtle: #191c26;
+  --bg-canvas: #090b0e;
+  --bg-surface: #11141b;
+  --bg-subtle: #181c26;
   --text-primary: #f8fafc;
   --text-secondary: #94a3b8;
-  --border-subtle: rgba(148, 163, 184, 0.14);
-  --border-strong: rgba(148, 163, 184, 0.28);
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.18);
   --mint: #00e5a3;
   --mint-bg: rgba(0, 229, 163, 0.12);
   --mint-border: rgba(0, 229, 163, 0.38);
@@ -41,7 +41,7 @@
   --danger-bg: rgba(255, 77, 90, 0.12);
   --danger-border: rgba(255, 77, 90, 0.36);
   --accent-primary: #00e5a3;
-  --accent-on-primary: #0b0c10;
+  --accent-on-primary: #07090d;
 }
 
 * {
@@ -124,8 +124,46 @@ body {
 h1 {
   margin: 0;
   font-size: 13.5px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.sfx-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--mint-border);
+  background: var(--mint-bg);
+  color: var(--mint);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
   font-weight: 700;
-  letter-spacing: -0.01em;
+  padding: 5px 8px;
+  cursor: pointer;
+  transition: transform 0.12s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.sfx-btn[aria-pressed="false"] {
+  border-color: var(--border-subtle);
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+}
+
+button {
+  transition: transform 0.12s ease, background-color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+}
+
+button:not(:disabled):active {
+  transform: scale(0.98);
 }
 
 .ver-pill {
@@ -569,4 +607,21 @@ textarea {
 .theme-btn[aria-pressed="true"] {
   background: var(--bg-subtle);
   color: var(--text-primary);
+}
+
+.metric-val {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 340px) {
+  .panel {
+    padding: 8px;
+    gap: 8px;
+  }
+  .card {
+    padding: 9px;
+  }
+  .subtitle {
+    font-size: 10px;
+  }
 }

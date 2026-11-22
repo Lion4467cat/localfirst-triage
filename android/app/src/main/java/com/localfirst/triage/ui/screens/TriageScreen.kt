@@ -1,5 +1,8 @@
 package com.localfirst.triage.ui.screens
 
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -14,6 +17,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ExpandLess
@@ -42,6 +46,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -87,8 +95,17 @@ fun TriageScreen(
     modifier: Modifier = Modifier,
 ) {
     val tokens = LocalFirstThemeTokens.colors
+    val haptic = LocalHapticFeedback.current
+    val view = LocalView.current
     var customTermDraft by remember { mutableStateOf("") }
     var showSdkControls by remember { mutableStateOf(false) }
+    val liveLocalSpans = remember(state.rawTextInput, state.protectionLevel) {
+        if (state.rawTextInput.isBlank()) {
+            emptyList()
+        } else {
+            LocalFirewallEngine.scrub(state.rawTextInput, state.protectionLevel).second
+        }
+    }
 
     Column(
         modifier = modifier
@@ -116,7 +133,12 @@ fun TriageScreen(
                             else -> Triple(MaterialTheme.colorScheme.surface, tokens.borderSubtle, MaterialTheme.colorScheme.onSurface)
                         }
                         Surface(
-                            onClick = { onSelectProtectionLevel(level) },
+                            onClick = {
+                                if (view.isHapticFeedbackEnabled) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                }
+                                onSelectProtectionLevel(level)
+                            },
                             shape = RoundedCornerShape(8.dp),
                             color = bg,
                             border = BorderStroke(1.dp, border),
@@ -163,14 +185,15 @@ fun TriageScreen(
                     color = tokens.safeText,
                 )
                 Text(
-                    text = "Active Level: ${state.protectionLevel.name} · OS Integrations: Scrub with Cordon (ACTION_PROCESS_TEXT), Share Sheet (ACTION_SEND) & Zero-PII Firestore Sync",
+                    text = "Active Level: ${state.protectionLevel.name} · OS Integrations: Scrub with Cordon text menu, OS Share Sheet & Zero-PII Cloud Sync",
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
-                    text = "100% Gitleaks Spec (42/42) · 70.8% Global PII Floor + Nano 4 · 0.02ms Sync · 0 Raw Bytes Cloud Egress · firebase-ai hybrid inference",
+                    text = "100% Gitleaks Spec (42/42) · 70.8% Global PII Floor + Nano 4 · 0.02ms Sync · 0 Raw Bytes Cloud Egress · Firebase AI Logic hybrid inference",
                     fontFamily = FontFamily.Monospace,
                     fontSize = 10.5.sp,
+                    style = TextStyle(fontFeatureSettings = "tnum"),
                     color = tokens.infoText,
                 )
             }
@@ -352,8 +375,59 @@ fun TriageScreen(
             modifier = Modifier.fillMaxWidth(),
         )
 
+        if (state.rawTextInput.isNotBlank()) {
+            val foundCount = liveLocalSpans.size
+            Surface(
+                color = if (foundCount > 0) tokens.safeBg else tokens.subtleSurface,
+                border = BorderStroke(1.dp, if (foundCount > 0) tokens.safeBorder else tokens.borderSubtle),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .animateContentSize(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Bolt,
+                            contentDescription = null,
+                            tint = if (foundCount > 0) tokens.safeText else tokens.textMuted,
+                            modifier = Modifier.padding(end = 6.dp),
+                        )
+                        Text(
+                            text = if (foundCount > 0) {
+                                "$foundCount secret${if (foundCount == 1) "" else "s"} spotted locally · Ready to Airgap"
+                            } else {
+                                "0 secrets spotted locally · Clean"
+                            },
+                            color = if (foundCount > 0) tokens.safeText else tokens.textMuted,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            style = TextStyle(fontFeatureSettings = "tnum"),
+                        )
+                    }
+                    Text(
+                        text = state.protectionLevel.name,
+                        color = tokens.textMuted,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+        }
+
         Button(
-            onClick = onRunTriage,
+            onClick = {
+                if (view.isHapticFeedbackEnabled) {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                }
+                onRunTriage()
+            },
             enabled = !state.isRunning && state.rawTextInput.isNotBlank(),
             colors = ButtonDefaults.buttonColors(
                 containerColor = MaterialTheme.colorScheme.primary,
