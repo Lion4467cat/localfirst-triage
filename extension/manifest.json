@@ -51,7 +51,8 @@
         "http://localhost/*"
       ],
       "js": ["firewall-core.js", "content-shield.js"],
-      "run_at": "document_start"
+      "run_at": "document_start",
+      "all_frames": false
     }
   ]
 }
