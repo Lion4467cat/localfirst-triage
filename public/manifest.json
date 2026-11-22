@@ -1,11 +1,11 @@
 {
   "id": "/",
-  "name": "LocalFirst Triage — Hybrid AI Privacy Firewall",
-  "short_name": "LocalFirst",
+  "name": "Cordon — On-Device Hybrid AI Privacy Firewall",
+  "short_name": "Cordon",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#020617",
-  "theme_color": "#4f46e5",
+  "background_color": "#07090D",
+  "theme_color": "#00E5A3",
   "description": "Zero-leakage Hybrid AI Incident Copilot using Chrome Gemini Nano 4 and Firebase AI Logic.",
   "categories": ["developer-tools", "security", "productivity"],
   "icons": [

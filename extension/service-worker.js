@@ -6,9 +6,36 @@ chrome.runtime.onInstalled.addListener(async () => {
   await chrome.contextMenus.removeAll();
   chrome.contextMenus.create({
     id: MENU_ID,
-    title: "Sanitize & Triage with LocalFirst",
+    title: "Sanitize & Triage with Cordon",
     contexts: ["selection"],
   });
+
+  // Auto-inject content shield into already-open protected tabs on install/reload
+  const protectedUrlPatterns = [
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*",
+    "https://claude.ai/*",
+    "https://gemini.google.com/*",
+    "https://github.com/*",
+    "https://app.slack.com/*",
+    "http://localhost/*",
+  ];
+  try {
+    const tabs = await chrome.tabs.query({ url: protectedUrlPatterns });
+    for (const tab of tabs) {
+      if (tab.id === undefined) continue;
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ["firewall-core.js", "content-shield.js"],
+        });
+      } catch {
+        // Ignore tabs that disallow script injection
+      }
+    }
+  } catch {
+    // Ignore if tabs query is restricted
+  }
 });
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {

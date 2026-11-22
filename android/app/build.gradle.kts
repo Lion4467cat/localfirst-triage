@@ -12,8 +12,8 @@ android {
         applicationId = "com.localfirst.triage"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "4.0.0"
+        versionCode = 2
+        versionName = "4.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

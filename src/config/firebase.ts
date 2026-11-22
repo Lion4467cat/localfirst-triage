@@ -36,7 +36,7 @@ export interface RuntimeConfigValues {
 
 export const DEFAULT_RUNTIME_CONFIG: RuntimeConfigValues = {
   cloudModel: "gemini-3.5-flash-lite",
-  cloudFallbackModel: "gemini-2.5-flash",
+  cloudFallbackModel: "gemini-3.8-flash",
   enableCloudEscalation: true,
   entropyThreshold: 3.25,
   enterpriseBlockedTerms: ["Project-Apollo", "Project-Valkyrie"],

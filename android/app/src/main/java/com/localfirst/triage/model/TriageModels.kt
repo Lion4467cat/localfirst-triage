@@ -1,5 +1,13 @@
 package com.localfirst.triage.model
 
+import com.localfirst.triage.firewall.RiskProfile
+
+enum class ProtectionLevel {
+    LOW,
+    MEDIUM,
+    HIGH,
+}
+
 enum class DetectorSource(val priority: Int) {
     MANUAL_MASK(5),
     NANO_SEMANTIC_FIREWALL(4),
@@ -122,7 +130,7 @@ data class RuntimeConfigValues(
 ) {
     companion object {
         const val DEFAULT_CLOUD_PRIMARY_MODEL = "gemini-3.5-flash-lite"
-        const val DEFAULT_CLOUD_FALLBACK_MODEL = "gemini-2.5-flash"
+        const val DEFAULT_CLOUD_FALLBACK_MODEL = "gemini-3.8-flash"
         const val DEFAULT_ENTROPY_THRESHOLD = 3.25
         val DEFAULT_ENTERPRISE_BLOCKED_TERMS = listOf("Project-Apollo", "Project-Valkyrie")
     }
@@ -170,6 +178,8 @@ data class TriageResult(
     val cloudError: String? = null,
     val zeroLeakageAudit: ZeroLeakageAudit? = null,
     val hybridBrief: HybridBriefResult? = null,
+    val riskProfile: RiskProfile? = null,
+    val protectionLevel: ProtectionLevel = ProtectionLevel.MEDIUM,
     val sourcePlatform: SourcePlatform = SourcePlatform.ANDROID,
     val queuedForReconnect: Boolean = false,
     val loadedFromZeroPiiStore: Boolean = false,

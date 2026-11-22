@@ -45,7 +45,13 @@ describe("Chrome Extension MV3 companion", () => {
     }
 
     const html = fs.readFileSync(path.join(EXT_DIR, "sidepanel/sidepanel.html"), "utf8");
-    expect(html).not.toMatch(/<script[^>]*>[\s\S]*\S[\s\S]*<\/script>/i);
+    const scriptTags = Array.from(html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi));
+    expect(scriptTags.length).toBeGreaterThanOrEqual(1);
+    for (const [, attrs, body] of scriptTags) {
+      expect(attrs).toMatch(/\bsrc\s*=/i);
+      expect(body.trim()).toBe("");
+    }
+    expect(fs.existsSync(path.join(EXT_DIR, "sidepanel/theme-init.js"))).toBe(true);
     expect(html).not.toMatch(/\sonclick=/i);
 
     const sw = fs.readFileSync(path.join(EXT_DIR, "service-worker.js"), "utf8");

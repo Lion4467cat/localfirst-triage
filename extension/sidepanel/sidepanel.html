@@ -3,58 +3,291 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>LocalFirst Triage — Side Panel</title>
+    <meta name="color-scheme" content="light dark" />
+    <title>Cordon Shield — Daily Control Center</title>
     <link rel="stylesheet" href="sidepanel.css" />
+    <script src="theme-init.js"></script>
   </head>
   <body>
     <main class="panel">
-      <header class="header">
-        <div>
-          <h1>LocalFirst Triage</h1>
-          <p class="subtitle">Side Panel Privacy Firewall · Nano 4 On-Device</p>
+      <!-- 1. Live Guard Header -->
+      <header class="card header-card">
+        <div class="header-top">
+          <div class="brand">
+            <div class="brand-icon" aria-hidden="true">
+              <svg viewBox="0 0 32 32" width="22" height="22" fill="none">
+                <rect width="32" height="32" rx="7" fill="#0B0C10" />
+                <path d="M5.5 8.5a2.5 2.5 0 0 1 2.5-2.5h5.2v20H8a2.5 2.5 0 0 1-2.5-2.5v-15Z" fill="#F8FAFC" />
+                <rect x="15.25" y="4.5" width="1.5" height="23" rx="0.75" fill="#00E5A3" />
+                <path d="M19.2 6.8h4.8a2 2 0 0 1 2 2v14.4a2 2 0 0 1-2 2h-4.8V6.8Z" stroke="#F8FAFC" stroke-width="1.9" />
+              </svg>
+            </div>
+            <div class="brand-meta">
+              <div class="brand-row">
+                <h1>CORDON SHIELD</h1>
+                <span class="ver-pill">v4.2</span>
+              </div>
+              <p class="subtitle">Zero-Leakage On-Device Firewall</p>
+            </div>
+          </div>
+
+          <button
+            id="btn-shield-toggle"
+            type="button"
+            role="switch"
+            aria-checked="true"
+            class="shield-switch"
+          >
+            <span class="shield-switch-dot"></span>
+            <span id="shield-toggle-label">ON</span>
+          </button>
         </div>
-        <span id="nano-badge" class="badge">Checking Nano 4...</span>
+
+        <div class="header-toolbar" aria-label="Quick controls">
+          <a
+            id="btn-header-workbench"
+            href="https://para-1-2e22b.web.app/"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="tool-chip"
+            title="Open Cordon Live Workbench"
+          >
+            Workbench ↗
+          </a>
+          <button
+            id="btn-header-theme"
+            type="button"
+            class="tool-chip"
+            aria-label="Toggle color theme"
+            title="Switch Light / Dark theme"
+          >
+            Theme: Auto
+          </button>
+          <button
+            id="btn-open-setup"
+            type="button"
+            class="tool-chip"
+            title="Open First-Run Setup"
+          >
+            Setup
+          </button>
+          <button
+            id="btn-sfx-toggle"
+            type="button"
+            aria-label="Toggle UI sound effects"
+            aria-pressed="true"
+            title="UI sound effects: On"
+            class="sfx-btn"
+          >
+            <span id="sfx-toggle-label">SFX</span>
+          </button>
+        </div>
+
+        <div class="tab-status-row">
+          <div id="tab-status-pill" class="tab-pill is-manual">
+            <span class="tab-dot" aria-hidden="true"></span>
+            <span id="tab-status-text">Checking active tab…</span>
+          </div>
+          <button id="btn-arm-tab" type="button" class="btn-arm" hidden>Arm Tab</button>
+        </div>
+        <div class="model-status-row">
+          <span id="active-model-badge" class="model-pill">Model: Deterministic Rules Only</span>
+        </div>
+        <p id="tab-status-hint" class="tab-hint" hidden>
+          Auto-guard covers ChatGPT, Claude, Gemini, GitHub &amp; Slack.
+        </p>
       </header>
 
-      <section class="actions">
-        <button id="btn-capture-tab" type="button" class="btn secondary">
-          Capture Active Tab
-        </button>
-        <button id="btn-run-firewall" type="button" class="btn primary">
-          Sanitize Locally
-        </button>
+      <!-- First-Run Setup Gate (Minimal One-Screen) -->
+      <section id="setup-gate" class="card setup-card" aria-label="Cordon First-Run Setup" hidden>
+        <div class="section-head">
+          <span class="section-label">Setup</span>
+          <span id="setup-model-status" class="mode-tag">Checking…</span>
+        </div>
+
+        <!-- 1. Ready State -->
+        <div id="setup-ready-view" class="setup-state-box" hidden>
+          <div class="setup-ready-title">On-Device AI Ready</div>
+          <p class="setup-step-desc">Gemini Nano 4 is active. Paste &amp; Send protection is armed.</p>
+          <button id="btn-setup-enter" type="button" class="btn primary">
+            Enter Cordon →
+          </button>
+        </div>
+
+        <!-- 2. Downloadable / Downloading State -->
+        <div id="setup-download-view" class="setup-state-box" hidden>
+          <p class="setup-step-desc">
+            On-device AI is supported on this browser. Download the local model once for full contextual protection.
+          </p>
+          <div id="setup-download-progress" class="setup-progress-wrap" hidden>
+            <div class="setup-progress-track">
+              <div id="setup-progress-fill" class="setup-progress-fill" style="width: 0%"></div>
+            </div>
+            <span id="setup-progress-pct" class="setup-progress-pct">0%</span>
+          </div>
+          <button id="btn-setup-download" type="button" class="btn primary">
+            Download On-Device Model
+          </button>
+          <button id="btn-setup-skip-dl" type="button" class="btn-link-subtle">
+            Skip — Use Deterministic Only
+          </button>
+        </div>
+
+        <!-- 3. Unavailable State -->
+        <div id="setup-unavailable-view" class="setup-state-box" hidden>
+          <p class="setup-step-desc">On-device AI is unavailable in this browser.</p>
+          <div class="setup-option-row">
+            <button type="button" class="setup-open-btn" data-open-url="chrome://settings/system">
+              Open Chrome System Settings ↗
+            </button>
+            <span class="setup-option-hint">Ensure "On-device AI" is enabled (Chrome 138+ desktop).</span>
+          </div>
+          <button id="btn-setup-recheck" type="button" class="btn primary">
+            Re-Check Status
+          </button>
+          <button id="btn-setup-skip-unavail" type="button" class="btn-link-subtle">
+            Continue in Deterministic Mode
+          </button>
+        </div>
+
+        <div id="setup-model-feedback" class="setup-feedback" hidden></div>
+
+        <div id="setup-deterministic-warning" class="setup-warning" hidden>
+          <p>Local rules only — lower accuracy on unstructured PII/medical context.</p>
+          <button id="btn-setup-confirm-det" type="button" class="btn warn-confirm">
+            Continue Anyway
+          </button>
+        </div>
+
+        <!-- Optional: Use Gemma 4 -->
+        <div class="setup-gemma-box">
+          <div class="setup-gemma-title">Optional: Use Gemma 4</div>
+          <p class="setup-step-desc">
+            Chrome uses Gemini Nano by default. To use Gemma 4 instead, enable the flag below and relaunch Chrome.
+          </p>
+          <div class="setup-option-row">
+            <button type="button" class="setup-open-btn" data-open-url="chrome://flags/#gemma4-for-built-in-ai">
+              Open Gemma 4 Flag ↗
+            </button>
+            <span class="setup-option-hint">Set to <strong>Enabled</strong> → click Relaunch</span>
+          </div>
+          <button id="btn-gemma4-confirm" type="button" class="btn secondary setup-gemma-btn" aria-pressed="false">
+            I enabled Gemma 4
+          </button>
+        </div>
       </section>
 
-      <section class="field">
-        <label for="ticket-title">Ticket / Page Title</label>
-        <input id="ticket-title" type="text" placeholder="Selected incident or ticket title" />
+      <!-- 2. 3-Level Protection Dial + Live Capability List -->
+      <section class="card dial-card" aria-label="Protection Level">
+        <div class="section-head">
+          <span class="section-label">Protection Dial</span>
+          <span id="level-mode-tag" class="mode-tag">Balanced · Default</span>
+        </div>
+
+        <div class="level-group" role="group" aria-label="Protection level">
+          <button type="button" class="level-btn" data-level-choice="low" aria-pressed="false">Low</button>
+          <button type="button" class="level-btn" data-level-choice="medium" aria-pressed="true">Medium</button>
+          <button type="button" class="level-btn" data-level-choice="high" aria-pressed="false">High</button>
+        </div>
+
+        <div class="capability-box">
+          <div class="capability-title">Active Right Now</div>
+          <p id="level-capability-text" class="capability-text"></p>
+        </div>
       </section>
 
-      <section class="field">
-        <label for="raw-input">Raw Local Capture (Never Leaves Device Unredacted)</label>
-        <textarea
-          id="raw-input"
-          rows="6"
-          placeholder="Right-click any text on GitHub/Jira/Zendesk -> 'Sanitize & Triage with LocalFirst' or click 'Capture Active Tab'."
-        ></textarea>
+      <!-- 3. Verifiable Protection Facts & Telemetry Card -->
+      <section class="card telemetry-card" aria-label="Protection Telemetry">
+        <div class="section-head">
+          <span class="section-label">Zero-PII Telemetry</span>
+          <button id="btn-reset-stats" type="button" class="btn-reset">Reset</button>
+        </div>
+
+        <div class="telemetry-grid">
+          <div class="metric-tile">
+            <span class="metric-label">Events Blocked</span>
+            <span id="stat-blocked-pastes" class="metric-val">0</span>
+          </div>
+          <div class="metric-tile">
+            <span class="metric-label">Secrets Trapped</span>
+            <span id="stat-secrets-blocked" class="metric-val">0</span>
+          </div>
+          <div class="metric-tile metric-safe">
+            <span class="metric-label">Raw Cloud Leaks</span>
+            <span id="stat-cloud-leaks" class="metric-val">0</span>
+          </div>
+        </div>
+
+        <div class="facts-strip">
+          <div class="fact-row">
+            <span class="fact-k">Local Floor</span>
+            <span class="fact-v">&lt;2ms Sync</span>
+          </div>
+          <div class="fact-row">
+            <span class="fact-k">On-Device AI</span>
+            <span id="nano-badge" class="fact-v fact-ai">Checking…</span>
+          </div>
+          <div class="fact-row">
+            <span class="fact-k">Protected Surfaces</span>
+            <span class="fact-v">Paste + Send Interception</span>
+          </div>
+          <div class="fact-row" data-benchmark-slot="true">
+            <span class="fact-k">Verified Benchmarks</span>
+            <span id="benchmark-slot-val" class="fact-v">Gitleaks 100% (42/42) · Global PII 70.8% + Nano 4 · 0% Dev FP · 0.02ms</span>
+          </div>
+        </div>
       </section>
 
-      <section class="stats" id="scan-stats">
-        <span>No local scan run yet.</span>
-      </section>
+      <!-- 4. Compact Secondary Manual Scrub Drawer -->
+      <details id="manual-drawer" class="card drawer-card">
+        <summary class="drawer-summary">
+          <span>Manual Scrub &amp; Handoff</span>
+          <span class="drawer-chev" aria-hidden="true">▾</span>
+        </summary>
 
-      <section class="field">
-        <label for="sanitized-output">Sanitized Output (Zero-PII Safe)</label>
-        <pre id="sanitized-output" class="output">Run "Sanitize Locally" to inspect redacted payload.</pre>
-      </section>
+        <div class="drawer-body">
+          <div class="field">
+            <label for="ticket-title">Incident Title</label>
+            <input id="ticket-title" type="text" placeholder="Selected incident or page title" />
+          </div>
 
-      <footer class="footer">
-        <button id="btn-copy" type="button" class="btn secondary" disabled>
-          Copy Sanitized
-        </button>
-        <button id="btn-handoff" type="button" class="btn accent" disabled>
-          Escalate Sanitized to Cloud Workbench
-        </button>
+          <div class="field">
+            <label for="raw-input">Original Text (Stays on Device)</label>
+            <textarea
+              id="raw-input"
+              rows="4"
+              placeholder="Paste text or click 'Capture Active Editor' to scrub locally."
+            ></textarea>
+          </div>
+
+          <div class="actions">
+            <button id="btn-capture-tab" type="button" class="btn secondary">Capture Active Editor</button>
+            <button id="btn-run-firewall" type="button" class="btn primary">Scrub Locally</button>
+          </div>
+
+          <div class="stats" id="scan-stats">Ready to scrub locally on your device.</div>
+
+          <div class="field">
+            <label for="sanitized-output">Safe Version for AI</label>
+            <pre id="sanitized-output" class="output">Click "Scrub Locally" to preview safe redacted text.</pre>
+          </div>
+
+          <div class="actions">
+            <button id="btn-copy" type="button" class="btn secondary" disabled>Copy Safe Text</button>
+            <button id="btn-handoff" type="button" class="btn primary" disabled>Open Live Workbench →</button>
+          </div>
+        </div>
+      </details>
+
+      <!-- Minimal Footer -->
+      <footer class="panel-footer">
+        <div class="footer-target">
+          <label for="workbench-target">Target</label>
+          <select id="workbench-target">
+            <option value="production">Production: para-1-2e22b.web.app</option>
+            <option value="local">Local: localhost:4173</option>
+          </select>
+        </div>
       </footer>
     </main>
     <script type="module" src="sidepanel.js"></script>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { DEMO_SCENARIOS, DEFAULT_RUNBOOKS } from "./config/demoScenarios";
 import {
   DEFAULT_RUNTIME_CONFIG,
@@ -19,6 +20,7 @@ import {
   toggleTicketSpanMask,
 } from "./firewall/pipeline";
 import { decodeHandoffPayload } from "./firewall/regexScrubber";
+import { purgeRehydrationVault } from "./firewall/rehydrationVault";
 import {
   clearWorkspaceTicketsInFirestore,
   signInOrLinkWithGoogle,
@@ -40,18 +42,34 @@ import {
   savePrivacyPolicy,
   saveSanitizedTicket,
 } from "./storage/ticketStore";
-import { PipelineStepper } from "./components/PipelineStepper";
-import { RedactionDiff } from "./components/RedactionDiff";
-import { ResolutionPanel } from "./components/ResolutionPanel";
-import { RunbookPolicyModal } from "./components/RunbookPolicyModal";
-import { TelemetryHud } from "./components/TelemetryHud";
+import { AirgapSpine } from "./components/AirgapSpine";
+import { HeroEngineDiagram } from "./components/HeroEngineDiagram";
+import { LivePipelineRail } from "./components/LivePipelineRail";
+import { PointerField } from "./components/PointerField";
+import { RightWorkbenchPane } from "./components/RightWorkbenchPane";
+import { TelemetryHud, type WorkspaceView } from "./components/TelemetryHud";
 import { TriageInbox } from "./components/TriageInbox";
+import { installGlobalClickSfx, playAirgapLock } from "./utils/soundFx";
+import {
+  HistoryWorkspaceView,
+  PrivacyRulesWorkspaceView,
+  RunbooksWorkspaceView,
+} from "./components/WorkspaceViews";
+import {
+  applyThemePreference,
+  getStoredThemePreference,
+  resolveTheme,
+  subscribeToSystemTheme,
+  type ResolvedTheme,
+  type ThemePreference,
+} from "./config/theme";
 import type {
   CustomRunbook,
   DemoScenario,
   HybridTelemetry,
   NanoStatus,
   PrivacyPolicy,
+  ProtectionLevel,
   TriageResult,
 } from "./types/triage";
 
@@ -84,7 +102,56 @@ export function App() {
   const [policy, setPolicy] = useState<PrivacyPolicy>(DEFAULT_PRIVACY_POLICY);
   const [runtimeConfig, setRuntimeConfig] =
     useState<RuntimeConfigValues>(DEFAULT_RUNTIME_CONFIG);
-  const [policyModalOpen, setPolicyModalOpen] = useState(false);
+  const [activeView, setActiveView] = useState<WorkspaceView>("triage");
+  const [mobilePane, setMobilePane] = useState<"input" | "output">("input");
+  const [autoCloudMode, setAutoCloudMode] = useState(false);
+  const [protectionLevel, setProtectionLevel] = useState<ProtectionLevel>(() => {
+    try {
+      const saved = window.localStorage.getItem("localfirst_protection_level");
+      if (saved === "low" || saved === "medium" || saved === "high") return saved;
+    } catch {
+      // ignore storage errors
+    }
+    return "medium";
+  });
+  const handleProtectionLevelChange = (level: ProtectionLevel) => {
+    setProtectionLevel(level);
+    try {
+      window.localStorage.setItem("localfirst_protection_level", level);
+    } catch {
+      // ignore storage errors
+    }
+  };
+  const workbenchRef = useRef<HTMLDivElement>(null);
+
+  const jumpToStory = () => {
+    requestAnimationFrame(() => {
+      document.getElementById("story-top")?.scrollIntoView({ behavior: "smooth" });
+    });
+  };
+
+  const jumpToWorkbench = () => {
+    requestAnimationFrame(() => {
+      workbenchRef.current?.scrollIntoView({ behavior: "smooth" });
+    });
+  };
+  const [themePreference, setThemePreference] = useState<ThemePreference>(() =>
+    getStoredThemePreference()
+  );
+  const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() =>
+    resolveTheme(getStoredThemePreference())
+  );
+
+  useEffect(() => {
+    setResolvedTheme(applyThemePreference(themePreference, true));
+  }, [themePreference]);
+
+  useEffect(() => {
+    if (themePreference !== "system") return;
+    return subscribeToSystemTheme(() => {
+      setResolvedTheme(applyThemePreference("system", false));
+    });
+  }, [themePreference]);
 
   const volatileSessionMap = useRef<Map<string, TriageResult>>(new Map());
   const escalatedTicketIds = useRef<Set<string>>(new Set());
@@ -393,7 +460,7 @@ export function App() {
     }));
   };
 
-  const handleApproveOrRerunCloud = useCallback(async () => {
+  const handleApproveOrRerunCloud = useCallback(async (options?: { bypassCache?: boolean }) => {
     if (!currentResult || isRunning || inFlightRef.current) return;
     inFlightRef.current = true;
     const gen = ++runGenerationRef.current;
@@ -405,6 +472,7 @@ export function App() {
       const safeTicket = prepareTicketForEscalation(currentResult);
       const escalated = await escalateApprovedTicket(safeTicket, safeTicket.spans, {
         offlineMode: telemetry.offlineMode,
+        bypassCache: options?.bypassCache,
         onStreamChunk: (partial) => {
           if (gen !== runGenerationRef.current) return;
           setCurrentResult((prev) =>
@@ -430,6 +498,38 @@ export function App() {
       }
     }
   }, [currentResult, isRunning, telemetry.offlineMode, syncHistoryAndQueueCount, syncTicketIfSignedIn]);
+
+  // Auto-Cloud choreography: brief 700ms beat at Airgap Gate, then escalate automatically
+  // Never auto-escalate if Risk Router forces HYBRID_GATED_REVIEW (score >= 40) or CRITICAL_AIRGAP_LOCKDOWN (score >= 80)
+  useEffect(() => {
+    const riskScore = currentResult?.riskProfile?.score ?? 0;
+    const riskAction = currentResult?.riskProfile?.action;
+    if (
+      !autoCloudMode ||
+      telemetry.offlineMode ||
+      isRunning ||
+      riskScore >= 40 ||
+      riskAction === "CRITICAL_AIRGAP_LOCKDOWN" ||
+      riskAction === "HYBRID_GATED_REVIEW" ||
+      (currentResult?.resolutionMode !== "QUARANTINED_PENDING_APPROVAL" &&
+        currentResult?.resolutionMode !== "PRE_CLOUD_COUNTDOWN")
+    ) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      void handleApproveOrRerunCloud();
+    }, 700);
+    return () => clearTimeout(timer);
+  }, [
+    autoCloudMode,
+    telemetry.offlineMode,
+    isRunning,
+    currentResult?.id,
+    currentResult?.resolutionMode,
+    currentResult?.riskProfile?.score,
+    currentResult?.riskProfile?.action,
+    handleApproveOrRerunCloud,
+  ]);
 
   // 3.0s cancelable pre-cloud countdown timer when Nano 4 is READY
   useEffect(() => {
@@ -461,6 +561,7 @@ export function App() {
     runGenerationRef.current += 1;
     inFlightRef.current = false;
     setIsRunning(false);
+    setCurrentResult(null);
     setTitle(scenario.title);
     setRawText(scenario.rawText);
     setImportedFromExtension(false);
@@ -468,6 +569,8 @@ export function App() {
     setCountdownMs(null);
     setCountdownPaused(false);
   };
+
+  useEffect(() => installGlobalClickSfx(), []);
 
   const handleRunTriage = async () => {
     if (!rawText.trim() || isRunning || inFlightRef.current) return;
@@ -484,6 +587,7 @@ export function App() {
         offlineMode: telemetry.offlineMode,
         customRunbooks: runbooks,
         policy,
+        protectionLevel,
         runtimeConfig,
         importedFromExtension,
         sourcePlatform: importedFromExtension ? "CHROME_EXTENSION" : "WEB",
@@ -496,11 +600,16 @@ export function App() {
       await syncHistoryAndQueueCount();
       void syncTicketIfSignedIn(result);
 
-      if (result.resolutionMode === "PRE_CLOUD_COUNTDOWN") {
+      if (
+        result.resolutionMode === "PRE_CLOUD_COUNTDOWN" &&
+        (result.riskProfile?.score ?? 0) < 40 &&
+        result.riskProfile?.action !== "CRITICAL_AIRGAP_LOCKDOWN"
+      ) {
         setCountdownMs((policy.autoCountdownSeconds ?? 3) * 1000);
       }
 
       setTelemetry((prev) => recordTriageRunTelemetry(prev, result));
+      playAirgapLock();
     } finally {
       if (gen === runGenerationRef.current) {
         inFlightRef.current = false;
@@ -566,6 +675,7 @@ export function App() {
     const idsToDelete = history.map((h) => h.id);
     volatileSessionMap.current.clear();
     escalatedTicketIds.current.clear();
+    purgeRehydrationVault();
     await clearSanitizedTickets();
     if (authUidRef.current && !offlineModeRef.current && idsToDelete.length > 0) {
       void clearWorkspaceTicketsInFirestore(authUidRef.current, idsToDelete);
@@ -651,129 +761,275 @@ export function App() {
   };
 
   const queuedTickets = history.filter((t) => t.queuedForReconnect);
+  const rulesCount = policy.customTerms.length + (policy.enableEntropyScanner ? 1 : 0);
+
+  const handleSaveRunbooks = (updated: CustomRunbook[]) => {
+    setRunbooks(updated);
+    void saveCustomRunbooks(updated);
+    if (authUidRef.current && !offlineModeRef.current) {
+      void syncCustomRunbooksToFirestore(
+        authUidRef.current,
+        updated,
+        customRunbookIdsRef.current,
+        runbookCreatedAtRef.current
+      );
+    }
+  };
+
+  const handleSavePolicy = (updated: PrivacyPolicy) => {
+    setPolicy(updated);
+    void savePrivacyPolicy(updated);
+    if (authUidRef.current && !offlineModeRef.current) {
+      void syncPolicyToFirestore(
+        authUidRef.current,
+        updated,
+        policyCreatedAtRef.current
+      );
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-slate-950 px-4 py-6 text-slate-100 sm:px-6 lg:px-8">
-      <div className="mx-auto flex max-w-6xl flex-col gap-5">
-        <TelemetryHud
-          telemetry={telemetry}
-          currentResult={currentResult}
-          isRefreshingPolicy={isRefreshingPolicy}
-          onToggleOffline={() => {
-            setTelemetry((prev) => {
-              const nextOffline = !prev.offlineMode;
-              if (nextOffline) {
-                runGenerationRef.current += 1;
-                inFlightRef.current = false;
-                setIsRunning(false);
-                setCountdownPaused(true);
-              }
-              return {
-                ...prev,
-                offlineMode: nextOffline,
-                cloudSyncStatus: prev.authUser
-                  ? nextOffline
-                    ? "OFFLINE"
-                    : "SYNCED"
-                  : "DISCONNECTED",
-              };
-            });
-          }}
-          onOpenPolicyModal={() => setPolicyModalOpen(true)}
-          onWarmupNano={() => void handleWarmupNano()}
-          onRecheckNano={() => void refreshNanoStatus()}
-          onRefreshRemoteConfig={() => void handleRefreshRemoteConfig()}
-          onSignInAnonymous={() => void handleSignInAnonymous()}
-          onSignInGoogle={() => void handleSignInGoogle()}
-          onSignOut={() => void handleSignOut()}
-        />
+    <MotionConfig reducedMotion="user">
+    <PointerField />
+    <div
+      className="lf-dot-grid flex min-h-screen flex-col"
+      style={{
+        backgroundColor: "var(--bg-canvas)",
+        color: "var(--text-primary)",
+      }}
+    >
+      <TelemetryHud
+        activeView={activeView}
+        onChangeView={setActiveView}
+        onJumpToStory={jumpToStory}
+        onJumpToWorkbench={jumpToWorkbench}
+        historyCount={history.length}
+        rulesCount={rulesCount}
+        runbooksCount={runbooks.length}
+        themePreference={themePreference}
+        resolvedTheme={resolvedTheme}
+        onChangeTheme={setThemePreference}
+        telemetry={telemetry}
+        onToggleOffline={() => {
+          setTelemetry((prev) => {
+            const nextOffline = !prev.offlineMode;
+            if (nextOffline) {
+              runGenerationRef.current += 1;
+              inFlightRef.current = false;
+              setIsRunning(false);
+              setCountdownPaused(true);
+            }
+            return {
+              ...prev,
+              offlineMode: nextOffline,
+              cloudSyncStatus: prev.authUser
+                ? nextOffline
+                  ? "OFFLINE"
+                  : "SYNCED"
+                : "DISCONNECTED",
+            };
+          });
+        }}
+        onWarmupNano={() => void handleWarmupNano()}
+        onSignInAnonymous={() => void handleSignInAnonymous()}
+        onSignInGoogle={() => void handleSignInGoogle()}
+        onSignOut={() => void handleSignOut()}
+      />
 
-        <PipelineStepper currentResult={currentResult} isRunning={isRunning} />
-
-        <div className="grid gap-5 lg:grid-cols-[360px_1fr]">
-          <TriageInbox
-            scenarios={DEMO_SCENARIOS}
-            title={title}
-            rawText={rawText}
-            isRunning={isRunning}
-            offlineMode={telemetry.offlineMode}
-            cloudSyncEnabled={Boolean(telemetry.authUser)}
-            history={history}
-            queuedTickets={queuedTickets}
-            importedFromExtension={importedFromExtension}
-            onTitleChange={setTitle}
-            onRawTextChange={setRawText}
-            onSelectScenario={handleSelectScenario}
-            onRunTriage={() => void handleRunTriage()}
-            onSelectHistory={handleSelectHistory}
-            onClearHistory={() => void handleClearHistory()}
-            onProcessOfflineQueue={() => void handleProcessOfflineQueue()}
+      {activeView === "triage" && (
+        <>
+          {/* ACT 1: Live Interactive Airgap Playground & Moments */}
+          <HeroEngineDiagram
+            onJumpToWorkbench={jumpToWorkbench}
+            onSendToWorkbench={(text) => {
+              setTitle("Interactive Playground Capture");
+              setRawText(text);
+              setCurrentResult(null);
+              jumpToWorkbench();
+            }}
           />
 
-          <main className="flex min-w-0 flex-col gap-5">
+          {/* ACT 2: Live 100dvh Airgap Workbench */}
+          <main
+            id="workbench-act"
+            ref={workbenchRef}
+            className={`mx-auto flex w-full max-w-[1680px] flex-col gap-3 rounded-xl p-3 scroll-mt-12 lg:h-[calc(100dvh-48px)] lg:min-h-[620px] lg:overflow-hidden lg:p-4 ${
+              isRunning || isGeneratingBrief
+                ? "lf-running-border"
+                : currentResult
+                  ? "lf-verified-border"
+                  : ""
+            }`}
+          >
+            <LivePipelineRail
+              currentResult={currentResult}
+              isRunning={isRunning}
+              offlineMode={telemetry.offlineMode}
+            />
+
+            {/* Mobile Input / Safe Output Switcher */}
+          <div
+            role="tablist"
+            aria-label="Mobile workbench panes"
+            className="grid grid-cols-2 rounded-lg border p-0.5 lg:hidden"
+            style={{
+              backgroundColor: "var(--bg-subtle)",
+              borderColor: "var(--border-subtle)",
+            }}
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mobilePane === "input"}
+              onClick={() => setMobilePane("input")}
+              className="rounded-md py-1.5 text-xs font-medium"
+              style={{
+                backgroundColor: mobilePane === "input" ? "var(--bg-surface)" : "transparent",
+                color: mobilePane === "input" ? "var(--text-primary)" : "var(--text-secondary)",
+              }}
+            >
+              Input
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mobilePane === "output"}
+              onClick={() => setMobilePane("output")}
+              className="rounded-md py-1.5 text-xs font-medium"
+              style={{
+                backgroundColor: mobilePane === "output" ? "var(--bg-surface)" : "transparent",
+                color: mobilePane === "output" ? "var(--text-primary)" : "var(--text-secondary)",
+              }}
+            >
+              Safe Output
+            </button>
+          </div>
+
+          <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[minmax(0,44fr)_76px_minmax(0,52fr)] lg:gap-0">
+            <div className={`${mobilePane === "input" ? "flex" : "hidden"} min-h-0 flex-col lg:flex`}>
+              <TriageInbox
+                scenarios={DEMO_SCENARIOS}
+                title={title}
+                rawText={rawText}
+                isRunning={isRunning}
+                offlineMode={telemetry.offlineMode}
+                protectionLevel={protectionLevel}
+                queuedTickets={queuedTickets}
+                importedFromExtension={importedFromExtension}
+                onTitleChange={(nextTitle) => {
+                  setTitle(nextTitle);
+                  if (currentResult?.resolutionMode === "CLOUD_ESCALATION") {
+                    setCurrentResult(null);
+                  }
+                }}
+                onRawTextChange={(nextRaw) => {
+                  setRawText(nextRaw);
+                  if (currentResult) {
+                    setCurrentResult(null);
+                    setMaskDirtySinceCloud(false);
+                    setCountdownMs(null);
+                    setCountdownPaused(false);
+                  }
+                }}
+                onProtectionLevelChange={handleProtectionLevelChange}
+                onSelectScenario={handleSelectScenario}
+                onRunTriage={() => {
+                  setMobilePane("output");
+                  void handleRunTriage();
+                }}
+                onProcessOfflineQueue={() => void handleProcessOfflineQueue()}
+              />
+            </div>
+
+            <AirgapSpine
+              currentResult={currentResult}
+              isRunning={isRunning}
+              offlineMode={telemetry.offlineMode}
+            />
+
             <div
+              className={`${mobilePane === "output" ? "flex" : "hidden"} min-h-0 flex-col lg:flex`}
               onMouseEnter={() => {
                 if (currentResult?.resolutionMode === "PRE_CLOUD_COUNTDOWN") {
                   setCountdownPaused(true);
                 }
               }}
             >
-              <RedactionDiff
-                rawText={currentResult ? currentResult.rawText : rawText}
-                sanitizedText={currentResult?.sanitizedText ?? ""}
-                spans={currentResult?.spans ?? []}
-                loadedFromZeroPiiStore={Boolean(currentResult?.loadedFromZeroPiiStore)}
+              <RightWorkbenchPane
+                currentResult={currentResult}
+                rawText={rawText}
+                isRunning={isRunning}
+                isGeneratingBrief={isGeneratingBrief}
+                isRefreshingPolicy={isRefreshingPolicy}
+                offlineMode={telemetry.offlineMode}
+                countdownMs={countdownMs}
+                countdownPaused={countdownPaused}
+                maskDirtySinceCloud={maskDirtySinceCloud}
+                telemetry={telemetry}
+                runtimeConfig={runtimeConfig}
+                autoCloudMode={autoCloudMode}
+                onToggleAutoCloudMode={() => setAutoCloudMode((v) => !v)}
+                onRunLiveDemo={() => {
+                  handleSelectScenario(DEMO_SCENARIOS[0]);
+                  setMobilePane("output");
+                  void handleRunTriage();
+                }}
                 onToggleSpan={handleToggleSpan}
                 onAddManualSpan={handleAddManualSpan}
+                onPauseCountdown={() => setCountdownPaused(true)}
+                onApproveOrRerunCloud={(opts) => void handleApproveOrRerunCloud(opts)}
+                onPurgeRamVault={() => purgeRehydrationVault()}
+                onGenerateHybridBrief={() => void handleGenerateHybridBrief()}
+                onRefreshRemoteConfig={() => void handleRefreshRemoteConfig()}
+                onWarmupNano={() => void handleWarmupNano()}
+                onRecheckNano={() => void refreshNanoStatus()}
               />
             </div>
+          </div>
+        </main>
+        </>
+      )}
 
-            <ResolutionPanel
-              currentResult={currentResult}
-              isRunning={isRunning}
-              isGeneratingBrief={isGeneratingBrief}
-              offlineMode={telemetry.offlineMode}
-              countdownMs={countdownMs}
-              countdownPaused={countdownPaused}
-              maskDirtySinceCloud={maskDirtySinceCloud}
-              onPauseCountdown={() => setCountdownPaused(true)}
-              onApproveOrRerunCloud={() => void handleApproveOrRerunCloud()}
-              onGenerateHybridBrief={() => void handleGenerateHybridBrief()}
-            />
-          </main>
-        </div>
-      </div>
+      <AnimatePresence mode="wait">
+        {activeView !== "triage" && (
+          <motion.main
+            key={activeView}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
+            className="mx-auto w-full max-w-6xl flex-1 overflow-y-auto p-4 sm:p-6"
+          >
+            {activeView === "history" && (
+              <HistoryWorkspaceView
+                history={history}
+                onSelectHistory={(ticket) => {
+                  handleSelectHistory(ticket);
+                  setActiveView("triage");
+                  setMobilePane("output");
+                }}
+                onClearHistory={() => void handleClearHistory()}
+              />
+            )}
 
-      <RunbookPolicyModal
-        open={policyModalOpen}
-        runbooks={runbooks}
-        policy={policy}
-        onClose={() => setPolicyModalOpen(false)}
-        onSaveRunbooks={(updated) => {
-          setRunbooks(updated);
-          void saveCustomRunbooks(updated);
-          if (authUidRef.current && !offlineModeRef.current) {
-            void syncCustomRunbooksToFirestore(
-              authUidRef.current,
-              updated,
-              customRunbookIdsRef.current,
-              runbookCreatedAtRef.current,
-            );
-          }
-        }}
-        onSavePolicy={(updated) => {
-          setPolicy(updated);
-          void savePrivacyPolicy(updated);
-          if (authUidRef.current && !offlineModeRef.current) {
-            void syncPolicyToFirestore(
-              authUidRef.current,
-              updated,
-              policyCreatedAtRef.current,
-            );
-          }
-        }}
-      />
+            {activeView === "rules" && (
+              <PrivacyRulesWorkspaceView
+                policy={policy}
+                onSavePolicy={handleSavePolicy}
+              />
+            )}
+
+            {activeView === "runbooks" && (
+              <RunbooksWorkspaceView
+                runbooks={runbooks}
+                onSaveRunbooks={handleSaveRunbooks}
+              />
+            )}
+          </motion.main>
+        )}
+      </AnimatePresence>
     </div>
+    </MotionConfig>
   );
 }
 

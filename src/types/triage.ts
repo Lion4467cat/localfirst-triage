@@ -101,6 +101,59 @@ export interface HybridBriefResult {
   generatedAt: number;
 }
 
+export type ProtectionLevel = "low" | "medium" | "high";
+
+export type RiskTier = "LOW" | "ELEVATED" | "HIGH" | "CRITICAL";
+
+export type RiskRoutingAction =
+  | "CACHE_HIT_LOCAL"
+  | "LOCAL_RUNBOOK"
+  | "HYBRID_GATED_REVIEW"
+  | "CRITICAL_AIRGAP_LOCKDOWN";
+
+export interface RiskProfile {
+  score: number;
+  tier: RiskTier;
+  action: RiskRoutingAction;
+  reasons: string[];
+  breakdown: {
+    credentials: number;
+    piiPhi: number;
+    corporate: number;
+    entropyBonus: number;
+    nanoBonus: number;
+  };
+}
+
+export interface ZeroLeakageAuditReceipt {
+  receiptId: string;
+  schemaVersion: "1.0.0";
+  issuedAt: string;
+  rawCommitmentSha256: string;
+  sanitizedSha256: string;
+  leakedCount: number;
+  zeroLeakageVerified: boolean;
+  layerBreakdown: {
+    regex: number;
+    heuristic: number;
+    nano4: number;
+    totalMasks: number;
+  };
+  riskProfile: {
+    score: number;
+    tier: RiskTier;
+    action: RiskRoutingAction;
+  };
+  inferenceModes: {
+    stage1: "ONLY_ON_DEVICE";
+    stage2: "PREFER_IN_CLOUD";
+    brief: "PREFER_ON_DEVICE";
+  };
+  publicKeyJwk: JsonWebKey;
+  keyThumbprintSha256: string;
+  signatureBase64Url: string;
+}
+
 export interface TriageResult {
   id: string;
   title: string;
@@ -125,6 +178,15 @@ export interface TriageResult {
   cloudError?: string | null;
   zeroLeakageAudit?: ZeroLeakageAudit | null;
   hybridBrief?: HybridBriefResult | null;
+  riskProfile?: RiskProfile | null;
+  dedupCacheHit?: {
+    hit: boolean;
+    latencyMs: number;
+    hitCount: number;
+    fingerprint: string;
+    modelUsed?: string;
+  } | null;
+  auditReceipt?: ZeroLeakageAuditReceipt | null;
   importedFromExtension?: boolean;
   sourcePlatform?: SourcePlatform;
   queuedForReconnect?: boolean;

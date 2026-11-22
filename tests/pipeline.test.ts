@@ -163,7 +163,7 @@ describe("pipeline", () => {
         }),
         loadConfig: async () => ({
           cloudModel: "gemini-3.5-flash-lite",
-          cloudFallbackModel: "gemini-2.5-flash",
+          cloudFallbackModel: "gemini-3.8-flash",
           enableCloudEscalation: true,
         }),
       },
@@ -295,7 +295,7 @@ describe("pipeline", () => {
       deps: {
         loadConfig: async () => ({
           cloudModel: "gemini-3.5-flash-lite",
-          cloudFallbackModel: "gemini-2.5-flash",
+          cloudFallbackModel: "gemini-3.8-flash",
           enableCloudEscalation: true,
         }),
         callHybridBrief: async () => ({
@@ -417,12 +417,12 @@ describe("pipeline", () => {
       ...p3Result,
       id: "t-cloud-1",
       resolutionMode: "CLOUD_ESCALATION" as const,
-      activeCloudModel: "gemini-2.5-flash",
+      activeCloudModel: "gemini-3.8-flash",
       latencyMs: 420,
     };
     const firstEsc = recordCloudEscalationTelemetry(afterRun, cloudResult, escalatedIds);
     expect(firstEsc.cloudEscalatedCount).toBe(1);
-    expect(firstEsc.activeCloudModel).toBe("gemini-2.5-flash");
+    expect(firstEsc.activeCloudModel).toBe("gemini-3.8-flash");
 
     // Re-running cloud escalation on the same ticket ID must not double-count cloudEscalatedCount
     const secondEsc = recordCloudEscalationTelemetry(firstEsc, cloudResult, escalatedIds);
@@ -439,7 +439,7 @@ describe("pipeline", () => {
         importedFromExtension: true,
         runtimeConfig: {
           cloudModel: "gemini-3.5-flash-lite",
-          cloudFallbackModel: "gemini-2.5-flash",
+          cloudFallbackModel: "gemini-3.8-flash",
           enableCloudEscalation: true,
           entropyThreshold: 3.1,
           enterpriseBlockedTerms: ["Project-Apollo"],

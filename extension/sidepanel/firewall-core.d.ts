@@ -15,12 +15,29 @@ export const TEXT_ONLY_OPTIONS: {
 export function runLocalDeterministicScan(
   text: string,
   includeHeuristics?: boolean,
+  protectionLevel?: "low" | "medium" | "high",
 ): ExtensionSpan[];
 
 export function mergeSpans(
   rawText: string,
   spans: ExtensionSpan[],
 ): { sanitizedText: string; mergedSpans: ExtensionSpan[] };
+
+export function computeQuickRiskScore(
+  masks: Array<{ category: string; detector?: string }>,
+): { score: number; tier: "LOW" | "ELEVATED" | "HIGH" | "CRITICAL" };
+
+export function scrubSync(
+  rawText: string,
+  includeHeuristics?: boolean,
+  protectionLevel?: "low" | "medium" | "high",
+): {
+  sanitizedText: string;
+  mergedSpans: ExtensionSpan[];
+  riskProfile: { score: number; tier: "LOW" | "ELEVATED" | "HIGH" | "CRITICAL" };
+  protectionLevel: "low" | "medium" | "high";
+  latencyMs: number;
+};
 
 export function runExtensionNanoScan(
   rawText: string,

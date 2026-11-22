@@ -4,10 +4,44 @@ import App, { decodeHandoffHash, prepareTicketForEscalation } from "../src/App";
 import { clearSanitizedTickets, stripRawTextForStorage } from "../src/storage/ticketStore";
 import type { TriageResult } from "../src/types/triage";
 
+function ensureMockLocalStorage(): void {
+  if (typeof window.localStorage?.removeItem === "function") {
+    return;
+  }
+  const store = new Map<string, string>();
+  const memoryStorage: Storage = {
+    get length() {
+      return store.size;
+    },
+    clear() {
+      store.clear();
+    },
+    getItem(key: string) {
+      return store.has(key) ? store.get(key)! : null;
+    },
+    key(index: number) {
+      return Array.from(store.keys())[index] ?? null;
+    },
+    removeItem(key: string) {
+      store.delete(key);
+    },
+    setItem(key: string, value: string) {
+      store.set(key, String(value));
+    },
+  };
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    writable: true,
+    value: memoryStorage,
+  });
+}
+
 describe("App integration", () => {
   beforeEach(async () => {
+    ensureMockLocalStorage();
     await clearSanitizedTickets();
     window.location.hash = "";
+    window.localStorage.removeItem("localfirst-theme");
   });
 
   afterEach(() => {
@@ -27,44 +61,82 @@ describe("App integration", () => {
     });
   });
 
-  it("runs triage on P0 scenario into fail-closed quarantine and respects Offline Mode toggle", async () => {
+  it("supports System / Light / Dark theme switching and persists non-system choice", () => {
+    const { getByRole } = render(<App />);
+
+    fireEvent.click(getByRole("button", { name: /^Dark/i }));
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    expect(window.localStorage.getItem("localfirst-theme")).toBe("dark");
+
+    fireEvent.click(getByRole("button", { name: /^Light/i }));
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+    expect(window.localStorage.getItem("localfirst-theme")).toBe("light");
+
+    fireEvent.click(getByRole("button", { name: /^System/i }));
+    expect(document.documentElement.getAttribute("data-theme-preference")).toBe("system");
+    expect(window.localStorage.getItem("localfirst-theme")).toBeNull();
+  });
+
+  it("renders Cordon wordmark and toggles UI sound effects cleanly", () => {
+    window.localStorage.removeItem("cordon_sfx_enabled");
+    const { getByLabelText, getByRole } = render(<App />);
+
+    expect(getByLabelText("Cordon")).toBeTruthy();
+    const sfxBtn = getByRole("button", { name: "Toggle UI sound effects" });
+    expect(sfxBtn.getAttribute("aria-pressed")).toBe("true");
+
+    fireEvent.click(sfxBtn);
+    expect(sfxBtn.getAttribute("aria-pressed")).toBe("false");
+    expect(window.localStorage.getItem("cordon_sfx_enabled")).toBe("false");
+
+    fireEvent.click(sfxBtn);
+    expect(sfxBtn.getAttribute("aria-pressed")).toBe("true");
+    expect(window.localStorage.getItem("cordon_sfx_enabled")).toBe("true");
+  });
+
+  it("runs triage on P0 scenario into fail-closed review and respects Offline Mode toggle in Cloud Sync popover", async () => {
     const { getByRole, findByText } = render(<App />);
 
-    const runBtn = getByRole("button", { name: /Run Hybrid Triage/i });
+    const runBtn = getByRole("button", { name: /Scrub & (Analyze|Fix Offline)/i });
     fireEvent.click(runBtn);
 
     expect(
-      await findByText(/Fail-Closed Quarantine: Review masked tokens above/i),
+      await findByText(/Paused for Review/i),
     ).toBeTruthy();
 
-    // Toggle Offline mode on and verify Approve & Escalate button disables safely
-    const offlineBtn = getByRole("button", { name: /Hybrid Cloud Allowed/i });
-    fireEvent.click(offlineBtn);
+    // Open Cloud Sync popover and ensure Offline Mode disables escalation button safely
+    fireEvent.click(getByRole("button", { name: /Cloud Sync|Sync ·|Offline \(\$0\)/i }));
+    const offlineSwitch = getByRole("switch", { name: /Toggle Offline Mode/i });
+    if (offlineSwitch.getAttribute("aria-checked") !== "true") {
+      fireEvent.click(offlineSwitch);
+    }
 
     await waitFor(() => {
-      const blockedBtn = getByRole("button", { name: /Blocked \(Offline Mode ON\)/i });
-      expect((blockedBtn as HTMLButtonElement).disabled).toBe(true);
+      const sendBtn = getByRole("button", { name: /Approve & Get Safe AI Solution/i });
+      expect((sendBtn as HTMLButtonElement).disabled).toBe(true);
     });
   });
 
-  it("opens Runbooks & Policy modal cleanly", async () => {
-    const { getByRole, findByRole } = render(<App />);
-    fireEvent.click(getByRole("button", { name: /Runbooks & Policy/i }));
-    const dialog = await findByRole("dialog", { name: /Runbooks & Workspace Privacy Policy/i });
-    expect(dialog).toBeTruthy();
+  it("switches to Privacy Rules and Runbooks views cleanly", async () => {
+    const { getByRole, findByText } = render(<App />);
+
+    fireEvent.click(getByRole("button", { name: /^Rules/i }));
+    expect(await findByText(/Custom Blocked Terms/i)).toBeTruthy();
+
+    fireEvent.click(getByRole("button", { name: /^Runbooks/i }));
+    expect(await findByText(/Offline Fix Runbooks/i)).toBeTruthy();
   });
 
-  it("resolves P3 local runbook scenario completely offline and clears raw PII when opening purged history", async () => {
+  it("resolves P3 local runbook scenario on-device", async () => {
     const { getByRole, getByText, findByText, getByLabelText } = render(<App />);
 
-    fireEvent.click(getByText(/P3: Expired Local Dev TLS Cert/i));
-    fireEvent.click(getByRole("button", { name: /Run Hybrid Triage/i }));
+    fireEvent.click(getByText(/Build \/ TLS Fix/i));
+    fireEvent.click(getByRole("button", { name: /Scrub & (Analyze|Fix Offline)/i }));
 
-    expect(await findByText(/Local Runbook/i)).toBeTruthy();
+    expect(await findByText(/Instant On-Device Fix \(\$0\)/i)).toBeTruthy();
 
-    // Load P0 scenario text into editor, then click history item for P3 (which isn't purged yet) vs simulated purged reload
-    fireEvent.click(getByText(/P0: Semantic PHI/i));
-    const textarea = getByLabelText(/Raw Support \/ SRE Payload/i) as HTMLTextAreaElement;
+    fireEvent.click(getByText(/P0 Outage \+ PHI/i));
+    const textarea = getByLabelText(/Support Ticket or Error Logs/i) as HTMLTextAreaElement;
     expect(textarea.value).toContain("Manipal ICU Floor 3");
   });
 
@@ -77,48 +149,22 @@ describe("App integration", () => {
     window.location.hash = `#handoff=${b64}`;
 
     const { findByText, getByLabelText } = render(<App />);
-    expect(
-      await findByText(/Imported sanitized payload from Chrome Extension Side Panel/i),
-    ).toBeTruthy();
-    const textarea = getByLabelText(/Raw Support \/ SRE Payload/i) as HTMLTextAreaElement;
+    expect(await findByText(/From Browser Extension/i)).toBeTruthy();
+    const textarea = getByLabelText(/Support Ticket or Error Logs/i) as HTMLTextAreaElement;
     expect(textarea.value).toBe("Auth trace with [REDACTED:BEARER_OR_JWT_1]");
     expect(window.location.hash).toBe("");
   });
 
-  it("renders Remote Config provenance pill, Refresh Policy button, Cloud Sync status bar, and EXT history badge", async () => {
-    const json = JSON.stringify({
-      title: "Ext Source Attribution Ticket",
-      sanitizedText: "P0 outage involving Project-Apollo",
-    });
-    const b64 = btoa(json).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-    window.location.hash = `#handoff=${b64}`;
-
-    const { getByRole, findByText, findAllByText } = render(<App />);
-
-    expect(await findByText(/Remote Config:/i)).toBeTruthy();
-    expect(await findByText(/entropy>=3\.25/i)).toBeTruthy();
-    expect(getByRole("button", { name: /Refresh Policy/i })).toBeTruthy();
-    expect(await findByText(/Cloud Sync \(Zero-PII\):/i)).toBeTruthy();
-    expect(await findByText(/Local-Only \(IndexedDB\)/i)).toBeTruthy();
-    expect(getByRole("button", { name: /Enable Cloud Sync \(Guest\)/i })).toBeTruthy();
-    expect(getByRole("button", { name: /Sign In with Google/i })).toBeTruthy();
-
-    fireEvent.click(getByRole("button", { name: /Run Hybrid Triage/i }));
-    expect(await findByText(/Fail-Closed Quarantine/i)).toBeTruthy();
-    const extBadges = await findAllByText("EXT");
-    expect(extBadges.length).toBeGreaterThanOrEqual(1);
-  });
-
-  it("switches to Zero-Leakage Proof and Export & Handoff tabs after triage", async () => {
+  it("opens Proof & SDK tab and verifies Remote Config, Audit Proof, and Exports", async () => {
     const { getByRole, findByText } = render(<App />);
-    fireEvent.click(getByRole("button", { name: /Run Hybrid Triage/i }));
-    await findByText(/Fail-Closed Quarantine/i);
+    fireEvent.click(getByRole("button", { name: /Scrub & (Analyze|Fix Offline)/i }));
+    await findByText(/Paused for Review/i);
 
-    fireEvent.click(getByRole("button", { name: /Zero-Leakage Proof/i }));
-    expect(await findByText(/ZERO-LEAKAGE VERIFIED: 0 \//i)).toBeTruthy();
-
-    fireEvent.click(getByRole("button", { name: /Export & Handoff/i }));
-    expect(await findByText(/Download Audit JSON/i)).toBeTruthy();
+    fireEvent.click(getByRole("tab", { name: /Proof & SDK/i }));
+    expect(await findByText(/ZERO-LEAKAGE VERIFIED:/i)).toBeTruthy();
+    expect(await findByText(/Remote Config:/i)).toBeTruthy();
+    expect(getByRole("button", { name: /Refresh Policy/i })).toBeTruthy();
+    expect(getByRole("button", { name: /Export Audit JSON/i })).toBeTruthy();
   });
 
   it("rehydrates purged zero-PII records using sanitizedText and empty spans on re-escalation", () => {

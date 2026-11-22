@@ -1,6 +1,10 @@
-import { useRef, useState } from "react";
-import { Play, RefreshCw, Sparkles, Trash2, Upload } from "lucide-react";
-import type { DemoScenario, TriageResult } from "../types/triage";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
+import { animate } from "animejs";
+import { motion } from "motion/react";
+import { FileUp, Loader2, ShieldCheck, Trash2, WifiOff, Zap } from "lucide-react";
+import { scanAndRedactLocal } from "../firewall/regexScrubber";
+import type { DemoScenario, ProtectionLevel, TriageResult } from "../types/triage";
+import { createSafeScope } from "../utils/animeScope";
 
 interface TriageInboxProps {
   scenarios: DemoScenario[];
@@ -8,46 +12,23 @@ interface TriageInboxProps {
   rawText: string;
   isRunning: boolean;
   offlineMode: boolean;
-  cloudSyncEnabled?: boolean;
-  history: TriageResult[];
+  protectionLevel: ProtectionLevel;
   queuedTickets: TriageResult[];
-  importedFromExtension?: boolean;
-  onTitleChange: (value: string) => void;
-  onRawTextChange: (value: string) => void;
+  importedFromExtension: boolean;
+  onTitleChange: (title: string) => void;
+  onRawTextChange: (rawText: string) => void;
+  onProtectionLevelChange: (level: ProtectionLevel) => void;
   onSelectScenario: (scenario: DemoScenario) => void;
   onRunTriage: () => void;
-  onSelectHistory: (item: TriageResult) => void;
-  onClearHistory: () => void;
   onProcessOfflineQueue: () => void;
 }
 
-const SEVERITY_BADGE: Record<DemoScenario["expectedSeverity"], string> = {
-  P0: "bg-rose-500/20 text-rose-300 border border-rose-500/40",
-  P1: "bg-amber-500/20 text-amber-300 border border-amber-500/40",
-  P2: "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40",
-  P3: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40",
+const PRESET_LABELS: Record<string, string> = {
+  "scenario-p0-semantic-leak": "P0 Outage + PHI",
+  "scenario-p3-local-runbook": "Build / TLS Fix",
+  "scenario-p1-billing-webhook": "P1 Billing Leak",
+  "scenario-p2-offline-oauth": "Offline $0",
 };
-
-function formatPlatformBadge(item: TriageResult): { label: string; toneClass: string } {
-  const platform =
-    item.sourcePlatform ?? (item.importedFromExtension ? "CHROME_EXTENSION" : "WEB");
-  if (platform === "CHROME_EXTENSION") {
-    return {
-      label: "EXT",
-      toneClass: "border-cyan-500/40 bg-cyan-950/60 text-cyan-300",
-    };
-  }
-  if (platform === "ANDROID") {
-    return {
-      label: "ANDROID",
-      toneClass: "border-emerald-500/40 bg-emerald-950/60 text-emerald-300",
-    };
-  }
-  return {
-    label: "WEB",
-    toneClass: "border-slate-700 bg-slate-900 text-slate-300",
-  };
-}
 
 export function TriageInbox({
   scenarios,
@@ -55,216 +36,397 @@ export function TriageInbox({
   rawText,
   isRunning,
   offlineMode,
-  cloudSyncEnabled = false,
-  history,
+  protectionLevel,
   queuedTickets,
-  importedFromExtension = false,
+  importedFromExtension,
   onTitleChange,
   onRawTextChange,
+  onProtectionLevelChange,
   onSelectScenario,
   onRunTriage,
-  onSelectHistory,
-  onClearHistory,
   onProcessOfflineQueue,
 }: TriageInboxProps) {
-  const [isDragging, setIsDragging] = useState(false);
-  const [uploadMessage, setUploadMessage] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const editorWrapRef = useRef<HTMLDivElement>(null);
+  const [laserActive, setLaserActive] = useState(false);
 
-  const ingestFile = async (file: File) => {
-    if (file.size > 50 * 1024) {
-      setUploadMessage("File exceeds 50 KB local demo limit.");
-      return;
+  const liveDraftPreview = useMemo(() => {
+    if (!rawText.trim()) return { count: 0, latencyMs: 0 };
+    const t0 = typeof performance !== "undefined" ? performance.now() : Date.now();
+    const res = scanAndRedactLocal(rawText, {
+      protectionLevel,
+      includeHeuristics: true,
+      enableEntropyScanner: true,
+    });
+    const t1 = typeof performance !== "undefined" ? performance.now() : Date.now();
+    return {
+      count: res.mergedSpans.length,
+      latencyMs: Math.max(0.01, Number((t1 - t0).toFixed(2))),
+    };
+  }, [rawText, protectionLevel]);
+
+  useEffect(() => {
+    if (!isRunning && !laserActive) return;
+    const wrap = editorWrapRef.current;
+    if (!wrap) return;
+
+    const scope = createSafeScope(wrap, (reduced) => {
+      if (reduced) return;
+      animate(".inbox-laser-beam", {
+        top: ["-48px", "100%"],
+        opacity: [0.95, 1, 0.85],
+        duration: 900,
+        ease: "outCubic",
+      });
+    });
+
+    return () => scope.revert();
+  }, [isRunning, laserActive]);
+
+  useEffect(() => {
+    if (isRunning) {
+      setLaserActive(true);
+      const t = setTimeout(() => setLaserActive(false), 950);
+      return () => clearTimeout(t);
     }
-    const content = await file.text();
-    onTitleChange(`Uploaded: ${file.name}`);
-    onRawTextChange(content);
-    setUploadMessage(`Loaded ${file.name} locally (${content.length} chars).`);
-    setTimeout(() => setUploadMessage(null), 2500);
+  }, [isRunning]);
+
+  const handleUploadLog = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const content = await file.text();
+      onTitleChange(file.name.replace(/\.[^.]+$/, ""));
+      onRawTextChange(content.slice(0, 12_000));
+    } finally {
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      e.preventDefault();
+      if (!isRunning && rawText.trim()) {
+        onRunTriage();
+      }
+    }
   };
 
   return (
-    <aside className="flex min-w-0 flex-col gap-4">
-      <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-        <div className="mb-3 flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-indigo-400" />
-          <h2 className="text-sm font-semibold tracking-wide text-slate-100 uppercase">
-            1-Click Demo Scenarios
-          </h2>
-        </div>
-        <div className="flex max-h-64 flex-col gap-2 overflow-auto pr-1">
-          {scenarios.map((scenario) => (
-            <button
-              key={scenario.id}
-              type="button"
-              onClick={() => onSelectScenario(scenario)}
-              className="rounded-lg border border-slate-800 bg-slate-950/70 p-2.5 text-left transition hover:border-indigo-500/60 hover:bg-slate-900"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-semibold text-slate-100">{scenario.title}</span>
-                <span
-                  className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] ${
-                    SEVERITY_BADGE[scenario.expectedSeverity]
-                  }`}
-                >
-                  {scenario.expectedSeverity}
-                </span>
-              </div>
-              <p className="mt-1 text-[11px] text-slate-400">{scenario.subtitle}</p>
-            </button>
-          ))}
-        </div>
-      </div>
-
+    <section
+      aria-label="On-Device Input"
+      className="lf-card flex min-h-0 flex-col overflow-hidden rounded-xl"
+    >
+      {/* Top Header Strip */}
       <div
-        onDragOver={(e) => {
-          e.preventDefault();
-          setIsDragging(true);
-        }}
-        onDragLeave={() => setIsDragging(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setIsDragging(false);
-          const file = e.dataTransfer.files?.[0];
-          if (file) void ingestFile(file);
-        }}
-        className={`rounded-xl border bg-slate-900/70 p-4 transition ${
-          isDragging ? "border-cyan-400 bg-cyan-950/20" : "border-slate-800"
-        }`}
+        className="flex flex-wrap items-center justify-between gap-2 border-b px-3.5 py-2.5"
+        style={{ borderColor: "var(--border-subtle)" }}
       >
-        {importedFromExtension && (
-          <div className="mb-3 rounded-lg border border-cyan-500/40 bg-cyan-950/40 px-2.5 py-1.5 text-[11px] font-medium text-cyan-200">
-            Imported sanitized payload from Chrome Extension Side Panel.
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          <span
+            className="h-2 w-2 rounded-full"
+            style={{ backgroundColor: "var(--mask-solid)" }}
+            aria-hidden="true"
+          />
+          <span
+            className="font-mono text-[11px] font-semibold uppercase tracking-[0.08em]"
+            style={{ color: "var(--text-primary)" }}
+          >
+            Your Device · Never Leaves
+          </span>
+          {importedFromExtension && (
+            <span
+              className="rounded border px-1.5 py-0.5 text-[10px] font-medium"
+              style={{
+                backgroundColor: "var(--safe-bg)",
+                borderColor: "var(--safe-border)",
+                color: "var(--safe-text)",
+              }}
+            >
+              From Browser Extension
+            </span>
+          )}
+        </div>
 
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <label className="block text-xs font-medium text-slate-300" htmlFor="ticket-title">
-            Incident Title
-          </label>
+        <div className="flex items-center gap-2">
+          {/* 3-Level Protection Selector */}
+          <div
+            role="group"
+            aria-label="Protection level"
+            className="inline-flex rounded-md border p-0.5"
+            style={{
+              backgroundColor: "var(--bg-subtle)",
+              borderColor: "var(--border-subtle)",
+            }}
+          >
+            {(
+              [
+                {
+                  id: "low" as const,
+                  label: "Low",
+                  tip: "Low (Secrets Only): API keys, AWS, JWT, PEM, DB URI, Gov IDs & cards",
+                },
+                {
+                  id: "medium" as const,
+                  label: "Medium",
+                  tip: "Medium (Balanced): Secrets + phones, emails, names, employers & Nano 4 PHI",
+                },
+                {
+                  id: "high" as const,
+                  label: "High",
+                  tip: "High (Strict Zero-Trust): Medium + addresses, M&A, tight entropy & lower lockdown threshold",
+                },
+              ]
+            ).map((opt) => {
+              const active = protectionLevel === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  title={opt.tip}
+                  aria-pressed={active}
+                  onClick={() => onProtectionLevelChange(opt.id)}
+                  className="relative rounded px-2 py-0.5 font-mono text-[10px] font-semibold transition-colors"
+                  style={{
+                    color: active
+                      ? opt.id === "high"
+                        ? "var(--mask-text)"
+                        : opt.id === "medium"
+                          ? "var(--safe-text)"
+                          : "var(--text-primary)"
+                      : "var(--text-muted)",
+                  }}
+                >
+                  {active && (
+                    <motion.span
+                      layoutId="protection-level-pill"
+                      transition={{ type: "spring", stiffness: 420, damping: 28 }}
+                      className="absolute inset-0 rounded"
+                      style={{
+                        backgroundColor:
+                          opt.id === "high"
+                            ? "var(--mask-bg)"
+                            : opt.id === "medium"
+                              ? "var(--safe-bg)"
+                              : "var(--bg-surface)",
+                      }}
+                    />
+                  )}
+                  <span className="relative z-10">{opt.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-0.5 text-[11px] text-slate-300 hover:border-indigo-500/60 hover:text-white"
-          >
-            <Upload className="h-3 w-3" />
-            <span>Load .log/.txt</span>
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".log,.txt,.json,.csv"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) void ingestFile(file);
+            className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors"
+            style={{
+              backgroundColor: "var(--bg-subtle)",
+              borderColor: "var(--border-subtle)",
+              color: "var(--text-secondary)",
             }}
-          />
+          >
+            <FileUp className="h-3 w-3" aria-hidden="true" />
+            Upload
+          </button>
         </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".log,.txt,.json,text/plain"
+          onChange={(e) => void handleUploadLog(e)}
+          className="hidden"
+        />
+      </div>
 
+      {/* 4 Compact 1-Click Preset Pills */}
+      <div
+        className="flex flex-wrap items-center gap-1.5 border-b px-3.5 py-2"
+        style={{
+          backgroundColor: "var(--bg-subtle)",
+          borderColor: "var(--border-subtle)",
+        }}
+      >
+        {scenarios.map((scenario) => {
+          const selected = scenario.rawText === rawText;
+          const shortLabel = PRESET_LABELS[scenario.id] ?? scenario.expectedSeverity;
+          return (
+            <button
+              key={scenario.id}
+              type="button"
+              title={scenario.title}
+              onClick={() => onSelectScenario(scenario)}
+              className="rounded-md border px-2.5 py-1 text-[11px] font-semibold transition-colors"
+              style={{
+                backgroundColor: selected ? "var(--text-primary)" : "var(--bg-surface)",
+                borderColor: selected ? "var(--text-primary)" : "var(--border-subtle)",
+                color: selected ? "var(--bg-canvas)" : "var(--text-secondary)",
+              }}
+            >
+              {shortLabel}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Title + Full-Height Editor Surface */}
+      <div className="relative flex min-h-0 flex-1 flex-col p-3.5 gap-2.5">
         <input
           id="ticket-title"
+          aria-label="Incident Title"
           type="text"
           value={title}
           onChange={(e) => onTitleChange(e.target.value)}
-          placeholder="e.g. Checkout P0 OAuth Leak"
-          className="mb-3 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-indigo-500 focus:outline-none"
+          placeholder="Incident title..."
+          className="lf-input w-full rounded-lg px-2.5 py-1.5 text-xs font-medium"
         />
 
-        <label className="mb-1.5 block text-xs font-medium text-slate-300" htmlFor="ticket-body">
-          Raw Support / SRE Payload (or drop log file here)
-        </label>
-        <textarea
-          id="ticket-body"
-          rows={7}
-          value={rawText}
-          onChange={(e) => onRawTextChange(e.target.value)}
-          placeholder="Paste logs, stack traces, or customer messages containing PII/secrets..."
-          className="w-full rounded-lg border border-slate-700 bg-slate-950 p-3 font-mono text-xs text-slate-100 focus:border-indigo-500 focus:outline-none"
-        />
-
-        {uploadMessage && <p className="mt-1.5 text-[11px] text-cyan-300">{uploadMessage}</p>}
-
-        <button
-          type="button"
-          disabled={isRunning || !rawText.trim()}
-          onClick={onRunTriage}
-          className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+        <div
+          ref={editorWrapRef}
+          className="relative flex min-h-[220px] flex-1 flex-col overflow-hidden rounded-lg border"
+          style={{ borderColor: "var(--border-subtle)" }}
         >
-          <Play className="h-4 w-4" />
-          <span>{isRunning ? "Running Local Privacy Firewall..." : "Run Hybrid Triage"}</span>
-        </button>
-      </div>
+          {(isRunning || laserActive) && (
+            <div
+              aria-hidden="true"
+              className="inbox-laser-beam pointer-events-none absolute inset-x-0 top-[-48px] z-10 h-[51px]"
+              style={{
+                background:
+                  "linear-gradient(180deg, transparent 0%, rgba(56,189,248,0.16) 72%, rgba(0,229,163,0.42) 100%)",
+                borderBottom: "3px solid var(--signal-mint, #00E5A3)",
+                boxShadow: "0 0 14px var(--signal-mint, #00E5A3)",
+              }}
+            />
+          )}
+          <textarea
+            id="ticket-body"
+            aria-label="Support Ticket or Error Logs"
+            value={rawText}
+            onChange={(e) => onRawTextChange(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Paste stack traces, support messages, API keys, or customer notes..."
+            className="h-full min-h-[220px] w-full flex-1 resize-none bg-transparent p-3 font-mono text-xs leading-relaxed focus:outline-none"
+            style={{ color: "var(--text-primary)" }}
+          />
+          {rawText.trim() && (
+            <div
+              className="flex items-center justify-between border-t px-3 py-1 font-mono text-[10.5px] tabular-nums"
+              style={{
+                backgroundColor: "var(--bg-subtle)",
+                borderColor: "var(--border-subtle)",
+                color: liveDraftPreview.count > 0 ? "var(--safe-text)" : "var(--text-muted)",
+              }}
+            >
+              <span className="inline-flex items-center gap-1">
+                <Zap className="h-3 w-3" aria-hidden="true" />
+                {liveDraftPreview.count > 0
+                  ? `${liveDraftPreview.count} secret${liveDraftPreview.count === 1 ? "" : "s"} spotted locally · ${liveDraftPreview.latencyMs}ms · Ready to Airgap`
+                  : `0 secrets spotted · ${liveDraftPreview.latencyMs}ms`}
+              </span>
+              <span style={{ color: "var(--text-muted)" }}>{protectionLevel.toUpperCase()}</span>
+            </div>
+          )}
+        </div>
 
-      {queuedTickets.length > 0 && (
-        <div className="rounded-xl border border-amber-500/40 bg-amber-950/30 p-3.5 text-xs">
-          <div className="flex items-center justify-between gap-2">
-            <span className="font-semibold text-amber-200">
-              Offline Queue: {queuedTickets.length} sanitized ticket(s)
+        {queuedTickets.length > 0 && (
+          <div
+            className="flex items-center justify-between gap-2 rounded-lg border px-2.5 py-1.5"
+            style={{
+              backgroundColor: "var(--warn-bg)",
+              borderColor: "var(--warn-border)",
+            }}
+          >
+            <span className="text-[11px] font-medium tabular-nums" style={{ color: "var(--warn-text)" }}>
+              {queuedTickets.length} queued offline (0 raw PII)
             </span>
             <button
               type="button"
               disabled={offlineMode || isRunning}
               onClick={onProcessOfflineQueue}
-              className="inline-flex items-center gap-1 rounded bg-amber-500 px-2.5 py-1 font-semibold text-slate-950 hover:bg-amber-400 disabled:opacity-50"
+              className="rounded border px-2 py-0.5 text-[11px] font-semibold disabled:opacity-50"
+              style={{
+                backgroundColor: "var(--bg-surface)",
+                borderColor: "var(--warn-border)",
+                color: "var(--text-primary)",
+              }}
             >
-              <RefreshCw className="h-3 w-3" />
-              <span>{offlineMode ? "Offline" : "Sync & Escalate"}</span>
+              Send Now
             </button>
-          </div>
-        </div>
-      )}
-
-      <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <h3 className="text-xs font-semibold tracking-wide text-slate-300 uppercase">
-            {cloudSyncEnabled
-              ? "Sanitized History (IndexedDB + Cloud Sync)"
-              : "Sanitized Local History (IndexedDB)"}
-          </h3>
-          {history.length > 0 && (
-            <button
-              type="button"
-              onClick={onClearHistory}
-              className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-rose-400"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              Clear
-            </button>
-          )}
-        </div>
-        {history.length === 0 ? (
-          <p className="text-xs text-slate-500">No sanitized tickets stored yet.</p>
-        ) : (
-          <div className="flex max-h-44 flex-col gap-1.5 overflow-auto">
-            {history.map((item) => {
-              const platformBadge = formatPlatformBadge(item);
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => onSelectHistory(item)}
-                  className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-950/60 px-2.5 py-2 text-left text-xs hover:border-slate-600"
-                >
-                  <span className="min-w-0 flex-1 truncate font-medium text-slate-200">
-                    {item.title}
-                  </span>
-                  <span className="flex shrink-0 items-center gap-1">
-                    <span
-                      className={`rounded border px-1 py-0.5 font-mono text-[9px] font-semibold ${platformBadge.toneClass}`}
-                    >
-                      {platformBadge.label}
-                    </span>
-                    <span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] text-emerald-300">
-                      {item.severity} · {item.inferenceSource}
-                    </span>
-                  </span>
-                </button>
-              );
-            })}
           </div>
         )}
       </div>
-    </aside>
+
+      {/* Docked Bottom Action Bar */}
+      <div
+        className="flex items-center justify-between gap-2 border-t px-3.5 py-2.5"
+        style={{
+          backgroundColor: "var(--bg-subtle)",
+          borderColor: "var(--border-subtle)",
+        }}
+      >
+        <button
+          type="button"
+          disabled={!rawText && !title}
+          onClick={() => {
+            onTitleChange("");
+            onRawTextChange("");
+          }}
+          className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border px-2.5 text-xs font-medium transition-colors disabled:opacity-40"
+          style={{
+            backgroundColor: "var(--bg-surface)",
+            borderColor: "var(--border-subtle)",
+            color: "var(--text-secondary)",
+          }}
+        >
+          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+          Clear
+        </button>
+
+        <button
+          type="button"
+          disabled={isRunning || !rawText.trim()}
+          onClick={() => {
+            setLaserActive(true);
+            setTimeout(() => setLaserActive(false), 950);
+            onRunTriage();
+          }}
+          className="inline-flex min-h-[36px] flex-1 items-center justify-center gap-2 rounded-lg px-4 text-xs font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-45"
+          style={{
+            backgroundColor: "var(--accent-primary)",
+            color: "var(--accent-on-primary)",
+          }}
+        >
+          {isRunning ? (
+            <>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+              <span>Scrubbing On-Device...</span>
+            </>
+          ) : offlineMode ? (
+            <>
+              <WifiOff className="h-3.5 w-3.5" aria-hidden="true" />
+              <span>Scrub &amp; Fix Offline</span>
+            </>
+          ) : (
+            <>
+              <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+              <span>Scrub &amp; Analyze</span>
+              <kbd
+                className="hidden rounded border px-1.5 py-0.5 font-mono text-[10px] font-medium sm:inline-block"
+                style={{
+                  borderColor: "rgba(128,128,128,0.35)",
+                  opacity: 0.85,
+                }}
+              >
+                ⌘↵
+              </kbd>
+            </>
+          )}
+        </button>
+      </div>
+    </section>
   );
 }

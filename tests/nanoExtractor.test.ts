@@ -67,7 +67,7 @@ describe("nanoExtractor", () => {
     const parsed = parseDefensiveSemanticJson(rawOutput);
     expect(parsed.severity).toBe("P2");
     expect(parsed.runbookId).toBe("RB_OAUTH_CLOCK_SKEW");
-    expect(parsed.entities).toEqual([{ phrase: "Manipal ICU Floor 3", category: "CONTEXTUAL_PHI" }]);
+    expect(parsed.entities).toEqual([{ phrase: "Manipal ICU Floor 3", category: "PHI" }]);
 
     const nullStr = parseDefensiveSemanticJson('{"severity":"P3","runbookId":"null","entities":[]}');
     expect(nullStr.runbookId).toBeNull();

@@ -14,6 +14,7 @@ import type {
   HybridTelemetry,
   InferenceSource,
   PrivacyPolicy,
+  ProtectionLevel,
   RedactionSpan,
   SourcePlatform,
   TriageResult,
@@ -22,6 +23,10 @@ import type {
 import { extractSemanticSecretsWithNano, type NanoExtractionResult } from "./nanoExtractor";
 import { scanAndRedactLocal } from "./regexScrubber";
 import { addManualSpan, applyMaskedSpans, verifyZeroLeakage } from "./spanMerger";
+import { computeRiskProfile } from "./riskRouter";
+import { registerTicketSpansInVault } from "./rehydrationVault";
+import { mintZeroLeakageAuditReceipt } from "./auditReceipt";
+import { lookupDedupCache, saveToDedupCache } from "../storage/dedupCache";
 
 const SRE_SYSTEM_INSTRUCTION =
   "You are a Principal SRE Incident Triage Assistant. Produce concise Markdown with sections: ### Root Cause Hypothesis, ### Immediate Mitigation, and ### Verification Checklist. Never ask for or echo redacted PII. Preserve exact [REDACTED:...] tokens verbatim and omit horizontal --- rules.";
@@ -42,6 +47,7 @@ export interface PipelineInput {
   approveCloudEscalation?: boolean;
   customRunbooks?: CustomRunbook[];
   policy?: PrivacyPolicy;
+  protectionLevel?: ProtectionLevel;
   runtimeConfig?: RuntimeConfigValues;
   importedFromExtension?: boolean;
   sourcePlatform?: SourcePlatform;
@@ -60,6 +66,7 @@ export interface PipelineDeps {
     config: RuntimeConfigValues,
   ) => Promise<{ text: string; inferenceSource: "ON_DEVICE" | "IN_CLOUD" }>;
   onStreamChunk?: (partialText: string) => void;
+  bypassCache?: boolean;
 }
 
 function normalizeCloudResponse(
@@ -130,7 +137,7 @@ async function defaultCallCloud(
   }
 
   const candidateModels = [
-    ...new Set([config.cloudModel, config.cloudFallbackModel, "gemini-2.5-flash"].filter(Boolean)),
+    ...new Set([config.cloudModel, config.cloudFallbackModel, "gemini-3.8-flash"].filter(Boolean)),
   ];
   let lastError = "Unknown Cloud error";
 
@@ -227,29 +234,50 @@ export async function runTriagePipeline(
   const sourcePlatform: SourcePlatform =
     input.sourcePlatform ?? (input.importedFromExtension ? "CHROME_EXTENSION" : "WEB");
 
-  const nanoResult = await extractNano(input.rawText);
+  const protectionLevel: ProtectionLevel = input.protectionLevel ?? "medium";
+  let nanoResult: NanoExtractionResult;
+  try {
+    nanoResult = await extractNano(input.rawText);
+  } catch {
+    nanoResult = {
+      nanoStatus: "UNAVAILABLE",
+      inferenceSource: "LOCAL_REGEX_FALLBACK",
+      severity: "P2",
+      runbookId: null,
+      category: "GENERAL_INCIDENT",
+      spans: [],
+    };
+  }
 
   const stage1Source: TriageResult["stage1Source"] =
     nanoResult.nanoStatus === "READY" ? "ON_DEVICE (Nano 4)" : "HEURISTIC_GUARD";
 
   const { sanitizedText, mergedSpans } = scanAndRedactLocal(input.rawText, {
+    protectionLevel,
     // Defense-in-Depth Union: ALWAYS run HEURISTIC_GUARD alongside Nano 4.
     // spanMerger keeps NANO_SEMANTIC_FIREWALL priority (4 > 1) on overlapping phrases,
     // while HEURISTIC_GUARD guarantees 0 clinical/M&A/password leakage if Nano 4 under-extracts.
     includeHeuristics: true,
     enableEntropyScanner: input.policy?.enableEntropyScanner !== false,
     entropyThreshold:
-      stage1Config.entropyThreshold ?? DEFAULT_RUNTIME_CONFIG.entropyThreshold ?? 3.25,
+      protectionLevel === "low"
+        ? 3.8
+        : protectionLevel === "high"
+          ? 2.9
+          : (stage1Config.entropyThreshold ?? DEFAULT_RUNTIME_CONFIG.entropyThreshold ?? 3.25),
     customTerms: input.policy?.customTerms,
     remoteBlockedTerms:
       stage1Config.enterpriseBlockedTerms ?? DEFAULT_RUNTIME_CONFIG.enterpriseBlockedTerms,
-    extraSpans: nanoResult.spans,
+    extraSpans: protectionLevel === "low" ? [] : nanoResult.spans,
   });
 
   const stage1LatencyMs = Math.max(1, Math.round(performance.now() - startedAt));
   const approxTokens = Math.max(40, Math.ceil(input.rawText.length / 4));
   const ticketId = input.id ?? `ticket-${Date.now()}`;
   const createdAt = Date.now();
+
+  // Register spans in strictly RAM-only rehydration vault (never persisted)
+  registerTicketSpansInVault(ticketId, mergedSpans);
 
   // Local P2/P3 Runbook check (0 cloud tokens — works even when offline!)
   const runbook =
@@ -258,8 +286,35 @@ export async function runTriagePipeline(
         matchLocalRunbook(sanitizedText, runbooks))
       : null;
 
+  const riskProfile = computeRiskProfile(
+    input.rawText,
+    { spans: mergedSpans, sanitizedText },
+    input.policy,
+    { isLocalRunbook: Boolean(runbook), protectionLevel },
+  );
+
+  const stage1Audit = verifyZeroLeakage(
+    buildOutboundCloudPrompt(nanoResult.severity, nanoResult.category, sanitizedText),
+    mergedSpans,
+  );
+
+  const attachReceipt = async (base: TriageResult): Promise<TriageResult> => {
+    if (!base.zeroLeakageAudit?.verified) return base;
+    try {
+      const auditReceipt = await mintZeroLeakageAuditReceipt({
+        rawText: input.rawText,
+        sanitizedText: base.sanitizedText,
+        result: base,
+        riskProfile: base.riskProfile,
+      });
+      return { ...base, auditReceipt };
+    } catch {
+      return base;
+    }
+  };
+
   if (runbook) {
-    return {
+    return attachReceipt({
       id: ticketId,
       title: input.title,
       rawText: input.rawText,
@@ -278,16 +333,18 @@ export async function runTriagePipeline(
       nanoStatus: nanoResult.nanoStatus,
       latencyMs: stage1LatencyMs,
       estimatedTokensSaved: approxTokens,
+      zeroLeakageAudit: stage1Audit,
+      riskProfile,
       importedFromExtension: input.importedFromExtension,
       sourcePlatform,
       createdAt,
       updatedAt: createdAt,
-    };
+    });
   }
 
   // Offline / Airplane mode hard block & queue
   if (input.offlineMode) {
-    return {
+    return attachReceipt({
       id: ticketId,
       title: input.title,
       rawText: input.rawText,
@@ -307,17 +364,19 @@ export async function runTriagePipeline(
       nanoStatus: nanoResult.nanoStatus,
       latencyMs: stage1LatencyMs,
       estimatedTokensSaved: approxTokens,
+      zeroLeakageAudit: stage1Audit,
+      riskProfile,
       queuedForReconnect: true,
       importedFromExtension: input.importedFromExtension,
       sourcePlatform,
       createdAt,
       updatedAt: createdAt,
-    };
+    });
   }
 
   // Fail-Closed Quarantine Gate: if Nano 4 is not READY, NEVER auto-send to Cloud
   if (nanoResult.nanoStatus !== "READY" && !input.approveCloudEscalation) {
-    return {
+    return attachReceipt({
       id: ticketId,
       title: input.title,
       rawText: input.rawText,
@@ -337,16 +396,18 @@ export async function runTriagePipeline(
       nanoStatus: nanoResult.nanoStatus,
       latencyMs: stage1LatencyMs,
       estimatedTokensSaved: approxTokens,
+      zeroLeakageAudit: stage1Audit,
+      riskProfile,
       importedFromExtension: input.importedFromExtension,
       sourcePlatform,
       createdAt,
       updatedAt: createdAt,
-    };
+    });
   }
 
   // Cancelable Pre-Cloud Gate when Nano 4 is READY
   if (!input.approveCloudEscalation) {
-    return {
+    return attachReceipt({
       id: ticketId,
       title: input.title,
       rawText: input.rawText,
@@ -366,11 +427,13 @@ export async function runTriagePipeline(
       nanoStatus: nanoResult.nanoStatus,
       latencyMs: stage1LatencyMs,
       estimatedTokensSaved: approxTokens,
+      zeroLeakageAudit: stage1Audit,
+      riskProfile,
       importedFromExtension: input.importedFromExtension,
       sourcePlatform,
       createdAt,
       updatedAt: createdAt,
-    };
+    });
   }
 
   return escalateSanitizedResult(
@@ -386,19 +449,20 @@ export async function runTriagePipeline(
       nanoStatus: nanoResult.nanoStatus,
       stage1Source,
       stage1LatencyMs,
+      riskProfile,
       importedFromExtension: input.importedFromExtension,
       sourcePlatform,
       createdAt,
       startedAt,
     },
-    { loadConfig, callCloud, onStreamChunk: deps.onStreamChunk },
+    { loadConfig, callCloud, onStreamChunk: deps.onStreamChunk, bypassCache: deps.bypassCache },
   );
 }
 
 export async function escalateApprovedTicket(
   ticket: TriageResult,
   updatedSpans: RedactionSpan[],
-  deps: Pick<PipelineDeps, "loadConfig" | "callCloud" | "onStreamChunk"> & {
+  deps: Pick<PipelineDeps, "loadConfig" | "callCloud" | "onStreamChunk" | "bypassCache"> & {
     offlineMode?: boolean;
   } = {},
 ): Promise<TriageResult> {
@@ -437,6 +501,7 @@ export async function escalateApprovedTicket(
       nanoStatus: ticket.nanoStatus,
       stage1Source: ticket.stage1Source,
       stage1LatencyMs: ticket.stage1LatencyMs,
+      riskProfile: ticket.riskProfile,
       importedFromExtension: ticket.importedFromExtension,
       sourcePlatform,
       createdAt: ticket.createdAt,
@@ -459,12 +524,13 @@ async function escalateSanitizedResult(
     nanoStatus: TriageResult["nanoStatus"];
     stage1Source: TriageResult["stage1Source"];
     stage1LatencyMs: number;
+    riskProfile?: TriageResult["riskProfile"];
     importedFromExtension?: boolean;
     sourcePlatform?: SourcePlatform;
     createdAt?: number;
     startedAt: number;
   },
-  deps: Pick<PipelineDeps, "loadConfig" | "callCloud" | "onStreamChunk">,
+  deps: Pick<PipelineDeps, "loadConfig" | "callCloud" | "onStreamChunk" | "bypassCache">,
 ): Promise<TriageResult> {
   const loadConfig = deps.loadConfig ?? loadRuntimeConfig;
   const callCloud = deps.callCloud ?? defaultCallCloud;
@@ -505,6 +571,69 @@ async function escalateSanitizedResult(
   }
 
   const runtimeConfig = await loadConfig();
+  const baseRiskProfile =
+    ctx.riskProfile ??
+    computeRiskProfile(ctx.rawText, { spans: ctx.spans, sanitizedText: ctx.sanitizedText });
+
+  // Zero-PII Semantic Dedup Cache lookup (<5ms, $0 Cloud cost)
+  if (!deps.bypassCache) {
+    const cacheHit = await lookupDedupCache(ctx.sanitizedText);
+    if (cacheHit) {
+      const cachedRiskProfile = {
+        ...baseRiskProfile,
+        action: "CACHE_HIT_LOCAL" as const,
+      };
+      const cachedResult: TriageResult = {
+        id: ctx.id,
+        title: ctx.title,
+        rawText: ctx.rawText,
+        sanitizedText: ctx.sanitizedText,
+        severity: ctx.severity,
+        category: ctx.category,
+        runbookId: ctx.runbookId,
+        spans: ctx.spans,
+        resolution: cacheHit.entry.aiSolution,
+        hybridBrief: cacheHit.entry.executiveBrief ?? undefined,
+        resolutionMode: "CLOUD_ESCALATION",
+        inferenceSource: "ON_DEVICE",
+        stage1Source: ctx.stage1Source,
+        stage1LatencyMs: ctx.stage1LatencyMs,
+        stage2Source: "SKIPPED_LOCAL_RUNBOOK",
+        stage2LatencyMs: cacheHit.latencyMs,
+        nanoStatus: ctx.nanoStatus,
+        latencyMs: ctx.stage1LatencyMs + cacheHit.latencyMs,
+        estimatedTokensSaved: Math.max(40, ctx.spans.filter((s) => s.masked !== false).length * 24),
+        activeCloudModel: cacheHit.entry.modelUsed,
+        cloudError: null,
+        zeroLeakageAudit: audit,
+        riskProfile: cachedRiskProfile,
+        dedupCacheHit: {
+          hit: true,
+          latencyMs: cacheHit.latencyMs,
+          hitCount: cacheHit.entry.hitCount,
+          fingerprint: cacheHit.entry.fingerprint,
+          modelUsed: cacheHit.entry.modelUsed,
+        },
+        importedFromExtension: ctx.importedFromExtension,
+        sourcePlatform,
+        queuedForReconnect: false,
+        createdAt,
+        updatedAt: Date.now(),
+      };
+      try {
+        cachedResult.auditReceipt = await mintZeroLeakageAuditReceipt({
+          rawText: ctx.rawText,
+          sanitizedText: ctx.sanitizedText,
+          result: cachedResult,
+          riskProfile: cachedRiskProfile,
+        });
+      } catch {
+        // ignore if WebCrypto unavailable
+      }
+      return cachedResult;
+    }
+  }
+
   if (!runtimeConfig.enableCloudEscalation) {
     const latencyMs = Math.max(1, Math.round(performance.now() - ctx.startedAt));
     return {
@@ -572,7 +701,14 @@ async function escalateSanitizedResult(
     };
   }
 
-  return {
+  const modelUsed = cloudResponse.modelUsed ?? runtimeConfig.cloudModel;
+  await saveToDedupCache({
+    sanitizedText: ctx.sanitizedText,
+    aiSolution: cloudResponse.text,
+    modelUsed,
+  });
+
+  const finalResult: TriageResult = {
     id: ctx.id,
     title: ctx.title,
     rawText: ctx.rawText,
@@ -592,15 +728,30 @@ async function escalateSanitizedResult(
     nanoStatus: ctx.nanoStatus,
     latencyMs,
     estimatedTokensSaved: ctx.spans.filter((s) => s.masked !== false).length * 18,
-    activeCloudModel: cloudResponse.modelUsed ?? runtimeConfig.cloudModel,
+    activeCloudModel: modelUsed,
     cloudError: null,
     zeroLeakageAudit: audit,
+    riskProfile: baseRiskProfile,
+    dedupCacheHit: null,
     importedFromExtension: ctx.importedFromExtension,
     sourcePlatform,
     queuedForReconnect: false,
     createdAt,
     updatedAt: Date.now(),
   };
+
+  try {
+    finalResult.auditReceipt = await mintZeroLeakageAuditReceipt({
+      rawText: ctx.rawText,
+      sanitizedText: ctx.sanitizedText,
+      result: finalResult,
+      riskProfile: baseRiskProfile,
+    });
+  } catch {
+    // ignore if WebCrypto unavailable
+  }
+
+  return finalResult;
 }
 
 /**

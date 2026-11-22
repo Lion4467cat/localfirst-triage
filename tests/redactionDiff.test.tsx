@@ -4,7 +4,7 @@ import { RedactionDiff } from "../src/components/RedactionDiff";
 import type { RedactionSpan } from "../src/types/triage";
 
 describe("RedactionDiff", () => {
-  it("renders inline highlighted tokens and clickable audit pills invoking onToggleSpan", () => {
+  it("renders inline highlighted tokens and plain-English secret tags invoking onToggleSpan", () => {
     const onToggleSpan = vi.fn();
     const spans: RedactionSpan[] = [
       {
@@ -28,11 +28,13 @@ describe("RedactionDiff", () => {
     );
 
     const buttons = getAllByRole("button");
-    // Raw inline mark, sanitized inline mark, copy button, and audit pill
     expect(buttons.length).toBeGreaterThanOrEqual(3);
-    const pill = buttons.find((b) => b.textContent?.includes("[NANO_SEMANTIC_FIREWALL]"));
-    expect(pill).toBeDefined();
-    fireEvent.click(pill!);
+    const chip = buttons.find((b) =>
+      b.textContent?.includes("Confidential Deal Info") && b.textContent?.includes("Gemini Nano"),
+    );
+    expect(chip).toBeDefined();
+    expect(chip?.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(chip!);
     expect(onToggleSpan).toHaveBeenCalledWith(0);
   });
 
@@ -60,10 +62,10 @@ describe("RedactionDiff", () => {
       />,
     );
 
-    expect(
-      getByText(/Loaded from zero-PII IndexedDB store/i),
-    ).toBeTruthy();
-    const pill = getAllByRole("button").find((b) => b.textContent?.includes("[REGEX_FIREWALL]"));
-    expect((pill as HTMLButtonElement).disabled).toBe(true);
+    expect(getByText(/Raw text purged from storage/i)).toBeTruthy();
+    const chip = getAllByRole("button").find((b) =>
+      b.textContent?.includes("API Key") && b.textContent?.includes("Pattern Guard"),
+    );
+    expect((chip as HTMLButtonElement).disabled).toBe(true);
   });
 });

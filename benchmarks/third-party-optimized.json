@@ -1,0 +1,3965 @@
+{
+  "generatedAt": "2026-11-22T12:06:18.281Z",
+  "provenance": {
+    "suiteA": {
+      "dataset": "ai4privacy/pii-masking-200k",
+      "split": "train",
+      "sourceUrl": "https://datasets-server.huggingface.co/rows?dataset=ai4privacy%2Fpii-masking-200k&config=default&split=train&offset=0&length=100",
+      "rowRange": "offset=0..200",
+      "rows": 150
+    },
+    "suiteB": {
+      "sourceUrl": "https://raw.githubusercontent.com/gitleaks/gitleaks/master/config/gitleaks.toml",
+      "upstreamRulesParsed": 221,
+      "totalSpecs": 42,
+      "upstreamRegexVerifiedCount": 18
+    },
+    "suiteC": {
+      "totalChunks": 100
+    }
+  },
+  "extensionFirewallCore": {
+    "low": {
+      "level": "low",
+      "totalSamples": 292,
+      "suiteA1": {
+        "caught": 9,
+        "total": 89,
+        "recallPct": 10.1
+      },
+      "suiteA2": {
+        "caught": 0,
+        "total": 23,
+        "recallPct": 0
+      },
+      "suiteB": {
+        "caught": 42,
+        "total": 42,
+        "recallPct": 100
+      },
+      "suiteC": {
+        "flagged": 0,
+        "total": 100,
+        "fprPct": 0
+      },
+      "latency": {
+        "medianMs": 0.011,
+        "p95Ms": 0.029,
+        "maxMs": 2.644
+      },
+      "idempotencyFailures": 0,
+      "categoryBreakdown": {
+        "PHONEIMEI": {
+          "caught": 1,
+          "total": 5,
+          "recallPct": 20
+        },
+        "JOBAREA": {
+          "caught": 0,
+          "total": 7,
+          "recallPct": 0
+        },
+        "FIRSTNAME": {
+          "caught": 0,
+          "total": 45,
+          "recallPct": 0
+        },
+        "VEHICLEVIN": {
+          "caught": 0,
+          "total": 4,
+          "recallPct": 0
+        },
+        "AGE": {
+          "caught": 0,
+          "total": 8,
+          "recallPct": 0
+        },
+        "GENDER": {
+          "caught": 0,
+          "total": 10,
+          "recallPct": 0
+        },
+        "HEIGHT": {
+          "caught": 0,
+          "total": 5,
+          "recallPct": 0
+        },
+        "BUILDINGNUMBER": {
+          "caught": 0,
+          "total": 13,
+          "recallPct": 0
+        },
+        "MASKEDNUMBER": {
+          "caught": 1,
+          "total": 9,
+          "recallPct": 11.1
+        },
+        "PASSWORD": {
+          "caught": 2,
+          "total": 7,
+          "recallPct": 28.6
+        },
+        "DOB": {
+          "caught": 0,
+          "total": 8,
+          "recallPct": 0
+        },
+        "IPV6": {
+          "caught": 0,
+          "total": 12,
+          "recallPct": 0
+        },
+        "NEARBYGPSCOORDINATE": {
+          "caught": 0,
+          "total": 7,
+          "recallPct": 0
+        },
+        "USERAGENT": {
+          "caught": 0,
+          "total": 6,
+          "recallPct": 0
+        },
+        "TIME": {
+          "caught": 0,
+          "total": 14,
+          "recallPct": 0
+        },
+        "JOBTITLE": {
+          "caught": 0,
+          "total": 8,
+          "recallPct": 0
+        },
+        "COUNTY": {
+          "caught": 0,
+          "total": 8,
+          "recallPct": 0
+        },
+        "EMAIL": {
+          "caught": 0,
+          "total": 12,
+          "recallPct": 0
+        },
+        "ACCOUNTNUMBER": {
+          "caught": 0,
+          "total": 7,
+          "recallPct": 0
+        },
+        "PIN": {
+          "caught": 0,
+          "total": 5,
+          "recallPct": 0
+        },
+        "EYECOLOR": {
+          "caught": 0,
+          "total": 4,
+          "recallPct": 0
+        },
+        "LASTNAME": {
+          "caught": 0,
+          "total": 12,
+          "recallPct": 0
+        },
+        "IPV4": {
+          "caught": 0,
+          "total": 12,
+          "recallPct": 0
+        },
+        "DATE": {
+          "caught": 0,
+          "total": 10,
+          "recallPct": 0
+        },
+        "STREET": {
+          "caught": 0,
+          "total": 10,
+          "recallPct": 0
+        },
+        "CITY": {
+          "caught": 0,
+          "total": 5,
+          "recallPct": 0
+        },
+        "PREFIX": {
+          "caught": 0,
+          "total": 14,
+          "recallPct": 0
+        },
+        "MIDDLENAME": {
+          "caught": 0,
+          "total": 9,
+          "recallPct": 0
+        },
+        "CREDITCARDISSUER": {
+          "caught": 0,
+          "total": 10,
+          "recallPct": 0
+        },
+        "CREDITCARDNUMBER": {
+          "caught": 0,
+          "total": 13,
+          "recallPct": 0
+        },
+        "STATE": {
+          "caught": 0,
+          "total": 12,
+          "recallPct": 0
+        },
+        "VEHICLEVRM": {
+          "caught": 0,
+          "total": 2,
+          "recallPct": 0
+        },
+        "ORDINALDIRECTION": {
+          "caught": 0,
+          "total": 4,
+          "recallPct": 0
+        },
+        "SEX": {
+          "caught": 0,
+          "total": 5,
+          "recallPct": 0
+        },
+        "JOBTYPE": {
+          "caught": 0,
+          "total": 7,
+          "recallPct": 0
+        },
+        "CURRENCYCODE": {
+          "caught": 0,
+          "total": 2,
+          "recallPct": 0
+        },
+        "AMOUNT": {
+          "caught": 0,
+          "total": 13,
+          "recallPct": 0
+        },
+        "ACCOUNTNAME": {
+          "caught": 0,
+          "total": 7,
+          "recallPct": 0
+        },
+        "BITCOINADDRESS": {
+          "caught": 0,
+          "total": 8,
+          "recallPct": 0
+        },
+        "LITECOINADDRESS": {
+          "caught": 0,
+          "total": 4,
+          "recallPct": 0
+        },
+        "PHONENUMBER": {
+          "caught": 0,
+          "total": 7,
+          "recallPct": 0
+        },
+        "MAC": {
+          "caught": 0,
+          "total": 9,
+          "recallPct": 0
+        },
+        "CURRENCY": {
+          "caught": 0,
+          "total": 3,
+          "recallPct": 0
+        },
+        "IBAN": {
+          "caught": 3,
+          "total": 3,
+          "recallPct": 100
+        },
+        "COMPANYNAME": {
+          "caught": 0,
+          "total": 8,
+          "recallPct": 0
+        },
+        "CURRENCYNAME": {
+          "caught": 0,
+          "total": 2,
+          "recallPct": 0
+        },
+        "CURRENCYSYMBOL": {
+          "caught": 0,
+          "total": 3,
+          "recallPct": 0
+        },
+        "ZIPCODE": {
+          "caught": 0,
+          "total": 9,
+          "recallPct": 0
+        },
+        "SSN": {
+          "caught": 4,
+          "total": 5,
+          "recallPct": 80
+        },
+        "URL": {
+          "caught": 0,
+          "total": 7,
+          "recallPct": 0
+        },
+        "IP": {
+          "caught": 0,
+          "total": 6,
+          "recallPct": 0
+        },
+        "SECONDARYADDRESS": {
+          "caught": 0,
+          "total": 10,
+          "recallPct": 0
+        },
+        "USERNAME": {
+          "caught": 0,
+          "total": 10,
+          "recallPct": 0
+        },
+        "ETHEREUMADDRESS": {
+          "caught": 0,
+          "total": 4,
+          "recallPct": 0
+        },
+        "CREDITCARDCVV": {
+          "caught": 0,
+          "total": 4,
+          "recallPct": 0
+        },
+        "Gitleaks:AWS Access Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:AWS Temp Key (ASIA)": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GCP / Firebase API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitHub Classic PAT": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitHub Fine-Grained PAT": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitHub OAuth": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitHub User-to-Server": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitHub Refresh Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitLab PAT": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Stripe Live Secret": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Stripe Restricted Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Slack Bot Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Slack User Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:OpenAI Project Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Anthropic API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Hugging Face Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Twilio API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:SendGrid API Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:npm Access Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:PyPI Upload Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:JWT Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:PEM RSA Private Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:PEM EC Private Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Shopify Access Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Discord / Bot Secret": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Datadog API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Linear API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Supabase Service Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Grafana Service Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Terraform Cloud Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Postman API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Pulumi Access Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Perplexity API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Groq API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Postgres Connection URI": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:MongoDB SRV URI": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Redis Auth URI": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:HTTP Bearer Header": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:HTTP Basic Header": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Webhook Signing Secret": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:JSON Client Secret": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:DigitalOcean PAT": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        }
+      },
+      "missedExamples": [
+        {
+          "suite": "A1",
+          "category": "PASSWORD",
+          "snippet": "Y2rWliOhf8Ir"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV6",
+          "snippet": "edaf:fd8f:e1e8:cfec:8bab:1afd:6aad:550c"
+        },
+        {
+          "suite": "A1",
+          "category": "PASSWORD",
+          "snippet": "E5_N8G2xWM6D"
+        },
+        {
+          "suite": "A1",
+          "category": "PASSWORD",
+          "snippet": "yZqd7gHyZq91"
+        },
+        {
+          "suite": "A1",
+          "category": "EMAIL",
+          "snippet": "Emilie_Beatty53@hotmail.com"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV4",
+          "snippet": "109.4.61.213"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV6",
+          "snippet": "4d36:f8ad:4ebd:1bff:c5eb:62aa:b4d7:dddf"
+        },
+        {
+          "suite": "A1",
+          "category": "STREET",
+          "snippet": "S Broadway"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "2948447876023997"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "6381973478101820"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV4",
+          "snippet": "215.114.180.213"
+        },
+        {
+          "suite": "A1",
+          "category": "STREET",
+          "snippet": "Veterans Memorial Highway"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV4",
+          "snippet": "250.59.196.86"
+        },
+        {
+          "suite": "A1",
+          "category": "EMAIL",
+          "snippet": "Jana_Collier@hotmail.com"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV4",
+          "snippet": "152.58.179.27"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "6259724424541296"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV4",
+          "snippet": "192.234.138.111"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV6",
+          "snippet": "41bd:5dec:8ee3:c6c0:026a:fa3f:8b18:febc"
+        },
+        {
+          "suite": "A1",
+          "category": "EMAIL",
+          "snippet": "Opal_OConner@hotmail.com"
+        },
+        {
+          "suite": "A1",
+          "category": "EMAIL",
+          "snippet": "Valentine4@gmail.com"
+        },
+        {
+          "suite": "A1",
+          "category": "ZIPCODE",
+          "snippet": "99578"
+        },
+        {
+          "suite": "A1",
+          "category": "IP",
+          "snippet": "2a53:8f40:3fcb:dea5:dfa6:8ca2:cf3b:e6ea"
+        },
+        {
+          "suite": "A1",
+          "category": "EMAIL",
+          "snippet": "Isobel_Aufderhar@gmail.com"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "1417506813461516"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV6",
+          "snippet": "6b3b:c6fc:209a:e5b1:9b4f:ea5b:8a5e:e58e"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "6173307729169752"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV4",
+          "snippet": "193.41.39.79"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV4",
+          "snippet": "149.123.141.240"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV6",
+          "snippet": "ca9f:5ca7:00c3:bc12:a1c1:f65d:a643:9d1b"
+        },
+        {
+          "suite": "A1",
+          "category": "STREET",
+          "snippet": "Wiza Spur"
+        }
+      ],
+      "fpExamples": []
+    },
+    "medium": {
+      "level": "medium",
+      "totalSamples": 292,
+      "suiteA1": {
+        "caught": 63,
+        "total": 89,
+        "recallPct": 70.8
+      },
+      "suiteA2": {
+        "caught": 0,
+        "total": 23,
+        "recallPct": 0
+      },
+      "suiteB": {
+        "caught": 42,
+        "total": 42,
+        "recallPct": 100
+      },
+      "suiteC": {
+        "flagged": 0,
+        "total": 100,
+        "fprPct": 0
+      },
+      "latency": {
+        "medianMs": 0.022,
+        "p95Ms": 0.04,
+        "maxMs": 4.481
+      },
+      "idempotencyFailures": 0,
+      "categoryBreakdown": {
+        "PHONEIMEI": {
+          "caught": 1,
+          "total": 5,
+          "recallPct": 20
+        },
+        "JOBAREA": {
+          "caught": 0,
+          "total": 7,
+          "recallPct": 0
+        },
+        "FIRSTNAME": {
+          "caught": 0,
+          "total": 45,
+          "recallPct": 0
+        },
+        "VEHICLEVIN": {
+          "caught": 0,
+          "total": 4,
+          "recallPct": 0
+        },
+        "AGE": {
+          "caught": 0,
+          "total": 8,
+          "recallPct": 0
+        },
+        "GENDER": {
+          "caught": 0,
+          "total": 10,
+          "recallPct": 0
+        },
+        "HEIGHT": {
+          "caught": 0,
+          "total": 5,
+          "recallPct": 0
+        },
+        "BUILDINGNUMBER": {
+          "caught": 4,
+          "total": 13,
+          "recallPct": 30.8
+        },
+        "MASKEDNUMBER": {
+          "caught": 3,
+          "total": 9,
+          "recallPct": 33.3
+        },
+        "PASSWORD": {
+          "caught": 2,
+          "total": 7,
+          "recallPct": 28.6
+        },
+        "DOB": {
+          "caught": 0,
+          "total": 8,
+          "recallPct": 0
+        },
+        "IPV6": {
+          "caught": 12,
+          "total": 12,
+          "recallPct": 100
+        },
+        "NEARBYGPSCOORDINATE": {
+          "caught": 0,
+          "total": 7,
+          "recallPct": 0
+        },
+        "USERAGENT": {
+          "caught": 0,
+          "total": 6,
+          "recallPct": 0
+        },
+        "TIME": {
+          "caught": 1,
+          "total": 14,
+          "recallPct": 7.1
+        },
+        "JOBTITLE": {
+          "caught": 0,
+          "total": 8,
+          "recallPct": 0
+        },
+        "COUNTY": {
+          "caught": 0,
+          "total": 8,
+          "recallPct": 0
+        },
+        "EMAIL": {
+          "caught": 12,
+          "total": 12,
+          "recallPct": 100
+        },
+        "ACCOUNTNUMBER": {
+          "caught": 4,
+          "total": 7,
+          "recallPct": 57.1
+        },
+        "PIN": {
+          "caught": 0,
+          "total": 5,
+          "recallPct": 0
+        },
+        "EYECOLOR": {
+          "caught": 0,
+          "total": 4,
+          "recallPct": 0
+        },
+        "LASTNAME": {
+          "caught": 0,
+          "total": 12,
+          "recallPct": 0
+        },
+        "IPV4": {
+          "caught": 7,
+          "total": 12,
+          "recallPct": 58.3
+        },
+        "DATE": {
+          "caught": 0,
+          "total": 10,
+          "recallPct": 0
+        },
+        "STREET": {
+          "caught": 5,
+          "total": 10,
+          "recallPct": 50
+        },
+        "CITY": {
+          "caught": 0,
+          "total": 5,
+          "recallPct": 0
+        },
+        "PREFIX": {
+          "caught": 0,
+          "total": 14,
+          "recallPct": 0
+        },
+        "MIDDLENAME": {
+          "caught": 0,
+          "total": 9,
+          "recallPct": 0
+        },
+        "CREDITCARDISSUER": {
+          "caught": 0,
+          "total": 10,
+          "recallPct": 0
+        },
+        "CREDITCARDNUMBER": {
+          "caught": 5,
+          "total": 13,
+          "recallPct": 38.5
+        },
+        "STATE": {
+          "caught": 0,
+          "total": 12,
+          "recallPct": 0
+        },
+        "VEHICLEVRM": {
+          "caught": 0,
+          "total": 2,
+          "recallPct": 0
+        },
+        "ORDINALDIRECTION": {
+          "caught": 0,
+          "total": 4,
+          "recallPct": 0
+        },
+        "SEX": {
+          "caught": 0,
+          "total": 5,
+          "recallPct": 0
+        },
+        "JOBTYPE": {
+          "caught": 0,
+          "total": 7,
+          "recallPct": 0
+        },
+        "CURRENCYCODE": {
+          "caught": 0,
+          "total": 2,
+          "recallPct": 0
+        },
+        "AMOUNT": {
+          "caught": 0,
+          "total": 13,
+          "recallPct": 0
+        },
+        "ACCOUNTNAME": {
+          "caught": 0,
+          "total": 7,
+          "recallPct": 0
+        },
+        "BITCOINADDRESS": {
+          "caught": 1,
+          "total": 8,
+          "recallPct": 12.5
+        },
+        "LITECOINADDRESS": {
+          "caught": 1,
+          "total": 4,
+          "recallPct": 25
+        },
+        "PHONENUMBER": {
+          "caught": 6,
+          "total": 7,
+          "recallPct": 85.7
+        },
+        "MAC": {
+          "caught": 0,
+          "total": 9,
+          "recallPct": 0
+        },
+        "CURRENCY": {
+          "caught": 0,
+          "total": 3,
+          "recallPct": 0
+        },
+        "IBAN": {
+          "caught": 3,
+          "total": 3,
+          "recallPct": 100
+        },
+        "COMPANYNAME": {
+          "caught": 0,
+          "total": 8,
+          "recallPct": 0
+        },
+        "CURRENCYNAME": {
+          "caught": 0,
+          "total": 2,
+          "recallPct": 0
+        },
+        "CURRENCYSYMBOL": {
+          "caught": 0,
+          "total": 3,
+          "recallPct": 0
+        },
+        "ZIPCODE": {
+          "caught": 7,
+          "total": 9,
+          "recallPct": 77.8
+        },
+        "SSN": {
+          "caught": 4,
+          "total": 5,
+          "recallPct": 80
+        },
+        "URL": {
+          "caught": 0,
+          "total": 7,
+          "recallPct": 0
+        },
+        "IP": {
+          "caught": 6,
+          "total": 6,
+          "recallPct": 100
+        },
+        "SECONDARYADDRESS": {
+          "caught": 2,
+          "total": 10,
+          "recallPct": 20
+        },
+        "USERNAME": {
+          "caught": 0,
+          "total": 10,
+          "recallPct": 0
+        },
+        "ETHEREUMADDRESS": {
+          "caught": 0,
+          "total": 4,
+          "recallPct": 0
+        },
+        "CREDITCARDCVV": {
+          "caught": 0,
+          "total": 4,
+          "recallPct": 0
+        },
+        "Gitleaks:AWS Access Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:AWS Temp Key (ASIA)": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GCP / Firebase API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitHub Classic PAT": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitHub Fine-Grained PAT": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitHub OAuth": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitHub User-to-Server": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitHub Refresh Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitLab PAT": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Stripe Live Secret": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Stripe Restricted Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Slack Bot Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Slack User Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:OpenAI Project Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Anthropic API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Hugging Face Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Twilio API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:SendGrid API Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:npm Access Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:PyPI Upload Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:JWT Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:PEM RSA Private Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:PEM EC Private Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Shopify Access Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Discord / Bot Secret": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Datadog API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Linear API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Supabase Service Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Grafana Service Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Terraform Cloud Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Postman API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Pulumi Access Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Perplexity API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Groq API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Postgres Connection URI": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:MongoDB SRV URI": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Redis Auth URI": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:HTTP Bearer Header": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:HTTP Basic Header": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Webhook Signing Secret": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:JSON Client Secret": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:DigitalOcean PAT": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        }
+      },
+      "missedExamples": [
+        {
+          "suite": "A1",
+          "category": "PASSWORD",
+          "snippet": "Y2rWliOhf8Ir"
+        },
+        {
+          "suite": "A1",
+          "category": "PASSWORD",
+          "snippet": "E5_N8G2xWM6D"
+        },
+        {
+          "suite": "A1",
+          "category": "PASSWORD",
+          "snippet": "yZqd7gHyZq91"
+        },
+        {
+          "suite": "A1",
+          "category": "STREET",
+          "snippet": "S Broadway"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "2948447876023997"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV4",
+          "snippet": "215.114.180.213"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "1417506813461516"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV4",
+          "snippet": "193.41.39.79"
+        },
+        {
+          "suite": "A1",
+          "category": "STREET",
+          "snippet": "Wiza Spur"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "7544035128672631"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV4",
+          "snippet": "151.89.104.163"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV4",
+          "snippet": "88.129.163.16"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "9704152215984072"
+        },
+        {
+          "suite": "A1",
+          "category": "PASSWORD",
+          "snippet": "tCEqJsMFWexr"
+        },
+        {
+          "suite": "A1",
+          "category": "PASSWORD",
+          "snippet": "pDI_DYJc7Idx"
+        },
+        {
+          "suite": "A1",
+          "category": "STREET",
+          "snippet": "Monique Circle"
+        },
+        {
+          "suite": "A1",
+          "category": "ZIPCODE",
+          "snippet": "72206"
+        },
+        {
+          "suite": "A1",
+          "category": "STREET",
+          "snippet": "Kuhlman Run"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "0984477344415390"
+        },
+        {
+          "suite": "A1",
+          "category": "SSN",
+          "snippet": "75674966890"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "1053371598436731"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "5987448817889806"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV4",
+          "snippet": "11.179.229.48"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "5030631270974973"
+        },
+        {
+          "suite": "A1",
+          "category": "STREET",
+          "snippet": "Waters Harbors"
+        },
+        {
+          "suite": "A1",
+          "category": "ZIPCODE",
+          "snippet": "28802"
+        }
+      ],
+      "fpExamples": []
+    },
+    "high": {
+      "level": "high",
+      "totalSamples": 292,
+      "suiteA1": {
+        "caught": 63,
+        "total": 89,
+        "recallPct": 70.8
+      },
+      "suiteA2": {
+        "caught": 0,
+        "total": 23,
+        "recallPct": 0
+      },
+      "suiteB": {
+        "caught": 42,
+        "total": 42,
+        "recallPct": 100
+      },
+      "suiteC": {
+        "flagged": 0,
+        "total": 100,
+        "fprPct": 0
+      },
+      "latency": {
+        "medianMs": 0.02,
+        "p95Ms": 0.034,
+        "maxMs": 0.105
+      },
+      "idempotencyFailures": 0,
+      "categoryBreakdown": {
+        "PHONEIMEI": {
+          "caught": 1,
+          "total": 5,
+          "recallPct": 20
+        },
+        "JOBAREA": {
+          "caught": 0,
+          "total": 7,
+          "recallPct": 0
+        },
+        "FIRSTNAME": {
+          "caught": 0,
+          "total": 45,
+          "recallPct": 0
+        },
+        "VEHICLEVIN": {
+          "caught": 0,
+          "total": 4,
+          "recallPct": 0
+        },
+        "AGE": {
+          "caught": 0,
+          "total": 8,
+          "recallPct": 0
+        },
+        "GENDER": {
+          "caught": 0,
+          "total": 10,
+          "recallPct": 0
+        },
+        "HEIGHT": {
+          "caught": 0,
+          "total": 5,
+          "recallPct": 0
+        },
+        "BUILDINGNUMBER": {
+          "caught": 4,
+          "total": 13,
+          "recallPct": 30.8
+        },
+        "MASKEDNUMBER": {
+          "caught": 3,
+          "total": 9,
+          "recallPct": 33.3
+        },
+        "PASSWORD": {
+          "caught": 2,
+          "total": 7,
+          "recallPct": 28.6
+        },
+        "DOB": {
+          "caught": 0,
+          "total": 8,
+          "recallPct": 0
+        },
+        "IPV6": {
+          "caught": 12,
+          "total": 12,
+          "recallPct": 100
+        },
+        "NEARBYGPSCOORDINATE": {
+          "caught": 0,
+          "total": 7,
+          "recallPct": 0
+        },
+        "USERAGENT": {
+          "caught": 0,
+          "total": 6,
+          "recallPct": 0
+        },
+        "TIME": {
+          "caught": 1,
+          "total": 14,
+          "recallPct": 7.1
+        },
+        "JOBTITLE": {
+          "caught": 0,
+          "total": 8,
+          "recallPct": 0
+        },
+        "COUNTY": {
+          "caught": 0,
+          "total": 8,
+          "recallPct": 0
+        },
+        "EMAIL": {
+          "caught": 12,
+          "total": 12,
+          "recallPct": 100
+        },
+        "ACCOUNTNUMBER": {
+          "caught": 4,
+          "total": 7,
+          "recallPct": 57.1
+        },
+        "PIN": {
+          "caught": 0,
+          "total": 5,
+          "recallPct": 0
+        },
+        "EYECOLOR": {
+          "caught": 0,
+          "total": 4,
+          "recallPct": 0
+        },
+        "LASTNAME": {
+          "caught": 0,
+          "total": 12,
+          "recallPct": 0
+        },
+        "IPV4": {
+          "caught": 7,
+          "total": 12,
+          "recallPct": 58.3
+        },
+        "DATE": {
+          "caught": 0,
+          "total": 10,
+          "recallPct": 0
+        },
+        "STREET": {
+          "caught": 5,
+          "total": 10,
+          "recallPct": 50
+        },
+        "CITY": {
+          "caught": 0,
+          "total": 5,
+          "recallPct": 0
+        },
+        "PREFIX": {
+          "caught": 0,
+          "total": 14,
+          "recallPct": 0
+        },
+        "MIDDLENAME": {
+          "caught": 0,
+          "total": 9,
+          "recallPct": 0
+        },
+        "CREDITCARDISSUER": {
+          "caught": 0,
+          "total": 10,
+          "recallPct": 0
+        },
+        "CREDITCARDNUMBER": {
+          "caught": 5,
+          "total": 13,
+          "recallPct": 38.5
+        },
+        "STATE": {
+          "caught": 0,
+          "total": 12,
+          "recallPct": 0
+        },
+        "VEHICLEVRM": {
+          "caught": 0,
+          "total": 2,
+          "recallPct": 0
+        },
+        "ORDINALDIRECTION": {
+          "caught": 0,
+          "total": 4,
+          "recallPct": 0
+        },
+        "SEX": {
+          "caught": 0,
+          "total": 5,
+          "recallPct": 0
+        },
+        "JOBTYPE": {
+          "caught": 0,
+          "total": 7,
+          "recallPct": 0
+        },
+        "CURRENCYCODE": {
+          "caught": 0,
+          "total": 2,
+          "recallPct": 0
+        },
+        "AMOUNT": {
+          "caught": 0,
+          "total": 13,
+          "recallPct": 0
+        },
+        "ACCOUNTNAME": {
+          "caught": 0,
+          "total": 7,
+          "recallPct": 0
+        },
+        "BITCOINADDRESS": {
+          "caught": 1,
+          "total": 8,
+          "recallPct": 12.5
+        },
+        "LITECOINADDRESS": {
+          "caught": 1,
+          "total": 4,
+          "recallPct": 25
+        },
+        "PHONENUMBER": {
+          "caught": 6,
+          "total": 7,
+          "recallPct": 85.7
+        },
+        "MAC": {
+          "caught": 0,
+          "total": 9,
+          "recallPct": 0
+        },
+        "CURRENCY": {
+          "caught": 0,
+          "total": 3,
+          "recallPct": 0
+        },
+        "IBAN": {
+          "caught": 3,
+          "total": 3,
+          "recallPct": 100
+        },
+        "COMPANYNAME": {
+          "caught": 0,
+          "total": 8,
+          "recallPct": 0
+        },
+        "CURRENCYNAME": {
+          "caught": 0,
+          "total": 2,
+          "recallPct": 0
+        },
+        "CURRENCYSYMBOL": {
+          "caught": 0,
+          "total": 3,
+          "recallPct": 0
+        },
+        "ZIPCODE": {
+          "caught": 7,
+          "total": 9,
+          "recallPct": 77.8
+        },
+        "SSN": {
+          "caught": 4,
+          "total": 5,
+          "recallPct": 80
+        },
+        "URL": {
+          "caught": 0,
+          "total": 7,
+          "recallPct": 0
+        },
+        "IP": {
+          "caught": 6,
+          "total": 6,
+          "recallPct": 100
+        },
+        "SECONDARYADDRESS": {
+          "caught": 2,
+          "total": 10,
+          "recallPct": 20
+        },
+        "USERNAME": {
+          "caught": 0,
+          "total": 10,
+          "recallPct": 0
+        },
+        "ETHEREUMADDRESS": {
+          "caught": 0,
+          "total": 4,
+          "recallPct": 0
+        },
+        "CREDITCARDCVV": {
+          "caught": 0,
+          "total": 4,
+          "recallPct": 0
+        },
+        "Gitleaks:AWS Access Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:AWS Temp Key (ASIA)": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GCP / Firebase API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitHub Classic PAT": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitHub Fine-Grained PAT": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitHub OAuth": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitHub User-to-Server": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitHub Refresh Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitLab PAT": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Stripe Live Secret": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Stripe Restricted Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Slack Bot Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Slack User Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:OpenAI Project Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Anthropic API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Hugging Face Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Twilio API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:SendGrid API Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:npm Access Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:PyPI Upload Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:JWT Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:PEM RSA Private Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:PEM EC Private Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Shopify Access Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Discord / Bot Secret": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Datadog API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Linear API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Supabase Service Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Grafana Service Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Terraform Cloud Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Postman API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Pulumi Access Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Perplexity API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Groq API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Postgres Connection URI": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:MongoDB SRV URI": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Redis Auth URI": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:HTTP Bearer Header": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:HTTP Basic Header": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Webhook Signing Secret": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:JSON Client Secret": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:DigitalOcean PAT": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        }
+      },
+      "missedExamples": [
+        {
+          "suite": "A1",
+          "category": "PASSWORD",
+          "snippet": "Y2rWliOhf8Ir"
+        },
+        {
+          "suite": "A1",
+          "category": "PASSWORD",
+          "snippet": "E5_N8G2xWM6D"
+        },
+        {
+          "suite": "A1",
+          "category": "PASSWORD",
+          "snippet": "yZqd7gHyZq91"
+        },
+        {
+          "suite": "A1",
+          "category": "STREET",
+          "snippet": "S Broadway"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "2948447876023997"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV4",
+          "snippet": "215.114.180.213"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "1417506813461516"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV4",
+          "snippet": "193.41.39.79"
+        },
+        {
+          "suite": "A1",
+          "category": "STREET",
+          "snippet": "Wiza Spur"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "7544035128672631"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV4",
+          "snippet": "151.89.104.163"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV4",
+          "snippet": "88.129.163.16"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "9704152215984072"
+        },
+        {
+          "suite": "A1",
+          "category": "PASSWORD",
+          "snippet": "tCEqJsMFWexr"
+        },
+        {
+          "suite": "A1",
+          "category": "PASSWORD",
+          "snippet": "pDI_DYJc7Idx"
+        },
+        {
+          "suite": "A1",
+          "category": "STREET",
+          "snippet": "Monique Circle"
+        },
+        {
+          "suite": "A1",
+          "category": "ZIPCODE",
+          "snippet": "72206"
+        },
+        {
+          "suite": "A1",
+          "category": "STREET",
+          "snippet": "Kuhlman Run"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "0984477344415390"
+        },
+        {
+          "suite": "A1",
+          "category": "SSN",
+          "snippet": "75674966890"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "1053371598436731"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "5987448817889806"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV4",
+          "snippet": "11.179.229.48"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "5030631270974973"
+        },
+        {
+          "suite": "A1",
+          "category": "STREET",
+          "snippet": "Waters Harbors"
+        },
+        {
+          "suite": "A1",
+          "category": "ZIPCODE",
+          "snippet": "28802"
+        }
+      ],
+      "fpExamples": []
+    }
+  },
+  "webSrcFirewall": {
+    "low": {
+      "level": "low",
+      "totalSamples": 292,
+      "suiteA1": {
+        "caught": 9,
+        "total": 89,
+        "recallPct": 10.1
+      },
+      "suiteA2": {
+        "caught": 0,
+        "total": 23,
+        "recallPct": 0
+      },
+      "suiteB": {
+        "caught": 42,
+        "total": 42,
+        "recallPct": 100
+      },
+      "suiteC": {
+        "flagged": 0,
+        "total": 100,
+        "fprPct": 0
+      },
+      "latency": {
+        "medianMs": 0.009,
+        "p95Ms": 0.02,
+        "maxMs": 0.326
+      },
+      "idempotencyFailures": 0,
+      "categoryBreakdown": {
+        "PHONEIMEI": {
+          "caught": 1,
+          "total": 5,
+          "recallPct": 20
+        },
+        "JOBAREA": {
+          "caught": 0,
+          "total": 7,
+          "recallPct": 0
+        },
+        "FIRSTNAME": {
+          "caught": 0,
+          "total": 45,
+          "recallPct": 0
+        },
+        "VEHICLEVIN": {
+          "caught": 0,
+          "total": 4,
+          "recallPct": 0
+        },
+        "AGE": {
+          "caught": 0,
+          "total": 8,
+          "recallPct": 0
+        },
+        "GENDER": {
+          "caught": 0,
+          "total": 10,
+          "recallPct": 0
+        },
+        "HEIGHT": {
+          "caught": 0,
+          "total": 5,
+          "recallPct": 0
+        },
+        "BUILDINGNUMBER": {
+          "caught": 0,
+          "total": 13,
+          "recallPct": 0
+        },
+        "MASKEDNUMBER": {
+          "caught": 1,
+          "total": 9,
+          "recallPct": 11.1
+        },
+        "PASSWORD": {
+          "caught": 2,
+          "total": 7,
+          "recallPct": 28.6
+        },
+        "DOB": {
+          "caught": 0,
+          "total": 8,
+          "recallPct": 0
+        },
+        "IPV6": {
+          "caught": 0,
+          "total": 12,
+          "recallPct": 0
+        },
+        "NEARBYGPSCOORDINATE": {
+          "caught": 0,
+          "total": 7,
+          "recallPct": 0
+        },
+        "USERAGENT": {
+          "caught": 0,
+          "total": 6,
+          "recallPct": 0
+        },
+        "TIME": {
+          "caught": 0,
+          "total": 14,
+          "recallPct": 0
+        },
+        "JOBTITLE": {
+          "caught": 0,
+          "total": 8,
+          "recallPct": 0
+        },
+        "COUNTY": {
+          "caught": 0,
+          "total": 8,
+          "recallPct": 0
+        },
+        "EMAIL": {
+          "caught": 0,
+          "total": 12,
+          "recallPct": 0
+        },
+        "ACCOUNTNUMBER": {
+          "caught": 0,
+          "total": 7,
+          "recallPct": 0
+        },
+        "PIN": {
+          "caught": 0,
+          "total": 5,
+          "recallPct": 0
+        },
+        "EYECOLOR": {
+          "caught": 0,
+          "total": 4,
+          "recallPct": 0
+        },
+        "LASTNAME": {
+          "caught": 0,
+          "total": 12,
+          "recallPct": 0
+        },
+        "IPV4": {
+          "caught": 0,
+          "total": 12,
+          "recallPct": 0
+        },
+        "DATE": {
+          "caught": 0,
+          "total": 10,
+          "recallPct": 0
+        },
+        "STREET": {
+          "caught": 0,
+          "total": 10,
+          "recallPct": 0
+        },
+        "CITY": {
+          "caught": 0,
+          "total": 5,
+          "recallPct": 0
+        },
+        "PREFIX": {
+          "caught": 0,
+          "total": 14,
+          "recallPct": 0
+        },
+        "MIDDLENAME": {
+          "caught": 0,
+          "total": 9,
+          "recallPct": 0
+        },
+        "CREDITCARDISSUER": {
+          "caught": 0,
+          "total": 10,
+          "recallPct": 0
+        },
+        "CREDITCARDNUMBER": {
+          "caught": 0,
+          "total": 13,
+          "recallPct": 0
+        },
+        "STATE": {
+          "caught": 0,
+          "total": 12,
+          "recallPct": 0
+        },
+        "VEHICLEVRM": {
+          "caught": 0,
+          "total": 2,
+          "recallPct": 0
+        },
+        "ORDINALDIRECTION": {
+          "caught": 0,
+          "total": 4,
+          "recallPct": 0
+        },
+        "SEX": {
+          "caught": 0,
+          "total": 5,
+          "recallPct": 0
+        },
+        "JOBTYPE": {
+          "caught": 0,
+          "total": 7,
+          "recallPct": 0
+        },
+        "CURRENCYCODE": {
+          "caught": 0,
+          "total": 2,
+          "recallPct": 0
+        },
+        "AMOUNT": {
+          "caught": 0,
+          "total": 13,
+          "recallPct": 0
+        },
+        "ACCOUNTNAME": {
+          "caught": 0,
+          "total": 7,
+          "recallPct": 0
+        },
+        "BITCOINADDRESS": {
+          "caught": 0,
+          "total": 8,
+          "recallPct": 0
+        },
+        "LITECOINADDRESS": {
+          "caught": 0,
+          "total": 4,
+          "recallPct": 0
+        },
+        "PHONENUMBER": {
+          "caught": 0,
+          "total": 7,
+          "recallPct": 0
+        },
+        "MAC": {
+          "caught": 0,
+          "total": 9,
+          "recallPct": 0
+        },
+        "CURRENCY": {
+          "caught": 0,
+          "total": 3,
+          "recallPct": 0
+        },
+        "IBAN": {
+          "caught": 3,
+          "total": 3,
+          "recallPct": 100
+        },
+        "COMPANYNAME": {
+          "caught": 0,
+          "total": 8,
+          "recallPct": 0
+        },
+        "CURRENCYNAME": {
+          "caught": 0,
+          "total": 2,
+          "recallPct": 0
+        },
+        "CURRENCYSYMBOL": {
+          "caught": 0,
+          "total": 3,
+          "recallPct": 0
+        },
+        "ZIPCODE": {
+          "caught": 0,
+          "total": 9,
+          "recallPct": 0
+        },
+        "SSN": {
+          "caught": 4,
+          "total": 5,
+          "recallPct": 80
+        },
+        "URL": {
+          "caught": 0,
+          "total": 7,
+          "recallPct": 0
+        },
+        "IP": {
+          "caught": 0,
+          "total": 6,
+          "recallPct": 0
+        },
+        "SECONDARYADDRESS": {
+          "caught": 0,
+          "total": 10,
+          "recallPct": 0
+        },
+        "USERNAME": {
+          "caught": 0,
+          "total": 10,
+          "recallPct": 0
+        },
+        "ETHEREUMADDRESS": {
+          "caught": 0,
+          "total": 4,
+          "recallPct": 0
+        },
+        "CREDITCARDCVV": {
+          "caught": 0,
+          "total": 4,
+          "recallPct": 0
+        },
+        "Gitleaks:AWS Access Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:AWS Temp Key (ASIA)": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GCP / Firebase API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitHub Classic PAT": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitHub Fine-Grained PAT": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitHub OAuth": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitHub User-to-Server": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitHub Refresh Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitLab PAT": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Stripe Live Secret": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Stripe Restricted Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Slack Bot Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Slack User Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:OpenAI Project Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Anthropic API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Hugging Face Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Twilio API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:SendGrid API Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:npm Access Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:PyPI Upload Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:JWT Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:PEM RSA Private Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:PEM EC Private Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Shopify Access Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Discord / Bot Secret": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Datadog API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Linear API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Supabase Service Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Grafana Service Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Terraform Cloud Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Postman API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Pulumi Access Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Perplexity API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Groq API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Postgres Connection URI": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:MongoDB SRV URI": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Redis Auth URI": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:HTTP Bearer Header": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:HTTP Basic Header": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Webhook Signing Secret": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:JSON Client Secret": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:DigitalOcean PAT": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        }
+      },
+      "missedExamples": [
+        {
+          "suite": "A1",
+          "category": "PASSWORD",
+          "snippet": "Y2rWliOhf8Ir"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV6",
+          "snippet": "edaf:fd8f:e1e8:cfec:8bab:1afd:6aad:550c"
+        },
+        {
+          "suite": "A1",
+          "category": "PASSWORD",
+          "snippet": "E5_N8G2xWM6D"
+        },
+        {
+          "suite": "A1",
+          "category": "PASSWORD",
+          "snippet": "yZqd7gHyZq91"
+        },
+        {
+          "suite": "A1",
+          "category": "EMAIL",
+          "snippet": "Emilie_Beatty53@hotmail.com"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV4",
+          "snippet": "109.4.61.213"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV6",
+          "snippet": "4d36:f8ad:4ebd:1bff:c5eb:62aa:b4d7:dddf"
+        },
+        {
+          "suite": "A1",
+          "category": "STREET",
+          "snippet": "S Broadway"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "2948447876023997"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "6381973478101820"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV4",
+          "snippet": "215.114.180.213"
+        },
+        {
+          "suite": "A1",
+          "category": "STREET",
+          "snippet": "Veterans Memorial Highway"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV4",
+          "snippet": "250.59.196.86"
+        },
+        {
+          "suite": "A1",
+          "category": "EMAIL",
+          "snippet": "Jana_Collier@hotmail.com"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV4",
+          "snippet": "152.58.179.27"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "6259724424541296"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV4",
+          "snippet": "192.234.138.111"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV6",
+          "snippet": "41bd:5dec:8ee3:c6c0:026a:fa3f:8b18:febc"
+        },
+        {
+          "suite": "A1",
+          "category": "EMAIL",
+          "snippet": "Opal_OConner@hotmail.com"
+        },
+        {
+          "suite": "A1",
+          "category": "EMAIL",
+          "snippet": "Valentine4@gmail.com"
+        },
+        {
+          "suite": "A1",
+          "category": "ZIPCODE",
+          "snippet": "99578"
+        },
+        {
+          "suite": "A1",
+          "category": "IP",
+          "snippet": "2a53:8f40:3fcb:dea5:dfa6:8ca2:cf3b:e6ea"
+        },
+        {
+          "suite": "A1",
+          "category": "EMAIL",
+          "snippet": "Isobel_Aufderhar@gmail.com"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "1417506813461516"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV6",
+          "snippet": "6b3b:c6fc:209a:e5b1:9b4f:ea5b:8a5e:e58e"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "6173307729169752"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV4",
+          "snippet": "193.41.39.79"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV4",
+          "snippet": "149.123.141.240"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV6",
+          "snippet": "ca9f:5ca7:00c3:bc12:a1c1:f65d:a643:9d1b"
+        },
+        {
+          "suite": "A1",
+          "category": "STREET",
+          "snippet": "Wiza Spur"
+        }
+      ],
+      "fpExamples": []
+    },
+    "medium": {
+      "level": "medium",
+      "totalSamples": 292,
+      "suiteA1": {
+        "caught": 63,
+        "total": 89,
+        "recallPct": 70.8
+      },
+      "suiteA2": {
+        "caught": 0,
+        "total": 23,
+        "recallPct": 0
+      },
+      "suiteB": {
+        "caught": 42,
+        "total": 42,
+        "recallPct": 100
+      },
+      "suiteC": {
+        "flagged": 0,
+        "total": 100,
+        "fprPct": 0
+      },
+      "latency": {
+        "medianMs": 0.022,
+        "p95Ms": 0.036,
+        "maxMs": 0.085
+      },
+      "idempotencyFailures": 0,
+      "categoryBreakdown": {
+        "PHONEIMEI": {
+          "caught": 1,
+          "total": 5,
+          "recallPct": 20
+        },
+        "JOBAREA": {
+          "caught": 0,
+          "total": 7,
+          "recallPct": 0
+        },
+        "FIRSTNAME": {
+          "caught": 0,
+          "total": 45,
+          "recallPct": 0
+        },
+        "VEHICLEVIN": {
+          "caught": 0,
+          "total": 4,
+          "recallPct": 0
+        },
+        "AGE": {
+          "caught": 0,
+          "total": 8,
+          "recallPct": 0
+        },
+        "GENDER": {
+          "caught": 0,
+          "total": 10,
+          "recallPct": 0
+        },
+        "HEIGHT": {
+          "caught": 0,
+          "total": 5,
+          "recallPct": 0
+        },
+        "BUILDINGNUMBER": {
+          "caught": 4,
+          "total": 13,
+          "recallPct": 30.8
+        },
+        "MASKEDNUMBER": {
+          "caught": 3,
+          "total": 9,
+          "recallPct": 33.3
+        },
+        "PASSWORD": {
+          "caught": 2,
+          "total": 7,
+          "recallPct": 28.6
+        },
+        "DOB": {
+          "caught": 0,
+          "total": 8,
+          "recallPct": 0
+        },
+        "IPV6": {
+          "caught": 12,
+          "total": 12,
+          "recallPct": 100
+        },
+        "NEARBYGPSCOORDINATE": {
+          "caught": 0,
+          "total": 7,
+          "recallPct": 0
+        },
+        "USERAGENT": {
+          "caught": 0,
+          "total": 6,
+          "recallPct": 0
+        },
+        "TIME": {
+          "caught": 1,
+          "total": 14,
+          "recallPct": 7.1
+        },
+        "JOBTITLE": {
+          "caught": 0,
+          "total": 8,
+          "recallPct": 0
+        },
+        "COUNTY": {
+          "caught": 0,
+          "total": 8,
+          "recallPct": 0
+        },
+        "EMAIL": {
+          "caught": 12,
+          "total": 12,
+          "recallPct": 100
+        },
+        "ACCOUNTNUMBER": {
+          "caught": 4,
+          "total": 7,
+          "recallPct": 57.1
+        },
+        "PIN": {
+          "caught": 0,
+          "total": 5,
+          "recallPct": 0
+        },
+        "EYECOLOR": {
+          "caught": 0,
+          "total": 4,
+          "recallPct": 0
+        },
+        "LASTNAME": {
+          "caught": 0,
+          "total": 12,
+          "recallPct": 0
+        },
+        "IPV4": {
+          "caught": 7,
+          "total": 12,
+          "recallPct": 58.3
+        },
+        "DATE": {
+          "caught": 0,
+          "total": 10,
+          "recallPct": 0
+        },
+        "STREET": {
+          "caught": 5,
+          "total": 10,
+          "recallPct": 50
+        },
+        "CITY": {
+          "caught": 0,
+          "total": 5,
+          "recallPct": 0
+        },
+        "PREFIX": {
+          "caught": 0,
+          "total": 14,
+          "recallPct": 0
+        },
+        "MIDDLENAME": {
+          "caught": 0,
+          "total": 9,
+          "recallPct": 0
+        },
+        "CREDITCARDISSUER": {
+          "caught": 0,
+          "total": 10,
+          "recallPct": 0
+        },
+        "CREDITCARDNUMBER": {
+          "caught": 5,
+          "total": 13,
+          "recallPct": 38.5
+        },
+        "STATE": {
+          "caught": 0,
+          "total": 12,
+          "recallPct": 0
+        },
+        "VEHICLEVRM": {
+          "caught": 0,
+          "total": 2,
+          "recallPct": 0
+        },
+        "ORDINALDIRECTION": {
+          "caught": 0,
+          "total": 4,
+          "recallPct": 0
+        },
+        "SEX": {
+          "caught": 0,
+          "total": 5,
+          "recallPct": 0
+        },
+        "JOBTYPE": {
+          "caught": 0,
+          "total": 7,
+          "recallPct": 0
+        },
+        "CURRENCYCODE": {
+          "caught": 0,
+          "total": 2,
+          "recallPct": 0
+        },
+        "AMOUNT": {
+          "caught": 0,
+          "total": 13,
+          "recallPct": 0
+        },
+        "ACCOUNTNAME": {
+          "caught": 0,
+          "total": 7,
+          "recallPct": 0
+        },
+        "BITCOINADDRESS": {
+          "caught": 1,
+          "total": 8,
+          "recallPct": 12.5
+        },
+        "LITECOINADDRESS": {
+          "caught": 1,
+          "total": 4,
+          "recallPct": 25
+        },
+        "PHONENUMBER": {
+          "caught": 6,
+          "total": 7,
+          "recallPct": 85.7
+        },
+        "MAC": {
+          "caught": 0,
+          "total": 9,
+          "recallPct": 0
+        },
+        "CURRENCY": {
+          "caught": 0,
+          "total": 3,
+          "recallPct": 0
+        },
+        "IBAN": {
+          "caught": 3,
+          "total": 3,
+          "recallPct": 100
+        },
+        "COMPANYNAME": {
+          "caught": 0,
+          "total": 8,
+          "recallPct": 0
+        },
+        "CURRENCYNAME": {
+          "caught": 0,
+          "total": 2,
+          "recallPct": 0
+        },
+        "CURRENCYSYMBOL": {
+          "caught": 0,
+          "total": 3,
+          "recallPct": 0
+        },
+        "ZIPCODE": {
+          "caught": 7,
+          "total": 9,
+          "recallPct": 77.8
+        },
+        "SSN": {
+          "caught": 4,
+          "total": 5,
+          "recallPct": 80
+        },
+        "URL": {
+          "caught": 0,
+          "total": 7,
+          "recallPct": 0
+        },
+        "IP": {
+          "caught": 6,
+          "total": 6,
+          "recallPct": 100
+        },
+        "SECONDARYADDRESS": {
+          "caught": 2,
+          "total": 10,
+          "recallPct": 20
+        },
+        "USERNAME": {
+          "caught": 0,
+          "total": 10,
+          "recallPct": 0
+        },
+        "ETHEREUMADDRESS": {
+          "caught": 0,
+          "total": 4,
+          "recallPct": 0
+        },
+        "CREDITCARDCVV": {
+          "caught": 0,
+          "total": 4,
+          "recallPct": 0
+        },
+        "Gitleaks:AWS Access Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:AWS Temp Key (ASIA)": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GCP / Firebase API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitHub Classic PAT": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitHub Fine-Grained PAT": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitHub OAuth": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitHub User-to-Server": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitHub Refresh Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitLab PAT": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Stripe Live Secret": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Stripe Restricted Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Slack Bot Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Slack User Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:OpenAI Project Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Anthropic API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Hugging Face Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Twilio API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:SendGrid API Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:npm Access Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:PyPI Upload Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:JWT Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:PEM RSA Private Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:PEM EC Private Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Shopify Access Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Discord / Bot Secret": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Datadog API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Linear API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Supabase Service Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Grafana Service Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Terraform Cloud Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Postman API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Pulumi Access Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Perplexity API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Groq API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Postgres Connection URI": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:MongoDB SRV URI": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Redis Auth URI": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:HTTP Bearer Header": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:HTTP Basic Header": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Webhook Signing Secret": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:JSON Client Secret": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:DigitalOcean PAT": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        }
+      },
+      "missedExamples": [
+        {
+          "suite": "A1",
+          "category": "PASSWORD",
+          "snippet": "Y2rWliOhf8Ir"
+        },
+        {
+          "suite": "A1",
+          "category": "PASSWORD",
+          "snippet": "E5_N8G2xWM6D"
+        },
+        {
+          "suite": "A1",
+          "category": "PASSWORD",
+          "snippet": "yZqd7gHyZq91"
+        },
+        {
+          "suite": "A1",
+          "category": "STREET",
+          "snippet": "S Broadway"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "2948447876023997"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV4",
+          "snippet": "215.114.180.213"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "1417506813461516"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV4",
+          "snippet": "193.41.39.79"
+        },
+        {
+          "suite": "A1",
+          "category": "STREET",
+          "snippet": "Wiza Spur"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "7544035128672631"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV4",
+          "snippet": "151.89.104.163"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV4",
+          "snippet": "88.129.163.16"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "9704152215984072"
+        },
+        {
+          "suite": "A1",
+          "category": "PASSWORD",
+          "snippet": "tCEqJsMFWexr"
+        },
+        {
+          "suite": "A1",
+          "category": "PASSWORD",
+          "snippet": "pDI_DYJc7Idx"
+        },
+        {
+          "suite": "A1",
+          "category": "STREET",
+          "snippet": "Monique Circle"
+        },
+        {
+          "suite": "A1",
+          "category": "ZIPCODE",
+          "snippet": "72206"
+        },
+        {
+          "suite": "A1",
+          "category": "STREET",
+          "snippet": "Kuhlman Run"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "0984477344415390"
+        },
+        {
+          "suite": "A1",
+          "category": "SSN",
+          "snippet": "75674966890"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "1053371598436731"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "5987448817889806"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV4",
+          "snippet": "11.179.229.48"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "5030631270974973"
+        },
+        {
+          "suite": "A1",
+          "category": "STREET",
+          "snippet": "Waters Harbors"
+        },
+        {
+          "suite": "A1",
+          "category": "ZIPCODE",
+          "snippet": "28802"
+        }
+      ],
+      "fpExamples": []
+    },
+    "high": {
+      "level": "high",
+      "totalSamples": 292,
+      "suiteA1": {
+        "caught": 63,
+        "total": 89,
+        "recallPct": 70.8
+      },
+      "suiteA2": {
+        "caught": 0,
+        "total": 23,
+        "recallPct": 0
+      },
+      "suiteB": {
+        "caught": 42,
+        "total": 42,
+        "recallPct": 100
+      },
+      "suiteC": {
+        "flagged": 0,
+        "total": 100,
+        "fprPct": 0
+      },
+      "latency": {
+        "medianMs": 0.02,
+        "p95Ms": 0.034,
+        "maxMs": 0.116
+      },
+      "idempotencyFailures": 0,
+      "categoryBreakdown": {
+        "PHONEIMEI": {
+          "caught": 1,
+          "total": 5,
+          "recallPct": 20
+        },
+        "JOBAREA": {
+          "caught": 0,
+          "total": 7,
+          "recallPct": 0
+        },
+        "FIRSTNAME": {
+          "caught": 0,
+          "total": 45,
+          "recallPct": 0
+        },
+        "VEHICLEVIN": {
+          "caught": 0,
+          "total": 4,
+          "recallPct": 0
+        },
+        "AGE": {
+          "caught": 0,
+          "total": 8,
+          "recallPct": 0
+        },
+        "GENDER": {
+          "caught": 0,
+          "total": 10,
+          "recallPct": 0
+        },
+        "HEIGHT": {
+          "caught": 0,
+          "total": 5,
+          "recallPct": 0
+        },
+        "BUILDINGNUMBER": {
+          "caught": 4,
+          "total": 13,
+          "recallPct": 30.8
+        },
+        "MASKEDNUMBER": {
+          "caught": 3,
+          "total": 9,
+          "recallPct": 33.3
+        },
+        "PASSWORD": {
+          "caught": 2,
+          "total": 7,
+          "recallPct": 28.6
+        },
+        "DOB": {
+          "caught": 0,
+          "total": 8,
+          "recallPct": 0
+        },
+        "IPV6": {
+          "caught": 12,
+          "total": 12,
+          "recallPct": 100
+        },
+        "NEARBYGPSCOORDINATE": {
+          "caught": 0,
+          "total": 7,
+          "recallPct": 0
+        },
+        "USERAGENT": {
+          "caught": 0,
+          "total": 6,
+          "recallPct": 0
+        },
+        "TIME": {
+          "caught": 1,
+          "total": 14,
+          "recallPct": 7.1
+        },
+        "JOBTITLE": {
+          "caught": 0,
+          "total": 8,
+          "recallPct": 0
+        },
+        "COUNTY": {
+          "caught": 0,
+          "total": 8,
+          "recallPct": 0
+        },
+        "EMAIL": {
+          "caught": 12,
+          "total": 12,
+          "recallPct": 100
+        },
+        "ACCOUNTNUMBER": {
+          "caught": 4,
+          "total": 7,
+          "recallPct": 57.1
+        },
+        "PIN": {
+          "caught": 0,
+          "total": 5,
+          "recallPct": 0
+        },
+        "EYECOLOR": {
+          "caught": 0,
+          "total": 4,
+          "recallPct": 0
+        },
+        "LASTNAME": {
+          "caught": 0,
+          "total": 12,
+          "recallPct": 0
+        },
+        "IPV4": {
+          "caught": 7,
+          "total": 12,
+          "recallPct": 58.3
+        },
+        "DATE": {
+          "caught": 0,
+          "total": 10,
+          "recallPct": 0
+        },
+        "STREET": {
+          "caught": 5,
+          "total": 10,
+          "recallPct": 50
+        },
+        "CITY": {
+          "caught": 0,
+          "total": 5,
+          "recallPct": 0
+        },
+        "PREFIX": {
+          "caught": 0,
+          "total": 14,
+          "recallPct": 0
+        },
+        "MIDDLENAME": {
+          "caught": 0,
+          "total": 9,
+          "recallPct": 0
+        },
+        "CREDITCARDISSUER": {
+          "caught": 0,
+          "total": 10,
+          "recallPct": 0
+        },
+        "CREDITCARDNUMBER": {
+          "caught": 5,
+          "total": 13,
+          "recallPct": 38.5
+        },
+        "STATE": {
+          "caught": 0,
+          "total": 12,
+          "recallPct": 0
+        },
+        "VEHICLEVRM": {
+          "caught": 0,
+          "total": 2,
+          "recallPct": 0
+        },
+        "ORDINALDIRECTION": {
+          "caught": 0,
+          "total": 4,
+          "recallPct": 0
+        },
+        "SEX": {
+          "caught": 0,
+          "total": 5,
+          "recallPct": 0
+        },
+        "JOBTYPE": {
+          "caught": 0,
+          "total": 7,
+          "recallPct": 0
+        },
+        "CURRENCYCODE": {
+          "caught": 0,
+          "total": 2,
+          "recallPct": 0
+        },
+        "AMOUNT": {
+          "caught": 0,
+          "total": 13,
+          "recallPct": 0
+        },
+        "ACCOUNTNAME": {
+          "caught": 0,
+          "total": 7,
+          "recallPct": 0
+        },
+        "BITCOINADDRESS": {
+          "caught": 1,
+          "total": 8,
+          "recallPct": 12.5
+        },
+        "LITECOINADDRESS": {
+          "caught": 1,
+          "total": 4,
+          "recallPct": 25
+        },
+        "PHONENUMBER": {
+          "caught": 6,
+          "total": 7,
+          "recallPct": 85.7
+        },
+        "MAC": {
+          "caught": 0,
+          "total": 9,
+          "recallPct": 0
+        },
+        "CURRENCY": {
+          "caught": 0,
+          "total": 3,
+          "recallPct": 0
+        },
+        "IBAN": {
+          "caught": 3,
+          "total": 3,
+          "recallPct": 100
+        },
+        "COMPANYNAME": {
+          "caught": 0,
+          "total": 8,
+          "recallPct": 0
+        },
+        "CURRENCYNAME": {
+          "caught": 0,
+          "total": 2,
+          "recallPct": 0
+        },
+        "CURRENCYSYMBOL": {
+          "caught": 0,
+          "total": 3,
+          "recallPct": 0
+        },
+        "ZIPCODE": {
+          "caught": 7,
+          "total": 9,
+          "recallPct": 77.8
+        },
+        "SSN": {
+          "caught": 4,
+          "total": 5,
+          "recallPct": 80
+        },
+        "URL": {
+          "caught": 0,
+          "total": 7,
+          "recallPct": 0
+        },
+        "IP": {
+          "caught": 6,
+          "total": 6,
+          "recallPct": 100
+        },
+        "SECONDARYADDRESS": {
+          "caught": 2,
+          "total": 10,
+          "recallPct": 20
+        },
+        "USERNAME": {
+          "caught": 0,
+          "total": 10,
+          "recallPct": 0
+        },
+        "ETHEREUMADDRESS": {
+          "caught": 0,
+          "total": 4,
+          "recallPct": 0
+        },
+        "CREDITCARDCVV": {
+          "caught": 0,
+          "total": 4,
+          "recallPct": 0
+        },
+        "Gitleaks:AWS Access Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:AWS Temp Key (ASIA)": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GCP / Firebase API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitHub Classic PAT": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitHub Fine-Grained PAT": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitHub OAuth": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitHub User-to-Server": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitHub Refresh Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:GitLab PAT": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Stripe Live Secret": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Stripe Restricted Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Slack Bot Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Slack User Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:OpenAI Project Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Anthropic API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Hugging Face Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Twilio API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:SendGrid API Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:npm Access Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:PyPI Upload Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:JWT Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:PEM RSA Private Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:PEM EC Private Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Shopify Access Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Discord / Bot Secret": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Datadog API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Linear API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Supabase Service Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Grafana Service Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Terraform Cloud Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Postman API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Pulumi Access Token": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Perplexity API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Groq API Key": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Postgres Connection URI": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:MongoDB SRV URI": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Redis Auth URI": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:HTTP Bearer Header": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:HTTP Basic Header": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:Webhook Signing Secret": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:JSON Client Secret": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        },
+        "Gitleaks:DigitalOcean PAT": {
+          "caught": 1,
+          "total": 1,
+          "recallPct": 100
+        }
+      },
+      "missedExamples": [
+        {
+          "suite": "A1",
+          "category": "PASSWORD",
+          "snippet": "Y2rWliOhf8Ir"
+        },
+        {
+          "suite": "A1",
+          "category": "PASSWORD",
+          "snippet": "E5_N8G2xWM6D"
+        },
+        {
+          "suite": "A1",
+          "category": "PASSWORD",
+          "snippet": "yZqd7gHyZq91"
+        },
+        {
+          "suite": "A1",
+          "category": "STREET",
+          "snippet": "S Broadway"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "2948447876023997"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV4",
+          "snippet": "215.114.180.213"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "1417506813461516"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV4",
+          "snippet": "193.41.39.79"
+        },
+        {
+          "suite": "A1",
+          "category": "STREET",
+          "snippet": "Wiza Spur"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "7544035128672631"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV4",
+          "snippet": "151.89.104.163"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV4",
+          "snippet": "88.129.163.16"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "9704152215984072"
+        },
+        {
+          "suite": "A1",
+          "category": "PASSWORD",
+          "snippet": "tCEqJsMFWexr"
+        },
+        {
+          "suite": "A1",
+          "category": "PASSWORD",
+          "snippet": "pDI_DYJc7Idx"
+        },
+        {
+          "suite": "A1",
+          "category": "STREET",
+          "snippet": "Monique Circle"
+        },
+        {
+          "suite": "A1",
+          "category": "ZIPCODE",
+          "snippet": "72206"
+        },
+        {
+          "suite": "A1",
+          "category": "STREET",
+          "snippet": "Kuhlman Run"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "0984477344415390"
+        },
+        {
+          "suite": "A1",
+          "category": "SSN",
+          "snippet": "75674966890"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "1053371598436731"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "5987448817889806"
+        },
+        {
+          "suite": "A1",
+          "category": "IPV4",
+          "snippet": "11.179.229.48"
+        },
+        {
+          "suite": "A1",
+          "category": "CREDITCARDNUMBER",
+          "snippet": "5030631270974973"
+        },
+        {
+          "suite": "A1",
+          "category": "STREET",
+          "snippet": "Waters Harbors"
+        },
+        {
+          "suite": "A1",
+          "category": "ZIPCODE",
+          "snippet": "28802"
+        }
+      ],
+      "fpExamples": []
+    }
+  }
+}

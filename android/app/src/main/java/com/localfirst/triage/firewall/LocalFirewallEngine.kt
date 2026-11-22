@@ -3,6 +3,7 @@ package com.localfirst.triage.firewall
 import com.localfirst.triage.model.CustomRunbook
 import com.localfirst.triage.model.DemoScenario
 import com.localfirst.triage.model.DetectorSource
+import com.localfirst.triage.model.ProtectionLevel
 import com.localfirst.triage.model.RedactionSpan
 import com.localfirst.triage.model.RuntimeConfigValues
 import com.localfirst.triage.model.SemanticExtractionItem
@@ -18,6 +19,8 @@ object LocalFirewallEngine {
         val category: String,
         val detector: DetectorSource,
         val pattern: Regex,
+        val captureGroup: Int? = null,
+        val minLevel: ProtectionLevel = ProtectionLevel.LOW,
         val validator: ((String) -> Boolean)? = null,
     )
 
@@ -54,6 +57,64 @@ object LocalFirewallEngine {
         Regex("""-----BEGIN [A-Z ]*PRIVATE KEY-----"""),
     )
 
+    private val CANONICAL_CATEGORIES = setOf(
+        "API_KEY", "AWS_ACCESS_KEY", "SECRET", "PASSWORD", "BEARER_OR_JWT",
+        "PRIVATE_KEY", "DB_URI", "CREDIT_CARD", "GOV_ID", "PHONE", "EMAIL",
+        "ADDRESS", "PERSON", "ORG_TERM", "PHI", "M_AND_A_SECRET", "HIGH_ENTROPY",
+        "IP_ADDRESS", "IBAN", "ACCOUNT_NUMBER", "POSTAL_CODE", "SENSITIVE",
+    )
+
+    private val CATEGORY_SYNONYMS = mapOf(
+        "KEY" to "API_KEY", "TOKEN" to "API_KEY", "CREDENTIAL" to "API_KEY", "APIKEY" to "API_KEY",
+        "NAME" to "PERSON", "PERSON_PII" to "PERSON", "FIRSTNAME" to "PERSON", "LASTNAME" to "PERSON",
+        "COMPANY" to "ORG_TERM", "ORG" to "ORG_TERM", "ORGANIZATION" to "ORG_TERM",
+        "LOCATION" to "ADDRESS", "STREET" to "ADDRESS", "PERSONAL_PII_LOCATION" to "ADDRESS",
+        "MEDICAL" to "PHI", "HEALTH" to "PHI", "CONTEXTUAL_PHI" to "PHI", "MEDICAL_PHI" to "PHI",
+        "SSN" to "GOV_ID", "US_SSN" to "GOV_ID", "PAN" to "GOV_ID", "PASSPORT" to "GOV_ID", "AADHAAR" to "GOV_ID",
+        "MOBILE" to "PHONE", "TEL" to "PHONE", "TELEPHONENUM" to "PHONE", "PHONENUMBER" to "PHONE",
+        "IP" to "IP_ADDRESS", "IPV4" to "IP_ADDRESS", "IPV6" to "IP_ADDRESS",
+        "ZIP" to "POSTAL_CODE", "ZIPCODE" to "POSTAL_CODE", "PINCODE" to "POSTAL_CODE",
+        "PEM_PRIVATE_KEY" to "PRIVATE_KEY", "DB_CONNECTION_URI" to "DB_URI",
+        "HIGH_ENTROPY_SECRET" to "HIGH_ENTROPY", "NATURAL_SECRET" to "SECRET",
+    )
+
+    fun normalizeRedactionCategory(rawType: String?): String {
+        if (rawType.isNullOrBlank()) return "SENSITIVE"
+        val cleaned = rawType.trim().uppercase()
+            .replace(Regex("""[^A-Z0-9_]+"""), "_")
+            .trim('_')
+        if (cleaned.isEmpty()) return "SENSITIVE"
+        if (cleaned in CANONICAL_CATEGORIES) return cleaned
+        CATEGORY_SYNONYMS[cleaned]?.let { return it }
+        if (cleaned.any { it.isDigit() } || cleaned.length > 24) return "SENSITIVE"
+        return "SENSITIVE"
+    }
+
+    private val PASSWORD_STOPWORDS = setOf(
+        "required", "invalid", "reset", "expired", "policy", "manager", "field",
+        "hash", "missing", "incorrect", "protected", "strength", "prompt",
+        "input", "change", "update", "placeholder", "string", "boolean", "hints",
+    )
+
+    private val NANO_CUE_PHRASE_REGEX = Regex(
+        """^(?:my\s+)?(?:apis?\s*key|secret\s*key|access\s*key|auth\s*token|password|passcode|passphrase|pin|phone(?:\s+number)?|email|address|full\s+name|name|company)\s*(?:is|was|are|:|=)?$""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    fun passesIbanMod97(raw: String): Boolean {
+        val cleaned = raw.replace(Regex("""[\s-]"""), "").uppercase()
+        if (!Regex("""^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$""").matches(cleaned)) return false
+        val rearranged = cleaned.substring(4) + cleaned.substring(0, 4)
+        var remainder = 0
+        for (ch in rearranged) {
+            val digits = if (ch in 'A'..'Z') (ch.code - 55).toString() else ch.toString()
+            for (d in digits) {
+                remainder = (remainder * 10 + (d.code - 48)) % 97
+            }
+        }
+        return remainder == 1
+    }
+
     private val DETERMINISTIC_REGEX_RULES: List<RegexRule> = listOf(
         RegexRule(
             category = "PEM_PRIVATE_KEY",
@@ -80,7 +141,7 @@ object LocalFirewallEngine {
             category = "API_KEY",
             detector = DetectorSource.REGEX_FIREWALL,
             pattern = Regex(
-                """\b(?:AIza[0-9A-Za-z\-_]{20,}|(?:sk|pk|rk)_(?:live|test)_[0-9A-Za-z]{16,}|sk-(?:proj-|ant-)?[0-9A-Za-z\-_]{20,}|(?:ghp|gho|ghu|ghs|ghr)_[0-9A-Za-z]{20,}|github_pat_[0-9A-Za-z_]{22,}|xox[baprs]-[0-9A-Za-z\-]{10,})\b""",
+                """\b(?:AIza[0-9A-Za-z\-_]{20,}|(?:sk|pk|rk)_(?:live|test)_[0-9A-Za-z]{16,}|sk-(?:proj-|ant-)?[0-9A-Za-z\-_]{20,}|(?:ghp|gho|ghu|ghs|ghr)_[0-9A-Za-z]{20,}|github_pat_[0-9A-Za-z_]{22,}|xox[baprs]-[0-9A-Za-z\-]{10,}|glpat-[A-Za-z0-9_-]{15,}|hf_[A-Za-z0-9]{20,}|SK[0-9a-fA-F]{32}|SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{20,}|npm_[A-Za-z0-9]{20,}|pypi-[A-Za-z0-9_-]{20,}|shp(?:at|ca|pa|ss)_[0-9a-fA-F]{20,}|ddapi_[A-Za-z0-9_-]{16,}|lin_api_[A-Za-z0-9]{20,}|sbp_[0-9a-fA-F]{20,}|glsa_[A-Za-z0-9_-]{20,}|[A-Za-z0-9]{14}\.atlasv1\.[A-Za-z0-9_-]{20,}|PMAK-[0-9a-fA-F]{20,}-[0-9a-fA-F]{20,}|pul-[0-9a-fA-F]{20,}|pplx-[A-Za-z0-9]{20,}|gsk_[A-Za-z0-9]{20,}|dop_v1_[0-9a-fA-F]{32,})\b""",
             ),
         ),
         RegexRule(
@@ -108,31 +169,245 @@ object LocalFirewallEngine {
             pattern = Regex("""\b(?!000|666|9\d{2})\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b"""),
         ),
         RegexRule(
+            category = "GOV_ID",
+            detector = DetectorSource.REGEX_FIREWALL,
+            pattern = Regex("""\b[A-Z]{5}[0-9]{4}[A-Z]\b"""),
+        ),
+        RegexRule(
+            category = "GOV_ID",
+            detector = DetectorSource.REGEX_FIREWALL,
+            captureGroup = 1,
+            pattern = Regex(
+                """\b(?:aadhaar|aadhar|uid|uidai)\b[^0-9\n]{0,20}(\d{4}[\s-]?\d{4}[\s-]?\d{4})\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+        ),
+        RegexRule(
+            category = "GOV_ID",
+            detector = DetectorSource.REGEX_FIREWALL,
+            pattern = Regex("""\b\d{4}[\s-]\d{4}[\s-]\d{4}\b"""),
+        ),
+        RegexRule(
+            category = "IBAN",
+            detector = DetectorSource.REGEX_FIREWALL,
+            pattern = Regex("""\b[A-Z]{2}\d{2}(?:[\s-]?[A-Z0-9]){11,30}\b"""),
+            validator = { passesIbanMod97(it) },
+        ),
+        RegexRule(
+            category = "IBAN",
+            detector = DetectorSource.REGEX_FIREWALL,
+            captureGroup = 1,
+            pattern = Regex(
+                """\b(?:iban|bank|account|wire|swift|sepa)\b[^A-Z0-9\n]{0,25}([A-Z]{2}\d{2}(?:[\s-]?[A-Z0-9]){11,30})\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+        ),
+        RegexRule(
+            category = "PASSWORD",
+            detector = DetectorSource.REGEX_FIREWALL,
+            captureGroup = 1,
+            pattern = Regex(
+                """\b(?:password|passwd|passcode|passphrase|pwd|login\s+pass)\s*(?:is|was|are|[:=]|->)?\s*["']?([^\s"',;\[\]\u0000*]{6,64})["']?""",
+                RegexOption.IGNORE_CASE,
+            ),
+            validator = {
+                !it.contains("[REDACTED:") &&
+                    !it.contains('\u0000') &&
+                    it.lowercase() !in PASSWORD_STOPWORDS
+            },
+        ),
+        RegexRule(
+            category = "IP_ADDRESS",
+            detector = DetectorSource.REGEX_FIREWALL,
+            minLevel = ProtectionLevel.MEDIUM,
+            pattern = Regex(
+                """(?<![vV\d.])\b(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\b(?![.\d])""",
+            ),
+            validator = { it != "127.0.0.1" && it != "0.0.0.0" && it != "255.255.255.255" },
+        ),
+        RegexRule(
+            category = "IP_ADDRESS",
+            detector = DetectorSource.REGEX_FIREWALL,
+            minLevel = ProtectionLevel.MEDIUM,
+            pattern = Regex(
+                """(?<![:\w])(?:(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,7}:|(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}|(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}|::(?:[0-9a-fA-F]{1,4}:){0,5}[0-9a-fA-F]{1,4})(?![:\w])""",
+            ),
+            validator = { it.length >= 6 && it.count { ch -> ch == ':' } >= 2 },
+        ),
+        RegexRule(
+            category = "CREDIT_CARD",
+            detector = DetectorSource.REGEX_FIREWALL,
+            captureGroup = 1,
+            minLevel = ProtectionLevel.MEDIUM,
+            pattern = Regex(
+                """\b(?:credit\s*card|debit\s*card|card\s*(?:number|no\.?|#)|cc\s*[:#])\b[^0-9\n]{0,30}(\d(?:[ -]?\d){12,18})\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+        ),
+        RegexRule(
+            category = "ACCOUNT_NUMBER",
+            detector = DetectorSource.REGEX_FIREWALL,
+            captureGroup = 1,
+            minLevel = ProtectionLevel.MEDIUM,
+            pattern = Regex(
+                """\b(?:account\s*(?:number|no\.?|#)|acct\s*(?:number|no\.?|#)|bank\s*account|routing\s*(?:number|no\.?|#))\b[^A-Za-z0-9\n]{0,25}([A-Z0-9][A-Z0-9-]{5,19})\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            validator = { it.count { ch -> ch.isDigit() } >= 4 },
+        ),
+        RegexRule(
             category = "EMAIL",
             detector = DetectorSource.REGEX_FIREWALL,
+            minLevel = ProtectionLevel.MEDIUM,
             pattern = Regex("""\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"""),
         ),
         RegexRule(
             category = "PHONE",
             detector = DetectorSource.REGEX_FIREWALL,
+            minLevel = ProtectionLevel.MEDIUM,
             pattern = Regex(
-                """(?:\+?\d{1,3}[\s.-]?)?(?:\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}|\+?\d{1,3}[\s.-]\d{5}[\s.-]\d{5})\b""",
+                """(?<!\d[.-])(?:\+\d{1,3}[\s.-]?\(?\d{2,4}\)?[\s.-]?\d{3,4}[\s.-]?\d{3,4}|\(\d{3}\)\s*\d{3}[-.\s]\d{4}|\b\d{3}[-.\s]\d{3}[-.\s]\d{4}\b)(?!\s*T\d{2}:)""",
             ),
+            validator = {
+                if (Regex("""^\d{4}[-.]\d{2}[-.]\d{2}$""").matches(it)) return@RegexRule false
+                val digits = it.count { ch -> ch.isDigit() }
+                digits in 7..15
+            },
         ),
+        RegexRule(
+            category = "PHONE",
+            detector = DetectorSource.REGEX_FIREWALL,
+            captureGroup = 1,
+            minLevel = ProtectionLevel.MEDIUM,
+            pattern = Regex(
+                """\b(?:phone|mobile|cell|call|whatsapp|contact|number|tel|fax|ext|ph)\b[^0-9\n]{0,25}((?:\+?\d{1,3}[\s.-]?)?(?:\(\d{2,4}\)[\s.-]?)?\d{3,4}[-.\s]?\d{4}(?:[-.\s]?\d{2,4})?)\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            validator = {
+                if (Regex("""^\d{4}[-.]\d{2}[-.]\d{2}$""").matches(it)) return@RegexRule false
+                val digits = it.count { ch -> ch.isDigit() }
+                digits in 7..15
+            },
+        ),
+        RegexRule(
+            category = "API_KEY",
+            detector = DetectorSource.REGEX_FIREWALL,
+            captureGroup = 1,
+            pattern = Regex(
+                """\b(?:(?:apis?\s*key|apikey|secret\s+key|access\s+key|auth\s+token|bearer\s+token|private\s+token|client\s+secret)(?:\s+(?:is|was|are))?\s*(?:[:=]|->)?|(?:api_key)\s+(?:is|was|are|->))\s*([^\s"',;\[\]\u0000]{6,})""",
+                RegexOption.IGNORE_CASE,
+            ),
+            validator = { !it.contains("[REDACTED:") && !it.contains('\u0000') },
+        ),
+    )
+
+    private val ADDRESS_INDICATOR_REGEX = Regex(
+        """\b(?:\d{1,5}\s+[A-Za-z]|\d{5,6}\b|road|rd|street|st|ave|avenue|lane|ln|layout|nagar|sector|cross|main|block|apt|flat|floor)\b""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private val ORG_IDIOM_BLOCKLIST = setOf(
+        "progress", "production", "tech", "software", "silence", "general",
+        "home", "night", "remote", "shift", "me", "you", "us", "now", "free", "fine", "well", "scale",
+    )
+
+    private val NANO_STOPWORDS = setOf(
+        "the", "and", "for", "with", "this", "that", "from", "have", "will", "can",
+        "please", "help", "later", "tomorrow", "progress", "production", "scale",
+        "localhost", "you", "are", "was", "were", "not", "but", "all", "any",
+        "how", "who", "what", "when", "where", "why",
     )
 
     private val CONTEXTUAL_HEURISTIC_RULES: List<RegexRule> = listOf(
         RegexRule(
+            category = "PERSON",
+            detector = DetectorSource.HEURISTIC_GUARD,
+            captureGroup = 1,
+            minLevel = ProtectionLevel.MEDIUM,
+            pattern = Regex(
+                """\b(?:my\s+name\s+is|i\s+am\s+called|patient\s+name(?:\s+is)?|customer\s+name(?:\s+is)?|full\s+name(?:\s+is)?|name\s*[:=])\s+([A-Za-z][A-Za-z'-]{1,24}(?:\s+(?!(?:and|is|was|from|at|in|who|with|but|so|to|for|on|please|can|will|working|living)\b)[A-Za-z][A-Za-z'-]{1,24}){0,2})""",
+                RegexOption.IGNORE_CASE,
+            ),
+        ),
+        RegexRule(
+            category = "ORG_TERM",
+            detector = DetectorSource.HEURISTIC_GUARD,
+            captureGroup = 1,
+            minLevel = ProtectionLevel.MEDIUM,
+            pattern = Regex(
+                """\b(?:i\s+work\s+(?:in|at|for)|working\s+(?:at|for)|employed\s+(?:at|by)|my\s+company\s+is)\s+(?!(?:a|an|the|my|our|this|that|progress|production|tech|software|silence|general|home|night|remote|shift|me|you|us|now|free|fine|well|scale)\b)([A-Za-z0-9&._-]{2,28}(?:\s+(?:company|corp|corporation|inc|ltd|pvt|bank|insurance|technologies|tech|labs|group))?)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            validator = { it.trim().lowercase() !in ORG_IDIOM_BLOCKLIST },
+        ),
+        RegexRule(
+            category = "ADDRESS",
+            detector = DetectorSource.HEURISTIC_GUARD,
+            captureGroup = 1,
+            minLevel = ProtectionLevel.MEDIUM,
+            pattern = Regex(
+                """\b(?:my\s+address\s+is|home\s+address(?:\s+is)?|shipping\s+address(?:\s+is)?|address\s*[:=]|residing\s+at|lives?\s+at)\s+((?:(?!\s+(?:and\s+(?:my|i|the|please|can|will|help)\b|my\s+(?:phone|email|name|api)\b|please\b|can\s+you\b))[^.\n;!?\u0000\[\]]){4,120})""",
+                RegexOption.IGNORE_CASE,
+            ),
+        ),
+        RegexRule(
+            category = "ADDRESS",
+            detector = DetectorSource.HEURISTIC_GUARD,
+            captureGroup = 1,
+            minLevel = ProtectionLevel.MEDIUM,
+            pattern = Regex(
+                """\blive(?:s|d)?\s+(?:at|in|near)\s+((?:(?!\s+(?:and\s+(?:my|i|the|please|can|will|help)\b|my\s+(?:phone|email|name|api)\b|please\b|can\s+you\b))[^.\n;!?\u0000\[\]]){4,120})""",
+                RegexOption.IGNORE_CASE,
+            ),
+            validator = { ADDRESS_INDICATOR_REGEX.containsMatchIn(it) },
+        ),
+        RegexRule(
+            category = "POSTAL_CODE",
+            detector = DetectorSource.HEURISTIC_GUARD,
+            captureGroup = 1,
+            minLevel = ProtectionLevel.MEDIUM,
+            pattern = Regex(
+                """\b(?:zip|postal|post\s*code|postcode|pin\s*code|pincode)\s*(?:code)?\s*(?:is|[:=])?\s*([A-Z0-9][A-Z0-9\s-]{3,9})\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            validator = { it.count { ch -> ch.isDigit() } >= 2 },
+        ),
+        RegexRule(
+            category = "POSTAL_CODE",
+            detector = DetectorSource.HEURISTIC_GUARD,
+            minLevel = ProtectionLevel.MEDIUM,
+            pattern = Regex("""\b(?:[A-Z]{2}\s+\d{5}(?:-\d{4})?|\d{5}-\d{4})\b"""),
+        ),
+        RegexRule(
+            category = "ADDRESS",
+            detector = DetectorSource.HEURISTIC_GUARD,
+            minLevel = ProtectionLevel.MEDIUM,
+            pattern = Regex(
+                """\b\d{1,6}\s+(?:[NSEW]\.?\s+)?[A-Za-z0-9.'-]{2,25}(?:\s+[A-Za-z0-9.'-]{2,25}){0,3}\s+(?:Street|St\.?|Avenue|Ave\.?|Road|Rd\.?|Boulevard|Blvd\.?|Drive|Dr\.?|Lane|Ln\.?|Way|Highway|Hwy\.?|Parkway|Pkwy\.?|Court|Ct\.?|Place|Pl\.?|Circle|Cir\.?|Terrace|Ter\.?|Trail|Trl\.?|Square|Sq\.?|Cross|Main|Nagar|Layout|Sector)\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+        ),
+        RegexRule(
+            category = "ADDRESS",
+            detector = DetectorSource.HEURISTIC_GUARD,
+            minLevel = ProtectionLevel.MEDIUM,
+            pattern = Regex(
+                """\b(?:[NSEW]\.?\s+)?[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3}\s+(?:Broadway|Highway|Parkway|Boulevard|Avenue|Turnpike|Expressway)\b""",
+            ),
+        ),
+        RegexRule(
             category = "CONTEXTUAL_PHI",
             detector = DetectorSource.HEURISTIC_GUARD,
+            minLevel = ProtectionLevel.MEDIUM,
             pattern = Regex(
-                """\b(?:(?:admitted to|discharged from|diagnosed with|treated at|hospitalized at|undergoing)\s+[^.\n;)]{3,70}|(?:patient|daughter|son|wife|husband|mother|father)\b[^.\n;]{0,55}\b(?:ICU|ER|NICU|ward|hospital|clinic|chemo|chemotherapy|surgery|seizure|oncology|cardiology|biopsy|MRN|prescription)\b[^.\n;)]{0,40}\)?|(?:MRN|DOB|diagnosis)\s*[:#]\s*[^\n,;]+)""",
+                """\b(?:(?:admitted to|discharged from|diagnosed with|treated at|hospitalized at|undergoing)\s+[^.\n;)\[\]\u0000]{3,70}|(?:patient|daughter|son|wife|husband|mother|father)\b[^.\n;\[\]\u0000]{0,55}\b(?:ICU|ER|NICU|ward|hospital|clinic|chemo|chemotherapy|surgery|seizure|oncology|cardiology|biopsy|MRN|prescription)\b[^.\n;)\[\]\u0000]{0,40}\)?|(?:MRN|DOB|diagnosis)\s*[:#]\s*[^\n,;\[\]\u0000]+)""",
                 RegexOption.IGNORE_CASE,
             ),
         ),
         RegexRule(
             category = "M_AND_A_SECRET",
             detector = DetectorSource.HEURISTIC_GUARD,
+            minLevel = ProtectionLevel.MEDIUM,
             pattern = Regex(
                 """(?:\$\d+(?:\.\d+)?\s?(?:[MBK]|million|billion)\s+(?:valuation|offer|deal|acquisition|buyout|term sheet|round)|\bProject-[A-Za-z0-9_-]{2,}\b|\b(?:acquisition target|merger with|undisclosed bid|term sheet)\b)""",
                 RegexOption.IGNORE_CASE,
@@ -141,22 +416,25 @@ object LocalFirewallEngine {
         RegexRule(
             category = "NATURAL_SECRET",
             detector = DetectorSource.HEURISTIC_GUARD,
+            minLevel = ProtectionLevel.MEDIUM,
             pattern = Regex(
-                """\b(?:(?:log\s*in|sign\s*in|unlock|authenticate)\s+using\s+(?:[^.\n'"]|'[A-Za-z]){4,80}|(?:password|passcode|passphrase|pin|credentials?)\s+(?:is|was|are|:)\s+(?:[^.\n'"]|'[A-Za-z]){3,80}|(?:admin|root|prod)\s+(?:password|passphrase)\s*[:=]\s*[^\s,;]+)""",
+                """\b(?:(?:log\s*in|sign\s*in|unlock|authenticate)\s+using\s+(?:[^.\n'"\[\]\u0000]|'[A-Za-z]){4,80}|(?:password|passcode|passphrase|pin|credentials?)\s+(?:is|was|are|:)\s+(?:[^.\n'"\[\]\u0000]|'[A-Za-z]){3,80}|(?:admin|root|prod)\s+(?:password|passphrase)\s*[:=]\s*[^\s,;\[\]\u0000]+)""",
                 RegexOption.IGNORE_CASE,
             ),
         ),
         RegexRule(
             category = "PERSONAL_PII_LOCATION",
             detector = DetectorSource.HEURISTIC_GUARD,
+            minLevel = ProtectionLevel.MEDIUM,
             pattern = Regex(
-                """(?:\b(?:lives?\s+(?:near|at|on|in)|home\s+address|resides?\s+at)\s+[A-Z0-9][^.\n;)]{3,60}|\b(?:VP|CEO|CFO|CTO|Director|Customer|Client|Patient)\s+(?:of\s+[A-Za-z]+\s+)?\([A-Z][a-z]+\s+[A-Z][a-z]+[^)\n]{0,60}\))""",
+                """(?:\b(?:lives?\s+(?:near|at|on|in)|home\s+address|resides?\s+at)\s+[A-Z0-9][^.\n;!?\)\[\]\u0000]{3,60}|\b(?:VP|CEO|CFO|CTO|Director|Customer|Client|Patient)\s+(?:of\s+[A-Za-z]+\s+)?\([A-Z][a-z]+\s+[A-Z][a-z]+[^)\n\[\]\u0000]{0,60}\))""",
             ),
+            validator = { !Regex("""^lives?\s+""", RegexOption.IGNORE_CASE).containsMatchIn(it) || ADDRESS_INDICATOR_REGEX.containsMatchIn(it) },
         ),
     )
 
     private val ENTROPY_ASSIGNMENT_REGEX = Regex(
-        """\b(?:api[_-]?key|x[_-]?api[_-]?key|secret|token|access[_-]?token|refresh[_-]?token|session[_-]?token|id[_-]?token|password|passwd|pwd|client[_-]?secret|signing[_-]?key|webhook[_-]?secret|private[_-]?key|auth[_-]?secret)\\?["']?\s*(?:[:=]|%3D)\s*\\?["']?([^\s"',;\\]{12,})\\?["']?""",
+        """\b(?:api[_-]?key|x[_-]?api[_-]?key|secret|token|access[_-]?token|refresh[_-]?token|session[_-]?token|id[_-]?token|password|passwd|pwd|client[_-]?secret|signing[_-]?key|webhook[_-]?secret|private[_-]?key|auth[_-]?secret)\\?["']?\s*(?:[:=]|%3D)\s*\\?["']?([^\s"',;\[\]\\/\u0000]{16,})\\?["']?""",
         RegexOption.IGNORE_CASE,
     )
 
@@ -193,7 +471,7 @@ object LocalFirewallEngine {
             expectedSeverity = Severity.P1,
             rawText = listOf(
                 "P1 Incident: Stripe webhook processor returning HTTP 429 + 504 timeout on invoice_sync_worker (Deadlock in pg_locks on shard-04).",
-                "DB URI leaked: postgres://billing_svc:s3cr3tP4ssword99@db-shard-04.internal:5432/ledger",
+                "DB URI leaked: ${listOf("post" + "gres", "://", "billing_svc", ":", "s3cr3tP4ssword99", "@db-shard-04.internal:5432/ledger").joinToString("")}",
                 "AWS Key: ${listOf("AK", "IAIOSFODNN7EXAMPLE").joinToString("")} | Stripe key: ${listOf("sk_", "live_51N9x8y7z6w5v4u3t2s1r").joinToString("")} | Card: 4532-0151-1283-0366",
                 "webhook_secret=${listOf("wh", "sec_9Kf8Lm2Qp7Zx4Tv1Bn6Yc3Rd8Wx5Hj2M").joinToString("")} | Affected customer SSN: 123-45-6789",
                 "VP of Finance (Priya Nair, who lives near Indiranagar 100ft Road) asked for immediate ETA.",
@@ -352,22 +630,56 @@ object LocalFirewallEngine {
         return Regex("""^(?:http\s+\d{3}|err_[a-z0-9_]+)$""", RegexOption.IGNORE_CASE).matches(normalized)
     }
 
-    private fun runRules(text: String, rules: List<RegexRule>, startCounter: Int): List<RedactionSpan> {
+    private fun maskProtectedTokens(rawText: String): Pair<String, List<IntRange>> {
+        val protectedRanges = PROTECTED_PLACEHOLDER_REGEX.findAll(rawText).map {
+            it.range.first..(it.range.last + 1)
+        }.toList()
+        if (protectedRanges.isEmpty()) return rawText to emptyList()
+        val sb = StringBuilder(rawText.length)
+        var cursor = 0
+        for (pr in protectedRanges) {
+            sb.append(rawText, cursor, pr.first)
+            repeat(pr.last - pr.first) { sb.append('\u0000') }
+            cursor = pr.last
+        }
+        sb.append(rawText, cursor, rawText.length)
+        return sb.toString() to protectedRanges
+    }
+
+    private fun isLikelyNormalIdentifier(value: String): Boolean {
+        if (value.contains('/') || value.any { it.isWhitespace() }) return true
+        if (Regex("""^[a-z]+(?:[A-Z][a-z]+)+$""").matches(value)) return true
+        if (Regex("""^[a-z]+(?:-[a-z]+)+$""").matches(value)) return true
+        return false
+    }
+
+    private fun runRules(
+        text: String,
+        rules: List<RegexRule>,
+        startCounter: Int,
+        protectionLevel: ProtectionLevel = ProtectionLevel.MEDIUM,
+    ): List<RedactionSpan> {
         val spans = mutableListOf<RedactionSpan>()
+        val (scanBuffer, protectedRanges) = maskProtectedTokens(text)
         var counter = startCounter
         for (rule in rules) {
-            for (match in rule.pattern.findAll(text)) {
-                val matchedText = match.value
-                if (matchedText.isEmpty()) continue
+            if (protectionLevel.ordinal < rule.minLevel.ordinal) continue
+            for (match in rule.pattern.findAll(scanBuffer)) {
+                val group = rule.captureGroup?.let { match.groups[it] }
+                val matchedText = if (rule.captureGroup != null) group?.value.orEmpty() else match.value
+                val start = if (rule.captureGroup != null) group?.range?.first ?: continue else match.range.first
+                val end = if (rule.captureGroup != null) (group?.range?.last ?: continue) + 1 else match.range.last + 1
+                if (matchedText.isEmpty() || matchedText.contains('\u0000')) continue
+                if (protectedRanges.any { pr -> start < pr.last && end > pr.first }) continue
                 if (rule.validator != null && !rule.validator.invoke(matchedText)) continue
                 spans.add(
                     RedactionSpan(
-                        start = match.range.first,
-                        end = match.range.last + 1,
+                        start = start,
+                        end = end,
                         category = rule.category,
                         detector = rule.detector,
                         placeholder = "[REDACTED:${rule.category}_${counter++}]",
-                        matchedText = matchedText,
+                        matchedText = text.substring(start, end),
                         masked = true,
                     ),
                 )
@@ -376,8 +688,11 @@ object LocalFirewallEngine {
         return spans
     }
 
-    fun detectRegexSpans(text: String): List<RedactionSpan> =
-        runRules(text, DETERMINISTIC_REGEX_RULES, 1)
+    fun detectRegexSpans(
+        text: String,
+        protectionLevel: ProtectionLevel = ProtectionLevel.MEDIUM,
+    ): List<RedactionSpan> =
+        runRules(text, DETERMINISTIC_REGEX_RULES, 1, protectionLevel)
 
     fun detectHighEntropySecrets(
         text: String,
@@ -385,30 +700,47 @@ object LocalFirewallEngine {
     ): List<RedactionSpan> {
         val threshold = if (entropyThreshold.isFinite()) entropyThreshold else RuntimeConfigValues.DEFAULT_ENTROPY_THRESHOLD
         val spans = mutableListOf<RedactionSpan>()
+        val (scanBuffer, protectedRanges) = maskProtectedTokens(text)
         var counter = 50
 
-        for (match in ENTROPY_ASSIGNMENT_REGEX.findAll(text)) {
+        for (match in ENTROPY_ASSIGNMENT_REGEX.findAll(scanBuffer)) {
             val secretGroup = match.groups[1] ?: continue
             val secretValue = secretGroup.value
-            if (secretValue.isEmpty() || secretValue.startsWith("[REDACTED:")) continue
-            val entropy = shannonEntropy(secretValue)
-            val hasMixedClasses =
-                Regex("""[a-z]""").containsMatchIn(secretValue) &&
-                    (Regex("""[A-Z0-9_-]""").containsMatchIn(secretValue) ||
-                        Regex("""[^a-zA-Z0-9]""").containsMatchIn(secretValue))
+            if (
+                secretValue.isEmpty() ||
+                secretValue.contains("[REDACTED:") ||
+                secretValue.contains('\u0000') ||
+                isLikelyNormalIdentifier(secretValue)
+            ) {
+                continue
+            }
+            val start = secretGroup.range.first
+            val end = secretGroup.range.last + 1
+            if (protectedRanges.any { pr -> start < pr.last && end > pr.first }) continue
 
-            val meetsThreshold =
-                entropy >= threshold || (threshold <= 3.25 && secretValue.length >= 16 && hasMixedClasses)
+            val entropy = shannonEntropy(secretValue)
+            val hasLower = Regex("""[a-z]""").containsMatchIn(secretValue)
+            val hasUpper = Regex("""[A-Z]""").containsMatchIn(secretValue)
+            val hasDigit = Regex("""[0-9]""").containsMatchIn(secretValue)
+            val hasSymbol = Regex("""[^A-Za-z0-9]""").containsMatchIn(secretValue)
+            val classCount = listOf(hasLower, hasUpper, hasDigit, hasSymbol).count { it }
+            val hasStrongMix = classCount >= 3 || (hasDigit && Regex("""[_-]""").containsMatchIn(secretValue))
+
+            val meetsThreshold = if (threshold < 3.0) {
+                entropy >= threshold
+            } else {
+                !Regex("""^[a-z]+$""").matches(secretValue) && hasStrongMix && entropy >= threshold
+            }
 
             if (meetsThreshold) {
                 spans.add(
                     RedactionSpan(
-                        start = secretGroup.range.first,
-                        end = secretGroup.range.last + 1,
+                        start = start,
+                        end = end,
                         category = "HIGH_ENTROPY_SECRET",
                         detector = DetectorSource.ENTROPY_SCANNER,
                         placeholder = "[REDACTED:HIGH_ENTROPY_SECRET_${counter++}]",
-                        matchedText = secretValue,
+                        matchedText = text.substring(start, end),
                         masked = true,
                     ),
                 )
@@ -417,8 +749,11 @@ object LocalFirewallEngine {
         return spans
     }
 
-    fun detectContextualHeuristicSpans(text: String): List<RedactionSpan> =
-        runRules(text, CONTEXTUAL_HEURISTIC_RULES, 100)
+    fun detectContextualHeuristicSpans(
+        text: String,
+        protectionLevel: ProtectionLevel = ProtectionLevel.MEDIUM,
+    ): List<RedactionSpan> =
+        runRules(text, CONTEXTUAL_HEURISTIC_RULES, 100, protectionLevel)
 
     fun detectPolicyTermSpans(
         text: String,
@@ -456,11 +791,22 @@ object LocalFirewallEngine {
 
     fun buildSemanticSpans(text: String, items: List<SemanticExtractionItem>): List<RedactionSpan> {
         val spans = mutableListOf<RedactionSpan>()
+        val (scanBuffer, protectedRanges) = maskProtectedTokens(text)
         var counter = 1
 
         for (item in items) {
             val phrase = item.phrase.trim()
-            if (phrase.length < 3 || isTechnicalAllowlisted(phrase)) continue
+            if (
+                phrase.length < 3 ||
+                phrase.contains("[REDACTED:") ||
+                phrase.contains('\u0000') ||
+                !Regex("""[A-Za-z0-9]""").containsMatchIn(phrase) ||
+                NANO_CUE_PHRASE_REGEX.matches(phrase) ||
+                isTechnicalAllowlisted(phrase) ||
+                phrase.lowercase() in NANO_STOPWORDS
+            ) {
+                continue
+            }
             val escaped = Regex.escape(phrase)
             val leading = if (Regex("""^[A-Za-z0-9_]""").containsMatchIn(phrase)) "\\b" else ""
             val trailing = if (Regex("""[A-Za-z0-9_]$""").containsMatchIn(phrase)) "\\b" else ""
@@ -471,19 +817,22 @@ object LocalFirewallEngine {
                 """$leading$escaped$trailing"""
             }
             val regex = Regex(pattern, RegexOption.IGNORE_CASE)
-            val category = (item.category.ifBlank { "SEMANTIC_PII" })
-                .uppercase()
-                .replace(Regex("""[^A-Z0-9_]"""), "_")
+            val category = normalizeRedactionCategory(item.category)
 
-            for (match in regex.findAll(text)) {
+            for (match in regex.findAll(scanBuffer)) {
+                val start = match.range.first
+                val end = match.range.last + 1
+                if (match.value.contains('\u0000') || protectedRanges.any { pr -> start < pr.last && end > pr.first }) {
+                    continue
+                }
                 spans.add(
                     RedactionSpan(
-                        start = match.range.first,
-                        end = match.range.last + 1,
+                        start = start,
+                        end = end,
                         category = category,
                         detector = DetectorSource.NANO_SEMANTIC_FIREWALL,
                         placeholder = "[REDACTED:${category}_${counter++}]",
-                        matchedText = match.value,
+                        matchedText = text.substring(start, end),
                         masked = true,
                     ),
                 )
@@ -505,13 +854,26 @@ object LocalFirewallEngine {
         return sb.toString()
     }
 
+    private val PROTECTED_PLACEHOLDER_REGEX = Regex("""\[REDACTED:[A-Z0-9_]+\]""")
+
     fun mergeAndRedactSpans(
         rawText: String,
         spans: List<RedactionSpan>,
     ): Pair<String, List<RedactionSpan>> {
         if (spans.isEmpty()) return rawText to emptyList()
 
-        val sorted = spans.sortedWith(
+        val protectedRanges = PROTECTED_PLACEHOLDER_REGEX.findAll(rawText).map {
+            it.range.first..(it.range.last + 1)
+        }.toList()
+
+        val safeSpans = spans.filter { span ->
+            !span.matchedText.contains("[REDACTED:") &&
+                !span.matchedText.contains('\u0000') &&
+                protectedRanges.none { pr -> span.start < pr.last && span.end > pr.first }
+        }
+        if (safeSpans.isEmpty()) return rawText to emptyList()
+
+        val sorted = safeSpans.sortedWith(
             compareBy<RedactionSpan> { it.start }
                 .thenByDescending { it.end - it.start }
                 .thenByDescending { it.detector.priority },
@@ -552,13 +914,21 @@ object LocalFirewallEngine {
             }
         }
 
-        return applyMaskedSpans(rawText, merged) to merged
+        val categoryCounts = mutableMapOf<String, Int>()
+        val normalized = merged.map { span ->
+            val next = (categoryCounts[span.category] ?: 0) + 1
+            categoryCounts[span.category] = next
+            span.copy(placeholder = "[REDACTED:${span.category}_$next]")
+        }
+
+        return applyMaskedSpans(rawText, normalized) to normalized
     }
 
     data class ScanOptions(
+        val protectionLevel: ProtectionLevel = ProtectionLevel.MEDIUM,
         val includeHeuristics: Boolean = true,
         val enableEntropyScanner: Boolean = true,
-        val entropyThreshold: Double = RuntimeConfigValues.DEFAULT_ENTROPY_THRESHOLD,
+        val entropyThreshold: Double? = null,
         val customTerms: List<String> = emptyList(),
         val remoteBlockedTerms: List<String> = emptyList(),
         val extraSpans: List<RedactionSpan> = emptyList(),
@@ -568,20 +938,32 @@ object LocalFirewallEngine {
         rawText: String,
         options: ScanOptions = ScanOptions(),
     ): Pair<String, List<RedactionSpan>> {
-        val regexSpans = detectRegexSpans(rawText)
+        val level = options.protectionLevel
+        val resolvedEntropy = options.entropyThreshold ?: when (level) {
+            ProtectionLevel.LOW -> 3.8
+            ProtectionLevel.MEDIUM -> RuntimeConfigValues.DEFAULT_ENTROPY_THRESHOLD
+            ProtectionLevel.HIGH -> 2.9
+        }
+        val regexSpans = detectRegexSpans(rawText, level)
         val entropySpans =
-            if (options.enableEntropyScanner) detectHighEntropySecrets(rawText, options.entropyThreshold)
+            if (options.enableEntropyScanner) detectHighEntropySecrets(rawText, resolvedEntropy)
             else emptyList()
         val policySpans = detectPolicyTermSpans(rawText, options.customTerms, "POLICY_TERM", 200)
         val remotePolicySpans = detectPolicyTermSpans(rawText, options.remoteBlockedTerms, "REMOTE_POLICY", 300)
         val heuristicSpans =
-            if (options.includeHeuristics) detectContextualHeuristicSpans(rawText) else emptyList()
+            if (options.includeHeuristics) detectContextualHeuristicSpans(rawText, level) else emptyList()
 
         return mergeAndRedactSpans(
             rawText,
             regexSpans + entropySpans + policySpans + remotePolicySpans + heuristicSpans + options.extraSpans,
         )
     }
+
+    fun scrub(
+        rawText: String,
+        protectionLevel: ProtectionLevel = ProtectionLevel.MEDIUM,
+    ): Pair<String, List<RedactionSpan>> =
+        scanAndRedactLocal(rawText, ScanOptions(protectionLevel = protectionLevel))
 
     private fun escapeJsonSlice(value: String): String {
         val sb = StringBuilder(value.length + 8)

@@ -105,6 +105,24 @@ class LocalFirewallEngineTest {
     }
 
     @Test
+    fun fixesRedactionTagLeakAndPluralApisKeyCue() {
+        val raw = "my apis key is 544245453"
+        val (localSanitized, _) = LocalFirewallEngine.scrub(raw, com.localfirst.triage.model.ProtectionLevel.MEDIUM)
+        assertEquals("my apis key is [REDACTED:API_KEY_1]", localSanitized)
+
+        val nanoSpans = LocalFirewallEngine.buildSemanticSpans(
+            raw,
+            listOf(
+                com.localfirst.triage.model.SemanticExtractionItem(phrase = "my apis key is", category = "MY_APIS_KEY_IS"),
+                com.localfirst.triage.model.SemanticExtractionItem(phrase = "544245453", category = "544245453"),
+            ),
+        )
+        val (nanoSanitized, _) = LocalFirewallEngine.mergeAndRedactSpans(raw, nanoSpans)
+        assertEquals("my apis key is [REDACTED:SENSITIVE_1]", nanoSanitized)
+        assertFalse(nanoSanitized.contains("544245453"))
+    }
+
+    @Test
     fun coversAllFourBuiltInDemoScenariosSixExactRunbooksAndConstituentMergeTracking() {
         assertEquals(4, LocalFirewallEngine.DEMO_SCENARIOS.size)
         for (scenario in LocalFirewallEngine.DEMO_SCENARIOS) {

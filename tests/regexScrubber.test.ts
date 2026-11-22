@@ -194,4 +194,147 @@ describe("regexScrubber", () => {
     expect(hardenedScan.sanitizedText).not.toContain("Project-Valkyrie");
     expect(hardenedScan.sanitizedText).toContain("[REDACTED:REMOTE_POLICY_");
   });
+
+  it("catches natural-language bare phone, lowercase name, employer, and low-entropy labeled API key", () => {
+    const sample =
+      "my phone number is 9876543210 and my name is ravi and i work in Zenith company , and my api key is 23224324234kjjjkjl";
+    const res = scanAndRedactLocal(sample, { includeHeuristics: true });
+    expect(res.mergedSpans.length).toBe(4);
+    expect(res.sanitizedText).not.toContain("9876543210");
+    expect(res.sanitizedText).not.toContain("ravi");
+    expect(res.sanitizedText).not.toContain("Zenith company");
+    expect(res.sanitizedText).not.toContain("23224324234kjjjkjl");
+    expect(res.sanitizedText).toContain("[REDACTED:PHONE_");
+    expect(res.sanitizedText).toContain("[REDACTED:PERSON_");
+    expect(res.sanitizedText).toContain("[REDACTED:ORG_TERM_");
+    expect(res.sanitizedText).toContain("[REDACTED:API_KEY_");
+  });
+
+  it("respects 3 protection levels (low vs medium vs high) and preserves surrounding text byte-for-byte", () => {
+    const sample =
+      "my phone number is 9876543210 and my name is ravi and i work in Zenith company , and my api key is 23224324234kjjjkjl";
+
+    const lowRes = scanAndRedactLocal(sample, {
+      protectionLevel: "low",
+      includeHeuristics: true,
+    });
+    expect(lowRes.sanitizedText).not.toContain("23224324234kjjjkjl");
+    expect(lowRes.sanitizedText).toContain("9876543210");
+    expect(lowRes.sanitizedText).toContain("ravi");
+    expect(lowRes.sanitizedText).toContain("Zenith company");
+
+    for (const level of ["medium", "high"] as const) {
+      const res = scanAndRedactLocal(sample, {
+        protectionLevel: level,
+        includeHeuristics: true,
+      });
+      expect(res.mergedSpans.length).toBe(4);
+      expect(res.sanitizedText).not.toContain("9876543210");
+      expect(res.sanitizedText).not.toContain("ravi");
+      expect(res.sanitizedText).not.toContain("Zenith company");
+      expect(res.sanitizedText).not.toContain("23224324234kjjjkjl");
+    }
+
+    const p0Line = "URGENT P0 Outage in checkout-gateway after v4.8.2 deploy.\nCustomer John's daughter (Manipal ICU Floor 3).";
+    const mergedP0 = scanAndRedactLocal(p0Line, {
+      protectionLevel: "medium",
+      includeHeuristics: true,
+      extraSpans: [
+        {
+          start: p0Line.indexOf("Manipal ICU Floor 3"),
+          end: p0Line.indexOf("Manipal ICU Floor 3") + "Manipal ICU Floor 3".length,
+          category: "CONTEXTUAL_PHI",
+          detector: "NANO_SEMANTIC_FIREWALL",
+          placeholder: "[REDACTED:CONTEXTUAL_PHI_1]",
+          matchedText: "Manipal ICU Floor 3",
+          masked: true,
+        },
+      ],
+    });
+    expect(mergedP0.sanitizedText.startsWith("URGENT P0 Outage in checkout-gateway after v4.8.2 deploy.")).toBe(true);
+  });
+
+  it("redacts full multi-segment comma-separated addresses including locality and PIN/ZIP in medium mode", () => {
+    const sample =
+      "my address is 42 Oak Street, Koramangala, Bengaluru 560034 and my name is ravi";
+    const res = scanAndRedactLocal(sample, {
+      protectionLevel: "medium",
+      includeHeuristics: true,
+    });
+    expect(res.sanitizedText).not.toContain("42 Oak Street");
+    expect(res.sanitizedText).not.toContain("Koramangala");
+    expect(res.sanitizedText).not.toContain("Bengaluru");
+    expect(res.sanitizedText).not.toContain("560034");
+    expect(res.sanitizedText).not.toContain("ravi");
+    expect(res.sanitizedText).toContain("[REDACTED:ADDRESS_");
+    expect(res.sanitizedText).toContain("[REDACTED:PERSON_");
+  });
+
+  it("is strictly idempotent across 3 consecutive passes (0 new masks on pass 2 and pass 3)", () => {
+    const awsKey = ["AK", "IAIOSFODNN7EXAMPLE"].join("");
+    const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.sig12345";
+    const inputs = [
+      `my address is 42 Oak Street, Koramangala, Bengaluru 560034 and my name is ravi and my phone number is 9876543210 and my api key is 23224324234kjjjkjl`,
+      `I work in Zenith company. Key: ${awsKey} | Bearer ${jwt}`,
+    ];
+    for (const raw of inputs) {
+      const pass1 = scanAndRedactLocal(raw, { protectionLevel: "medium", includeHeuristics: true });
+      expect(pass1.mergedSpans.length).toBeGreaterThan(0);
+
+      const pass2 = scanAndRedactLocal(pass1.sanitizedText, { protectionLevel: "medium", includeHeuristics: true });
+      expect(pass2.mergedSpans.length).toBe(0);
+      expect(pass2.sanitizedText).toBe(pass1.sanitizedText);
+
+      const pass3 = scanAndRedactLocal(pass2.sanitizedText, { protectionLevel: "high", includeHeuristics: true });
+      expect(pass3.mergedSpans.length).toBe(0);
+      expect(pass3.sanitizedText).toBe(pass1.sanitizedText);
+    }
+  });
+
+  it("enforces zero false positives on everyday/dev prose and strict sentence boundary preservation", () => {
+    const zeroFpCases = [
+      "This feature is a work in progress and will go live in production tomorrow. Call me later if it breaks.",
+      "My app works at scale using localStorage and contenteditable inside checkout-gateway after v4.8.2 deploy.",
+      "Please explain how Docker containers talk to each other on localhost port 8080.",
+    ];
+    for (const prose of zeroFpCases) {
+      for (const level of ["low", "medium"] as const) {
+        const res = scanAndRedactLocal(prose, { protectionLevel: level, includeHeuristics: true });
+        expect(res.mergedSpans).toEqual([]);
+        expect(res.sanitizedText).toBe(prose);
+      }
+    }
+
+    const addrCase = "my address is 42 Oak Street, Koramangala, Bengaluru 560034. Please fix the login bug after this.";
+    const addrRes = scanAndRedactLocal(addrCase, { protectionLevel: "medium", includeHeuristics: true });
+    expect(addrRes.sanitizedText).not.toContain("42 Oak Street");
+    expect(addrRes.sanitizedText).not.toContain("560034");
+    expect(addrRes.sanitizedText).toContain("Please fix the login bug after this.");
+
+    const phoneCase = "my phone number is 9876543210 and my name is ravi. Can you help me write a python script?";
+    const phoneRes = scanAndRedactLocal(phoneCase, { protectionLevel: "medium", includeHeuristics: true });
+    expect(phoneRes.sanitizedText).not.toContain("9876543210");
+    expect(phoneRes.sanitizedText).not.toContain("ravi");
+    expect(phoneRes.sanitizedText).toContain("Can you help me write a python script?");
+  });
+
+  it("fixes P0 redaction-tag leak for malformed Nano categories and plural 'apis key' cues", async () => {
+    const { buildSemanticSpans, mergeAndRedactSpans, normalizeRedactionCategory } = await import(
+      "../src/firewall/spanMerger"
+    );
+    expect(normalizeRedactionCategory("544245453")).toBe("SENSITIVE");
+    expect(normalizeRedactionCategory("MY_APIS_KEY_IS")).toBe("SENSITIVE");
+
+    const raw = "my apis key is 544245453";
+    const localRes = scanAndRedactLocal(raw, { protectionLevel: "medium", includeHeuristics: true });
+    expect(localRes.sanitizedText).toBe("my apis key is [REDACTED:API_KEY_1]");
+
+    const nanoSpans = buildSemanticSpans(raw, [
+      { category: "MY_APIS_KEY_IS", phrase: "my apis key is" },
+      { category: "544245453", phrase: "544245453" },
+    ]);
+    const nanoMerged = mergeAndRedactSpans(raw, nanoSpans);
+    expect(nanoMerged.sanitizedText).toBe("my apis key is [REDACTED:SENSITIVE_1]");
+    expect(nanoMerged.sanitizedText).not.toContain("544245453");
+  });
 });

@@ -167,7 +167,35 @@ export async function signInWorkspaceAnonymously(
     const cred = await (deps.signInAnonymouslyFn ?? signInAnonymously)(auth);
     return { ok: true, user: toAuthUserSummary(cred.user) };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    const code = (err as { code?: string } | null)?.code ?? "";
+    const rawMsg = err instanceof Error ? err.message : String(err);
+    const isLoopbackIp =
+      typeof window !== "undefined" && window.location?.hostname === "127.0.0.1";
+    const port =
+      typeof window !== "undefined" && window.location?.port
+        ? `:${window.location.port}`
+        : "";
+
+    let friendly = rawMsg;
+    if (code === "auth/unauthorized-domain" || rawMsg.includes("unauthorized-domain")) {
+      friendly = isLoopbackIp
+        ? `127.0.0.1 is not authorized for Google OAuth popups. Open http://localhost${port} or use 1-click Sync as Guest.`
+        : "This domain is not authorized for Google OAuth popups. Add it in Firebase Auth settings or use 1-click Sync as Guest.";
+    } else if (code === "auth/popup-blocked" || rawMsg.includes("popup-blocked")) {
+      friendly =
+        "Browser blocked the Google sign-in popup. Allow popups for this site or use 1-click Sync as Guest.";
+    } else if (
+      code === "auth/cancelled-popup-request" ||
+      code === "auth/popup-closed-by-user"
+    ) {
+      friendly = "Google sign-in popup was closed before completing. Try again or use Sync as Guest.";
+    } else if (code === "auth/operation-not-allowed") {
+      friendly = "Google sign-in is not enabled on this Firebase project. Use 1-click Sync as Guest.";
+    } else if (code === "auth/network-request-failed") {
+      friendly = "Network error during Google sign-in. Check your connection or use Offline ($0 Local).";
+    }
+
+    return { ok: false, error: friendly };
   }
 }
 
@@ -208,7 +236,35 @@ export async function signInOrLinkWithGoogle(
     const cred = await popupSignIn(auth, provider);
     return { ok: true, user: toAuthUserSummary(cred.user) };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    const code = (err as { code?: string } | null)?.code ?? "";
+    const rawMsg = err instanceof Error ? err.message : String(err);
+    const isLoopbackIp =
+      typeof window !== "undefined" && window.location?.hostname === "127.0.0.1";
+    const port =
+      typeof window !== "undefined" && window.location?.port
+        ? `:${window.location.port}`
+        : "";
+
+    let friendly = rawMsg;
+    if (code === "auth/unauthorized-domain" || rawMsg.includes("unauthorized-domain")) {
+      friendly = isLoopbackIp
+        ? `127.0.0.1 is not authorized for Google OAuth popups. Open http://localhost${port} or use 1-click Sync as Guest.`
+        : "This domain is not authorized for Google OAuth popups. Add it in Firebase Auth settings or use 1-click Sync as Guest.";
+    } else if (code === "auth/popup-blocked" || rawMsg.includes("popup-blocked")) {
+      friendly =
+        "Browser blocked the Google sign-in popup. Allow popups for this site or use 1-click Sync as Guest.";
+    } else if (
+      code === "auth/cancelled-popup-request" ||
+      code === "auth/popup-closed-by-user"
+    ) {
+      friendly = "Google sign-in popup was closed before completing. Try again or use Sync as Guest.";
+    } else if (code === "auth/operation-not-allowed") {
+      friendly = "Google sign-in is not enabled on this Firebase project. Use 1-click Sync as Guest.";
+    } else if (code === "auth/network-request-failed") {
+      friendly = "Network error during Google sign-in. Check your connection or use Offline ($0 Local).";
+    }
+
+    return { ok: false, error: friendly };
   }
 }
 
@@ -221,7 +277,35 @@ export async function signOutWorkspace(deps: CloudAuthDeps = {}): Promise<CloudA
     await (deps.signOutFn ?? signOut)(auth);
     return { ok: true, user: null };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    const code = (err as { code?: string } | null)?.code ?? "";
+    const rawMsg = err instanceof Error ? err.message : String(err);
+    const isLoopbackIp =
+      typeof window !== "undefined" && window.location?.hostname === "127.0.0.1";
+    const port =
+      typeof window !== "undefined" && window.location?.port
+        ? `:${window.location.port}`
+        : "";
+
+    let friendly = rawMsg;
+    if (code === "auth/unauthorized-domain" || rawMsg.includes("unauthorized-domain")) {
+      friendly = isLoopbackIp
+        ? `127.0.0.1 is not authorized for Google OAuth popups. Open http://localhost${port} or use 1-click Sync as Guest.`
+        : "This domain is not authorized for Google OAuth popups. Add it in Firebase Auth settings or use 1-click Sync as Guest.";
+    } else if (code === "auth/popup-blocked" || rawMsg.includes("popup-blocked")) {
+      friendly =
+        "Browser blocked the Google sign-in popup. Allow popups for this site or use 1-click Sync as Guest.";
+    } else if (
+      code === "auth/cancelled-popup-request" ||
+      code === "auth/popup-closed-by-user"
+    ) {
+      friendly = "Google sign-in popup was closed before completing. Try again or use Sync as Guest.";
+    } else if (code === "auth/operation-not-allowed") {
+      friendly = "Google sign-in is not enabled on this Firebase project. Use 1-click Sync as Guest.";
+    } else if (code === "auth/network-request-failed") {
+      friendly = "Network error during Google sign-in. Check your connection or use Offline ($0 Local).";
+    }
+
+    return { ok: false, error: friendly };
   }
 }
 
