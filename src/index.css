@@ -330,18 +330,18 @@
 
 .cordon-pointer-aura {
   background: radial-gradient(
-    460px circle at var(--px, 50%) var(--py, 30%),
-    rgba(5, 150, 105, 0.18),
-    rgba(2, 132, 199, 0.10) 38%,
+    500px circle at var(--px, 50%) var(--py, 30%),
+    rgba(250, 204, 21, 0.28),
+    rgba(234, 179, 8, 0.13) 40%,
     transparent 70%
   );
 }
 
 :root[data-theme="dark"] .cordon-pointer-aura {
   background: radial-gradient(
-    460px circle at var(--px, 50%) var(--py, 30%),
-    rgba(0, 229, 163, 0.13),
-    rgba(56, 189, 248, 0.05) 42%,
+    500px circle at var(--px, 50%) var(--py, 30%),
+    rgba(0, 229, 163, 0.24),
+    rgba(0, 229, 163, 0.09) 42%,
     transparent 72%
   );
 }
@@ -350,9 +350,9 @@
   background: linear-gradient(
     90deg,
     transparent 0%,
-    rgba(4, 120, 87, 0.22) 30%,
-    rgba(2, 132, 199, 0.34) 50%,
-    rgba(4, 120, 87, 0.22) 70%,
+    rgba(202, 138, 4, 0.26) 30%,
+    rgba(234, 179, 8, 0.42) 50%,
+    rgba(202, 138, 4, 0.26) 70%,
     transparent 100%
   );
 }
@@ -361,9 +361,9 @@
   background: linear-gradient(
     180deg,
     transparent 0%,
-    rgba(4, 120, 87, 0.22) 30%,
-    rgba(2, 132, 199, 0.34) 50%,
-    rgba(4, 120, 87, 0.22) 70%,
+    rgba(202, 138, 4, 0.26) 30%,
+    rgba(234, 179, 8, 0.42) 50%,
+    rgba(202, 138, 4, 0.26) 70%,
     transparent 100%
   );
 }
@@ -372,9 +372,9 @@
   background: linear-gradient(
     90deg,
     transparent 0%,
-    rgba(0, 229, 163, 0.08) 35%,
-    rgba(56, 189, 248, 0.11) 50%,
-    rgba(0, 229, 163, 0.08) 65%,
+    rgba(0, 229, 163, 0.14) 35%,
+    rgba(0, 229, 163, 0.24) 50%,
+    rgba(0, 229, 163, 0.14) 65%,
     transparent 100%
   );
 }
@@ -383,9 +383,9 @@
   background: linear-gradient(
     180deg,
     transparent 0%,
-    rgba(0, 229, 163, 0.08) 35%,
-    rgba(56, 189, 248, 0.11) 50%,
-    rgba(0, 229, 163, 0.08) 65%,
+    rgba(0, 229, 163, 0.14) 35%,
+    rgba(0, 229, 163, 0.24) 50%,
+    rgba(0, 229, 163, 0.14) 65%,
     transparent 100%
   );
 }
@@ -399,7 +399,7 @@
   padding: 1px;
   background: radial-gradient(
     160px circle at var(--local-x, 50%) var(--local-y, 50%),
-    var(--accent-primary),
+    #CA8A04,
     transparent 70%
   );
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
@@ -409,7 +409,12 @@
 }
 
 :root[data-theme="dark"] [data-edge-active="true"]::after {
-  opacity: 0.6;
+  background: radial-gradient(
+    160px circle at var(--local-x, 50%) var(--local-y, 50%),
+    var(--accent-primary),
+    transparent 70%
+  );
+  opacity: 0.72;
 }
 
 @media (pointer: coarse) {
