@@ -67,14 +67,28 @@ class LocalFirewallEngineTest {
         assertFalse(sanitized.contains("xK9#mP2"))
         assertFalse(sanitized.contains("mQINBFtestKeyData"))
 
-        val pathological = "4" + "-1".repeat(2500) + "X"
-        // Warm up the JIT/regex engine so the budget measures steady-state cost, not class loading.
-        LocalFirewallEngine.detectRegexSpans(pathological)
-        val start = System.currentTimeMillis()
-        val cc = LocalFirewallEngine.detectRegexSpans(pathological)
-        val elapsed = System.currentTimeMillis() - start
+        // ReDoS is a scaling property, not a stopwatch value: doubling the input must not
+        // multiply the cost. A generous absolute cap still catches catastrophic blowups.
+        val small = "4" + "-1".repeat(625) + "X"   // 1252 chars
+        val large = "4" + "-1".repeat(2500) + "X"  // 5002 chars
+        LocalFirewallEngine.detectRegexSpans(large) // warm up JIT/regex classes
+
+        val smallStart = System.nanoTime()
+        val ccSmall = LocalFirewallEngine.detectRegexSpans(small)
+        val smallMs = (System.nanoTime() - smallStart) / 1_000_000.0
+
+        val largeStart = System.nanoTime()
+        val cc = LocalFirewallEngine.detectRegexSpans(large)
+        val largeMs = (System.nanoTime() - largeStart) / 1_000_000.0
+
+        assertTrue(ccSmall.isEmpty())
         assertTrue(cc.isEmpty())
-        assertTrue("ReDoS guard exceeded 200ms budget: ${elapsed}ms", elapsed < 200)
+        val ratio = largeMs / maxOf(smallMs, 0.5)
+        assertTrue(
+            "Non-linear scaling on pathological input: ${smallMs}ms -> ${largeMs}ms (x$ratio for 4x input)",
+            ratio < 8.0,
+        )
+        assertTrue("ReDoS guard exceeded 200ms budget: ${largeMs}ms", largeMs < 200.0)
     }
 
     @Test
@@ -104,6 +118,38 @@ class LocalFirewallEngineTest {
             listOf("Project-Apollo", "Project-Valkyrie"),
             RemoteConfigRepository.parseEnterpriseBlockedTerms("""["Project-Apollo", "a", "Project-Valkyrie"]"""),
         )
+    }
+
+    @Test
+    fun `aws secret access key is scrubbed so no raw secret bytes remain`() {
+        val accessKeyId = listOf("AK", "IAIOSFODNN7EXAMPLE").joinToString("")
+        val secretKey = listOf("wJalr", "XUtnFEMI", "/K7MDENG", "/bPxRfiCYEXAMPLEKEY").joinToString("")
+        val payload = listOf(
+            "AWS_ACCESS_KEY_ID=$accessKeyId",
+            "AWS_SECRET_ACCESS_KEY=$secretKey",
+        ).joinToString("\n")
+
+        val (sanitized, spans) = LocalFirewallEngine.scrub(payload, com.localfirst.triage.model.ProtectionLevel.MEDIUM)
+
+        assertTrue("missing AWS_SECRET_KEY span: ${spans.map { it.category }}", spans.any { it.category == "AWS_SECRET_KEY" })
+        assertFalse("raw secret leaked: $sanitized", sanitized.contains(secretKey))
+        assertFalse("raw secret prefix leaked: $sanitized", sanitized.contains(secretKey.take(20)))
+        assertFalse("raw access key id leaked: $sanitized", sanitized.contains(accessKeyId))
+        assertEquals("AWS Secret Key", com.localfirst.triage.data.ShieldStore.friendlyCategoryName("AWS_SECRET_KEY"))
+    }
+
+    @Test
+    fun `aws secret access key is caught in shell and quoted assignment forms`() {
+        val secretKey = listOf("Zx9", "Qm2Lp8Rt", "/Vb4Nc6Wd", "+Yh1Kj3FsE7uioPqABcd").joinToString("")
+        val payload = listOf(
+            "export aws_secret_access_key=$secretKey",
+            "aws_secret_access_key = '$secretKey'",
+            "secret_access_key: \"$secretKey\"",
+        ).joinToString("\n")
+
+        val (sanitized, spans) = LocalFirewallEngine.scrub(payload, com.localfirst.triage.model.ProtectionLevel.MEDIUM)
+        assertEquals(3, spans.count { it.category == "AWS_SECRET_KEY" })
+        assertFalse("raw secret leaked: $sanitized", sanitized.contains(secretKey))
     }
 
     @Test

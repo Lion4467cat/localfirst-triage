@@ -21,6 +21,18 @@ describe("Live Browser Paste Shield (firewall-core)", () => {
     expect(res.riskProfile.score).toBeGreaterThanOrEqual(80);
   });
 
+  it("redacts the 40-char AWS secret access key in the extension firewall too", () => {
+    const accessKeyId = ["AK", "IAIOSFODNN7EXAMPLE"].join("");
+    const secret = ["wJalr", "XUtnFEMI", "/K7MDENG", "/bPxRfiCYEXAMPLEKEY"].join("");
+    const res = scrubSync(
+      `AWS_ACCESS_KEY_ID=${accessKeyId}\nAWS_SECRET_ACCESS_KEY=${secret}`,
+      true,
+      "medium",
+    );
+    expect(res.sanitizedText).not.toContain(secret);
+    expect(res.mergedSpans.map((s) => s.category)).toContain("AWS_SECRET_KEY");
+  });
+
   it("passes benign developer pastes with 0 masks and 0 false positives", () => {
     const benign =
       "Please check why nginx returned 502 Bad Gateway on /api/v1/health after the v4.2.0 rollout.";

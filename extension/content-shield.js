@@ -14,8 +14,11 @@
 
   let shieldEnabled = true, protectionLevel = "medium", mutedUntil = 0, mutedTarget = null, lastEditor = null;
   let scanEpoch = 0, hudHost = null, hudShadow = null;
-  let hudState = { mode: "HIDDEN", target: null, savedSel: null, rawText: "", scan: null, bypassArmed: false };
+  let hudState = { mode: "HIDDEN", target: null, savedSel: null, rawText: "", scan: null, bypassArmed: false, sendBtn: null };
   let lastCleanNorm = "", lastDismissedNorm = "", lastBypassedNorm = "";
+
+  // Only long enough to swallow the synthetic input event our own DOM write emits.
+  const MUTE_MS = 250;
 
   const isAlive = () => document.documentElement.dataset.lfShieldId === ID;
   const isMuted = (ed) => ed && mutedTarget === ed && Date.now() < mutedUntil;
@@ -85,14 +88,6 @@
 
   const readEditorText = (ed) =>
     !ed ? "" : ed.tagName === "TEXTAREA" || ed.tagName === "INPUT" ? ed.value || "" : ed.innerText || ed.textContent || "";
-
-  function captureSel(ed) {
-    if (ed.tagName === "TEXTAREA" || ed.tagName === "INPUT") {
-      return { kind: "input", start: ed.selectionStart ?? ed.value.length, end: ed.selectionEnd ?? ed.value.length };
-    }
-    const sel = window.getSelection();
-    return { kind: "editable", range: sel?.rangeCount ? sel.getRangeAt(0).cloneRange() : null };
-  }
 
   function replaceEntireEditor(ed, nextText, spans) {
     ed.focus();
@@ -169,14 +164,37 @@
   }
 
   function scrubCurrentDraft(ed, scan) {
+    const sendBtn = hudState.sendBtn;
     mutedTarget = ed;
-    mutedUntil = Date.now() + 2000;
+    mutedUntil = Date.now() + MUTE_MS;
     scanEpoch++;
     setHud({ mode: "HIDDEN" });
+    // Mark the scrubbed text as clean BEFORE the write so our own synthetic input
+    // event cannot clear the mute, and so the programmatic Send click below is
+    // not re-intercepted.
+    const clean = normalize(scan.sanitizedText);
+    lastCleanNorm = clean;
+    lastBypassedNorm = clean;
     replaceEntireEditor(ed, scan.sanitizedText, scan.mergedSpans);
     recordStats(scan.mergedSpans.length);
-    lastCleanNorm = normalize(readEditorText(ed) || scan.sanitizedText);
-    setTimeout(() => { if (isAlive() && ed) lastCleanNorm = normalize(readEditorText(ed)); }, 150);
+    setTimeout(() => {
+      if (!isAlive() || !ed) return;
+      const post = normalize(readEditorText(ed));
+      // If the host framework restored the pre-scrub DOM, `post` contains the raw
+      // secret again. Never treat that as clean, or the next Send ships it.
+      const stillLeaky = (scan.mergedSpans || []).some(
+        (s) => s.matchedText && post.includes(normalize(s.matchedText)),
+      );
+      lastCleanNorm = stillLeaky ? "" : post;
+    }, 150);
+    // "Scrub & Send" must actually send: fire the real Send control once the
+    // scrubbed text has landed.
+    setTimeout(() => {
+      if (!isAlive()) return;
+      const btn =
+        sendBtn && document.contains(sendBtn) ? sendBtn : document.querySelector(SEND_SEL);
+      btn?.click();
+    }, 0);
   }
 
   function setHud(next) {
@@ -201,8 +219,12 @@
     const count = hudState.scan.mergedSpans.length;
     const isSend = hudState.trigger === "SEND";
     const headline = isSend ? `Send Blocked — ${count} secret${count === 1 ? "" : "s"} detected` : `Blocked ${count} secret${count === 1 ? "" : "s"} locally`;
-    const priLabel = isSend ? "Scrub Draft" : "Paste Safe Version";
-    const bypLabel = isSend ? (hudState.bypassArmed ? "Confirm Send Raw Once?" : "Send Raw Once") : (hudState.bypassArmed ? "Confirm Paste Raw Once?" : "Paste Raw Once");
+    const priLabel = isSend ? "Use Scrub & Send" : "Paste Safe Version";
+    const bypLabel = isSend
+      ? "Reject & Send Anyway"
+      : hudState.bypassArmed
+        ? "Confirm Paste Raw Once?"
+        : "Paste Raw Once";
     box.className = "box modal";
     const mk = (tag, cls, id, text) => {
       const el = document.createElement(tag);
@@ -224,12 +246,16 @@
     priBtn.onclick = () => {
       if (isSend) return scrubCurrentDraft(hudState.target, hudState.scan);
       mutedTarget = hudState.target;
-      mutedUntil = Date.now() + 2000;
+      mutedUntil = Date.now() + MUTE_MS;
       scanEpoch++;
       const { target, savedSel, scan } = hudState;
       setHud({ mode: "HIDDEN" });
       insertAtSel(target, savedSel, scan.sanitizedText);
-      lastCleanNorm = normalize(readEditorText(target));
+      const post = normalize(readEditorText(target));
+      const stillLeaky = (scan.mergedSpans || []).some(
+        (s) => s.matchedText && post.includes(normalize(s.matchedText)),
+      );
+      lastCleanNorm = stillLeaky ? "" : post;
     };
     canBtn.onclick = () => {
       scanEpoch++;
@@ -237,7 +263,8 @@
       setHud({ mode: "HIDDEN" });
     };
     bypBtn.onclick = () => {
-      if (!hudState.bypassArmed) return setHud({ bypassArmed: true });
+      // Send mode is a single explicit confirmation; paste mode keeps the two-step guard.
+      if (!isSend && !hudState.bypassArmed) return setHud({ bypassArmed: true });
       scanEpoch++;
       const { target, savedSel, rawText, trigger } = hudState;
       setHud({ mode: "HIDDEN" });
@@ -259,16 +286,11 @@
   }
 
   function onPaste(ev) {
+    // Silent while pasting: the send-time guard is the only trigger. We never
+    // preventDefault or pop the HUD here.
     if (!isAlive() || isOwnHudEvent(ev) || !shieldEnabled) return;
-    const fw = globalThis.LocalFirstFirewall, ed = resolveEditor(ev), rawText = ev.clipboardData?.getData("text/plain") || "";
-    if (!fw?.scrubSync || !ed || !rawText) return;
-    lastEditor = ed;
-    scanEpoch++;
-    const scan = fw.scrubSync(rawText, true, protectionLevel);
-    if (scan.mergedSpans.length === 0) return;
-    ev.preventDefault(); ev.stopImmediatePropagation();
-    recordStats(scan.mergedSpans.length);
-    setHud({ mode: "MODAL", trigger: "PASTE", target: ed, savedSel: captureSel(ed), rawText, scan, bypassArmed: false });
+    const ed = resolveEditor(ev);
+    if (ed) lastEditor = ed;
   }
 
   function onInput(ev) {
@@ -279,6 +301,11 @@
     const norm = normalize(readEditorText(ed));
     if (norm !== lastDismissedNorm) lastDismissedNorm = "";
     if (norm !== lastBypassedNorm) lastBypassedNorm = "";
+    // New user text means the post-scrub mute no longer applies.
+    if (norm !== lastCleanNorm && mutedTarget === ed) {
+      mutedTarget = null;
+      mutedUntil = 0;
+    }
   }
 
   function handleSendAttempt(ev, ed, sendBtn = null) {

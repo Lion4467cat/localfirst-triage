@@ -28,6 +28,7 @@ object RiskRouter {
     private val HARD_CREDENTIAL_CATEGORIES = setOf(
         "API_KEY",
         "AWS_ACCESS_KEY",
+        "AWS_SECRET_KEY",
         "BEARER_OR_JWT",
         "JWT_TOKEN",
         "PEM_PRIVATE_KEY",

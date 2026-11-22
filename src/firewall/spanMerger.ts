@@ -52,6 +52,7 @@ export function isTechnicalAllowlisted(phrase: string): boolean {
 const CANONICAL_CATEGORIES = new Set([
   "API_KEY",
   "AWS_ACCESS_KEY",
+  "AWS_SECRET_KEY",
   "SECRET",
   "PASSWORD",
   "BEARER_OR_JWT",

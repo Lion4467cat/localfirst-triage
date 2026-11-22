@@ -25,7 +25,7 @@
             <div class="brand-meta">
               <div class="brand-row">
                 <h1>CORDON SHIELD</h1>
-                <span class="ver-pill">v4.3.1</span>
+                <span class="ver-pill">v4.4.0</span>
               </div>
               <p class="subtitle">Zero-Leakage On-Device Firewall</p>
             </div>
@@ -94,9 +94,28 @@
           <span id="active-model-badge" class="model-pill">Model: Deterministic Rules Only</span>
         </div>
         <p id="tab-status-hint" class="tab-hint" hidden>
-          Auto-guard covers ChatGPT, Claude, Gemini, GitHub, Slack &amp; Discord.
+          Auto-guard covers ChatGPT, Claude, Gemini, Perplexity, GitHub, Slack &amp; Discord.
         </p>
       </header>
+
+      <!-- 2. 3-Level Protection Dial + Live Capability List -->
+      <section class="card dial-card" aria-label="Protection Level">
+        <div class="section-head">
+          <span class="section-label">Protection Dial</span>
+          <span id="level-mode-tag" class="mode-tag">Balanced · Default</span>
+        </div>
+
+        <div class="level-group" role="group" aria-label="Protection level">
+          <button type="button" class="level-btn" data-level-choice="low" aria-pressed="false">Low</button>
+          <button type="button" class="level-btn" data-level-choice="medium" aria-pressed="true">Medium</button>
+          <button type="button" class="level-btn" data-level-choice="high" aria-pressed="false">High</button>
+        </div>
+
+        <div class="capability-box">
+          <div class="capability-title">Active Right Now</div>
+          <p id="level-capability-text" class="capability-text"></p>
+        </div>
+      </section>
 
       <!-- First-Run Setup Gate (Minimal One-Screen) -->
       <section id="setup-gate" class="card setup-card" aria-label="Cordon First-Run Setup" hidden>
@@ -108,7 +127,7 @@
         <!-- Plain-language 3-step setup, always visible -->
         <ol class="setup-steps">
           <li id="setup-step-1">Leave the shield switch at the top on <strong>ON</strong>.</li>
-          <li id="setup-step-2">Open ChatGPT, Claude, Gemini, GitHub, Slack or Discord.</li>
+          <li id="setup-step-2">Open ChatGPT, Claude, Gemini, Perplexity, GitHub, Slack or Discord.</li>
           <li id="setup-step-3">
             Type or paste a secret and press <strong>Send</strong>. Cordon asks once:
             <strong>Scrub &amp; Send</strong> or <strong>Send anyway</strong>.
@@ -126,7 +145,7 @@
         <!-- 1. Ready State -->
         <div id="setup-ready-view" class="setup-state-box" hidden>
           <div class="setup-ready-title">You're protected</div>
-          <p class="setup-step-desc">On-device AI is ready. Paste &amp; Send protection is armed.</p>
+          <p class="setup-step-desc">On-device AI is ready. Send-time protection is armed.</p>
           <button id="btn-setup-enter" type="button" class="btn primary">
             Start using Cordon →
           </button>
@@ -182,9 +201,9 @@
           </button>
         </div>
 
-        <!-- Optional: Use Gemma 4 -->
-        <div class="setup-gemma-box">
-          <div class="setup-gemma-title">Optional: Use Gemma 4</div>
+        <!-- Optional: Use Gemma 4 (collapsed by default to keep SETUP compact) -->
+        <details class="setup-gemma-details">
+          <summary class="setup-gemma-title">Optional: Use Gemma 4</summary>
           <p class="setup-step-desc">
             Chrome uses Gemini Nano by default. To use Gemma 4 instead, enable the flag below and relaunch Chrome.
           </p>
@@ -197,26 +216,7 @@
           <button id="btn-gemma4-confirm" type="button" class="btn secondary setup-gemma-btn" aria-pressed="false">
             I enabled Gemma 4
           </button>
-        </div>
-      </section>
-
-      <!-- 2. 3-Level Protection Dial + Live Capability List -->
-      <section class="card dial-card" aria-label="Protection Level">
-        <div class="section-head">
-          <span class="section-label">Protection Dial</span>
-          <span id="level-mode-tag" class="mode-tag">Balanced · Default</span>
-        </div>
-
-        <div class="level-group" role="group" aria-label="Protection level">
-          <button type="button" class="level-btn" data-level-choice="low" aria-pressed="false">Low</button>
-          <button type="button" class="level-btn" data-level-choice="medium" aria-pressed="true">Medium</button>
-          <button type="button" class="level-btn" data-level-choice="high" aria-pressed="false">High</button>
-        </div>
-
-        <div class="capability-box">
-          <div class="capability-title">Active Right Now</div>
-          <p id="level-capability-text" class="capability-text"></p>
-        </div>
+        </details>
       </section>
 
       <!-- 3. Verifiable Protection Facts & Telemetry Card -->
@@ -252,7 +252,7 @@
           </div>
           <div class="fact-row">
             <span class="fact-k">Protected Surfaces</span>
-            <span class="fact-v">Paste + Send Interception</span>
+            <span class="fact-v">Send-time Interception</span>
           </div>
           <div class="fact-row" data-benchmark-slot="true">
             <span class="fact-k">Verified Benchmarks</span>

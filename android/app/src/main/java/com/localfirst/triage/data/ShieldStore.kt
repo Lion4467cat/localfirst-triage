@@ -61,6 +61,21 @@ object ShieldSetupCopy {
     }
 }
 
+/** Status wording for the Shield hero card. "OFF" and "PAUSED" are different states. */
+object ShieldStatusCopy {
+    fun label(accessibilityEnabled: Boolean, paused: Boolean): String = when {
+        !accessibilityEnabled -> "OFF"
+        paused -> "PAUSED"
+        else -> "ACTIVE"
+    }
+
+    fun headline(accessibilityEnabled: Boolean, paused: Boolean, guardedAppCount: Int): String = when {
+        !accessibilityEnabled -> "Shield is off. Turn it on to protect $guardedAppCount apps."
+        paused -> "Shield is paused — your next message is not protected."
+        else -> "Watching $guardedAppCount apps. Nothing leaves your phone unscrubbed."
+    }
+}
+
 object ShieldStore {
     const val PREFS_NAME = "localfirst_ui_prefs"
     private const val KEY_HISTORY = "cordon_zero_pii_history"
@@ -280,6 +295,7 @@ object ShieldStore {
     fun friendlyCategoryName(category: String): String = when (category.uppercase()) {
         "API_KEY" -> "API Key"
         "AWS_ACCESS_KEY" -> "AWS Key"
+        "AWS_SECRET_KEY" -> "AWS Secret Key"
         "PRIVATE_KEY", "PEM_PRIVATE_KEY" -> "Private Key"
         "BEARER_OR_JWT" -> "Bearer/JWT"
         "DB_URI", "DB_CONNECTION_URI" -> "DB URI"

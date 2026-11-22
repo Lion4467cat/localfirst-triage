@@ -12,6 +12,24 @@ import {
 } from "../src/firewall/regexScrubber";
 
 describe("regexScrubber", () => {
+  it("scans long hyphen/dot runs in linear time (email ReDoS guard)", () => {
+    const small = "a" + "-b".repeat(2_000); // 4k chars
+    const large = "a" + "-b".repeat(8_000); // 16k chars
+    detectRegexSpans(large); // warm up
+
+    const t0 = performance.now();
+    detectRegexSpans(small);
+    const smallMs = performance.now() - t0;
+
+    const t1 = performance.now();
+    const spans = detectRegexSpans(large);
+    const largeMs = performance.now() - t1;
+
+    expect(spans).toEqual([]);
+    expect(largeMs).toBeLessThan(100);
+    expect(largeMs / Math.max(smallMs, 0.1)).toBeLessThan(10);
+  });
+
   it("detects Google/OpenAI/GitHub API keys, JWTs, Bearer tokens, emails, and phones", () => {
     const firebaseKey = ["AI", "zaSyD-1234567890abcdefghijklmnopqrs"].join("");
     const openAiKey = ["sk", "proj", "abcdefghijklmnopqrstuvwxyz123456"].join("-");
@@ -61,6 +79,25 @@ describe("regexScrubber", () => {
     expect(categories.has("BEARER_OR_JWT")).toBe(true);
     expect(categories.has("US_SSN")).toBe(true);
     expect(categories.has("PEM_PRIVATE_KEY")).toBe(true);
+  });
+
+  it("redacts the 40-char AWS secret access key that follows an access key ID", () => {
+    const accessKeyId = ["AK", "IAIOSFODNN7EXAMPLE"].join("");
+    const secret = ["wJalr", "XUtnFEMI", "/K7MDENG", "/bPxRfiCYEXAMPLEKEY"].join("");
+    const raw = [
+      `AWS_ACCESS_KEY_ID=${accessKeyId}`,
+      `AWS_SECRET_ACCESS_KEY=${secret}`,
+      "region=us-east-1",
+    ].join("\n");
+
+    // Must fire at the DEFAULT protection level (medium), not only at high.
+    const res = scanAndRedactLocal(raw, { protectionLevel: "medium" });
+    expect(res.sanitizedText).not.toContain(secret);
+    expect(res.sanitizedText).not.toContain("wJalrXUtnFEMI");
+    const categories = res.mergedSpans.map((s) => s.category);
+    expect(categories).toContain("AWS_SECRET_KEY");
+    expect(categories).toContain("AWS_ACCESS_KEY");
+    expect(res.sanitizedText).toContain("[REDACTED:AWS_SECRET_KEY_");
   });
 
   it("validates credit cards via Luhn checksum and rejects non-Luhn numeric IDs", () => {

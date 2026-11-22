@@ -9,5 +9,6 @@ export const computeQuickRiskScore = core.computeQuickRiskScore;
 export const scrubSync = core.scrubSync;
 export const runExtensionNanoScan = core.runExtensionNanoScan;
 export const buildSanitizedHandoffUrl = core.buildSanitizedHandoffUrl;
+export const describeManualHost = core.describeManualHost;
 export const shouldInterceptSendKey = core.shouldInterceptSendKey;
 export const isLikelyNonSendButton = core.isLikelyNonSendButton;

@@ -1,10 +1,10 @@
 import {
   buildSanitizedHandoffUrl,
+  describeManualHost,
   runExtensionNanoScan,
   TEXT_ONLY_OPTIONS,
 } from "./firewall-core.js";
 
-const CAPTURE_STORAGE_KEY = "pendingCapture";
 const THEME_STORAGE_KEY = "localfirst-theme";
 const SFX_STORAGE_KEY = "cordon_sfx_enabled";
 const SETUP_STATE_KEY = "cordon_ext_setup_state";
@@ -33,11 +33,11 @@ const PROTECTED_HOSTS = new Set([
 const LEVEL_CAPABILITIES = {
   low: {
     tag: "Secrets Only",
-    text: "API Keys · JWTs · Private Keys · DB URIs · Gov IDs · Credit Cards · Strict Entropy (>= 3.8) · Paste Guard Only",
+    text: "API Keys · JWTs · Private Keys · DB URIs · Gov IDs · Credit Cards · Strict Entropy (>= 3.8) · Send Guard Only",
   },
   medium: {
     tag: "Balanced · Default",
-    text: "+ Phones · Emails · Multi-Segment Addresses/PINs · Names · Employers · Labeled Secrets (>= 3.25) · Paste + Send-Button/Enter Guard",
+    text: "+ Phones · Emails · Multi-Segment Addresses/PINs · Names · Employers · Labeled Secrets (>= 3.25) · Send-Button / Enter Guard",
   },
   high: {
     tag: "Strict Zero-Trust",
@@ -622,7 +622,7 @@ async function refreshActiveTabStatus() {
     activeTabId = tab?.id ?? null;
     let host = "browser";
     try {
-      if (tab?.url) host = new URL(tab.url).hostname || "browser";
+      if (tab?.url) host = describeManualHost(tab.url);
     } catch { /* ignore */ }
 
     if (tab?.id !== undefined) {
@@ -675,14 +675,18 @@ async function runFirewall() {
 }
 
 async function loadPendingCapture() {
-  if (typeof chrome === "undefined" || !chrome.storage?.session) return;
-  const stored = await chrome.storage.session.get(CAPTURE_STORAGE_KEY);
-  const capture = stored?.[CAPTURE_STORAGE_KEY];
+  if (typeof chrome === "undefined" || !chrome.runtime?.sendMessage) return;
+  let capture = null;
+  try {
+    const res = await chrome.runtime.sendMessage({ type: "GET_CAPTURE" });
+    capture = res?.capture ?? null;
+  } catch {
+    return;
+  }
   if (capture?.rawText) {
     if (manualDrawer) manualDrawer.open = true;
     titleInput.value = capture.title || "Captured Selection";
     rawInput.value = capture.rawText;
-    await chrome.storage.session.remove(CAPTURE_STORAGE_KEY);
     await chrome.runtime?.sendMessage?.({ type: "CLEAR_BADGE" });
     await runFirewall();
   }
@@ -764,11 +768,17 @@ function renderProtectionLevel(level) {
   if (levelCapabilityText) levelCapabilityText.textContent = meta.text;
 }
 
-if (typeof chrome !== "undefined" && chrome.storage?.onChanged) {
-  chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName === "session" && changes[CAPTURE_STORAGE_KEY]?.newValue) {
+if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message?.type === "CAPTURE_READY") {
       void loadPendingCapture();
     }
+    return false;
+  });
+}
+
+if (typeof chrome !== "undefined" && chrome.storage?.onChanged) {
+  chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName === "local") {
       if (changes[SHIELD_ENABLED_KEY]) renderShieldState(changes[SHIELD_ENABLED_KEY].newValue !== false);
       if (changes[SHIELD_STATS_KEY]) renderShieldStats(changes[SHIELD_STATS_KEY].newValue);

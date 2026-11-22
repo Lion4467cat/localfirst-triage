@@ -4,5 +4,5 @@
     <string name="process_text_label">Scrub with Cordon</string>
     <string name="share_sheet_label">Cordon</string>
     <string name="accessibility_service_label">Cordon Privacy Shield</string>
-    <string name="accessibility_service_description">Scans pasted text in guarded AI &amp; chat apps on-device to redact API keys, passwords, and PII before sending. Zero raw text is ever stored or uploaded.</string>
+    <string name="accessibility_service_description">Watches the Send button in the chat apps you pick. When the message you are about to send contains an API key, password or personal detail, Cordon catches the tap and asks before anything leaves your phone. Everything runs on-device: no raw text is ever stored or uploaded.</string>
 </resources>

@@ -94,8 +94,6 @@ export function App() {
   const [isGeneratingBrief, setIsGeneratingBrief] = useState(false);
   const [isRefreshingPolicy, setIsRefreshingPolicy] = useState(false);
   const [maskDirtySinceCloud, setMaskDirtySinceCloud] = useState(false);
-  const [countdownMs, setCountdownMs] = useState<number | null>(null);
-  const [countdownPaused, setCountdownPaused] = useState(false);
   const [currentResult, setCurrentResult] = useState<TriageResult | null>(null);
   const [history, setHistory] = useState<TriageResult[]>([]);
   const [runbooks, setRunbooks] = useState<CustomRunbook[]>(DEFAULT_RUNBOOKS);
@@ -104,7 +102,6 @@ export function App() {
     useState<RuntimeConfigValues>(DEFAULT_RUNTIME_CONFIG);
   const [activeView, setActiveView] = useState<WorkspaceView>("triage");
   const [mobilePane, setMobilePane] = useState<"input" | "output">("input");
-  const [autoCloudMode, setAutoCloudMode] = useState(false);
   const [protectionLevel, setProtectionLevel] = useState<ProtectionLevel>(() => {
     try {
       const saved = window.localStorage.getItem("localfirst_protection_level");
@@ -465,8 +462,6 @@ export function App() {
     inFlightRef.current = true;
     const gen = ++runGenerationRef.current;
     const targetTicketId = currentResult.id;
-    setCountdownMs(null);
-    setCountdownPaused(false);
     setIsRunning(true);
     try {
       const safeTicket = prepareTicketForEscalation(currentResult);
@@ -499,64 +494,6 @@ export function App() {
     }
   }, [currentResult, isRunning, telemetry.offlineMode, syncHistoryAndQueueCount, syncTicketIfSignedIn]);
 
-  // Auto-Cloud choreography: brief 700ms beat at Airgap Gate, then escalate automatically
-  // Never auto-escalate if Risk Router forces HYBRID_GATED_REVIEW (score >= 40) or CRITICAL_AIRGAP_LOCKDOWN (score >= 80)
-  useEffect(() => {
-    const riskScore = currentResult?.riskProfile?.score ?? 0;
-    const riskAction = currentResult?.riskProfile?.action;
-    if (
-      !autoCloudMode ||
-      telemetry.offlineMode ||
-      isRunning ||
-      riskScore >= 40 ||
-      riskAction === "CRITICAL_AIRGAP_LOCKDOWN" ||
-      riskAction === "HYBRID_GATED_REVIEW" ||
-      (currentResult?.resolutionMode !== "QUARANTINED_PENDING_APPROVAL" &&
-        currentResult?.resolutionMode !== "PRE_CLOUD_COUNTDOWN")
-    ) {
-      return;
-    }
-    const timer = setTimeout(() => {
-      void handleApproveOrRerunCloud();
-    }, 700);
-    return () => clearTimeout(timer);
-  }, [
-    autoCloudMode,
-    telemetry.offlineMode,
-    isRunning,
-    currentResult?.id,
-    currentResult?.resolutionMode,
-    currentResult?.riskProfile?.score,
-    currentResult?.riskProfile?.action,
-    handleApproveOrRerunCloud,
-  ]);
-
-  // 3.0s cancelable pre-cloud countdown timer when Nano 4 is READY
-  useEffect(() => {
-    if (
-      currentResult?.resolutionMode !== "PRE_CLOUD_COUNTDOWN" ||
-      countdownMs === null ||
-      countdownPaused ||
-      telemetry.offlineMode
-    ) {
-      return;
-    }
-    if (countdownMs <= 0) {
-      void handleApproveOrRerunCloud();
-      return;
-    }
-    const timer = setTimeout(() => {
-      setCountdownMs((prev) => (prev !== null ? Math.max(0, prev - 250) : null));
-    }, 250);
-    return () => clearTimeout(timer);
-  }, [
-    currentResult?.resolutionMode,
-    countdownMs,
-    countdownPaused,
-    telemetry.offlineMode,
-    handleApproveOrRerunCloud,
-  ]);
-
   const handleSelectScenario = (scenario: DemoScenario) => {
     runGenerationRef.current += 1;
     inFlightRef.current = false;
@@ -566,8 +503,6 @@ export function App() {
     setRawText(scenario.rawText);
     setImportedFromExtension(false);
     setMaskDirtySinceCloud(false);
-    setCountdownMs(null);
-    setCountdownPaused(false);
   };
 
   useEffect(() => installGlobalClickSfx(), []);
@@ -578,8 +513,6 @@ export function App() {
     const gen = ++runGenerationRef.current;
     setIsRunning(true);
     setMaskDirtySinceCloud(false);
-    setCountdownMs(null);
-    setCountdownPaused(false);
     try {
       const result = await runTriagePipeline({
         title: title.trim() || "Untitled Incident",
@@ -600,14 +533,6 @@ export function App() {
       await syncHistoryAndQueueCount();
       void syncTicketIfSignedIn(result);
 
-      if (
-        result.resolutionMode === "PRE_CLOUD_COUNTDOWN" &&
-        (result.riskProfile?.score ?? 0) < 40 &&
-        result.riskProfile?.action !== "CRITICAL_AIRGAP_LOCKDOWN"
-      ) {
-        setCountdownMs((policy.autoCountdownSeconds ?? 3) * 1000);
-      }
-
       setTelemetry((prev) => recordTriageRunTelemetry(prev, result));
       playAirgapLock();
     } finally {
@@ -620,12 +545,9 @@ export function App() {
 
   const handleToggleSpan = (index: number) => {
     if (!currentResult) return;
-    const { ticket: updatedResult, shouldPauseCountdown, maskDirtySinceCloud: dirty } =
+    const { ticket: updatedResult, maskDirtySinceCloud: dirty } =
       toggleTicketSpanMask(currentResult, index);
     if (updatedResult === currentResult) return;
-    if (shouldPauseCountdown) {
-      setCountdownPaused(true);
-    }
     volatileSessionMap.current.set(updatedResult.id, updatedResult);
     setCurrentResult(updatedResult);
     if (dirty) {
@@ -635,12 +557,9 @@ export function App() {
 
   const handleAddManualSpan = (start: number, end: number) => {
     if (!currentResult) return;
-    const { ticket: updatedResult, shouldPauseCountdown, maskDirtySinceCloud: dirty } =
+    const { ticket: updatedResult, maskDirtySinceCloud: dirty } =
       addManualTicketMask(currentResult, start, end);
     if (updatedResult === currentResult) return;
-    if (shouldPauseCountdown) {
-      setCountdownPaused(true);
-    }
     volatileSessionMap.current.set(updatedResult.id, updatedResult);
     setCurrentResult(updatedResult);
     if (dirty) {
@@ -661,8 +580,6 @@ export function App() {
       Boolean(selected.importedFromExtension || selected.sourcePlatform === "CHROME_EXTENSION"),
     );
     setMaskDirtySinceCloud(false);
-    setCountdownMs(null);
-    setCountdownPaused(false);
     setCurrentResult(selected);
   };
 
@@ -670,8 +587,6 @@ export function App() {
     runGenerationRef.current += 1;
     inFlightRef.current = false;
     setIsRunning(false);
-    setCountdownMs(null);
-    setCountdownPaused(false);
     const idsToDelete = history.map((h) => h.id);
     volatileSessionMap.current.clear();
     escalatedTicketIds.current.clear();
@@ -817,7 +732,6 @@ export function App() {
               runGenerationRef.current += 1;
               inFlightRef.current = false;
               setIsRunning(false);
-              setCountdownPaused(true);
             }
             return {
               ...prev,
@@ -927,8 +841,6 @@ export function App() {
                   if (currentResult) {
                     setCurrentResult(null);
                     setMaskDirtySinceCloud(false);
-                    setCountdownMs(null);
-                    setCountdownPaused(false);
                   }
                 }}
                 onProtectionLevelChange={handleProtectionLevelChange}
@@ -949,11 +861,6 @@ export function App() {
 
             <div
               className={`${mobilePane === "output" ? "flex" : "hidden"} min-h-0 flex-col lg:flex`}
-              onMouseEnter={() => {
-                if (currentResult?.resolutionMode === "PRE_CLOUD_COUNTDOWN") {
-                  setCountdownPaused(true);
-                }
-              }}
             >
               <RightWorkbenchPane
                 currentResult={currentResult}
@@ -962,13 +869,9 @@ export function App() {
                 isGeneratingBrief={isGeneratingBrief}
                 isRefreshingPolicy={isRefreshingPolicy}
                 offlineMode={telemetry.offlineMode}
-                countdownMs={countdownMs}
-                countdownPaused={countdownPaused}
                 maskDirtySinceCloud={maskDirtySinceCloud}
                 telemetry={telemetry}
                 runtimeConfig={runtimeConfig}
-                autoCloudMode={autoCloudMode}
-                onToggleAutoCloudMode={() => setAutoCloudMode((v) => !v)}
                 onRunLiveDemo={() => {
                   handleSelectScenario(DEMO_SCENARIOS[0]);
                   setMobilePane("output");
@@ -976,7 +879,6 @@ export function App() {
                 }}
                 onToggleSpan={handleToggleSpan}
                 onAddManualSpan={handleAddManualSpan}
-                onPauseCountdown={() => setCountdownPaused(true)}
                 onApproveOrRerunCloud={(opts) => void handleApproveOrRerunCloud(opts)}
                 onPurgeRamVault={() => purgeRehydrationVault()}
                 onGenerateHybridBrief={() => void handleGenerateHybridBrief()}

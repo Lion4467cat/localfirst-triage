@@ -9,7 +9,6 @@ import {
   FileText,
   Loader2,
   Lock,
-  Pause,
   RefreshCw,
   ShieldAlert,
   ShieldCheck,
@@ -42,17 +41,12 @@ interface RightWorkbenchPaneProps {
   isGeneratingBrief: boolean;
   isRefreshingPolicy: boolean;
   offlineMode: boolean;
-  countdownMs: number | null;
-  countdownPaused: boolean;
   maskDirtySinceCloud: boolean;
   telemetry: HybridTelemetry;
   runtimeConfig: RuntimeConfigValues;
-  autoCloudMode: boolean;
-  onToggleAutoCloudMode: () => void;
   onRunLiveDemo: () => void;
   onToggleSpan: (spanIndex: number) => void;
   onAddManualSpan: (start: number, end: number) => void;
-  onPauseCountdown: () => void;
   onApproveOrRerunCloud: (options?: { bypassCache?: boolean }) => void;
   onPurgeRamVault?: () => void;
   onGenerateHybridBrief: () => void;
@@ -300,7 +294,7 @@ function SafeMarkdownView({
           >
             {checked ? <Check className="h-2.5 w-2.5" /> : null}
           </span>
-          <span>{renderInlineCodeAndBold(checklistMatch[2], rehydrateCtx)}</span>
+          <span className="min-w-0 break-words">{renderInlineCodeAndBold(checklistMatch[2], rehydrateCtx)}</span>
         </div>
       );
       return;
@@ -314,7 +308,7 @@ function SafeMarkdownView({
           style={{ color: "var(--text-secondary)" }}
         >
           <span style={{ color: "var(--text-muted)" }}>•</span>
-          <span>{renderInlineCodeAndBold(trimmed.slice(2), rehydrateCtx)}</span>
+          <span className="min-w-0 break-words">{renderInlineCodeAndBold(trimmed.slice(2), rehydrateCtx)}</span>
         </div>
       );
       return;
@@ -331,14 +325,14 @@ function SafeMarkdownView({
           <span className="font-mono font-semibold tabular-nums" style={{ color: "var(--text-primary)" }}>
             {numMatch[1]}
           </span>
-          <span>{renderInlineCodeAndBold(numMatch[2], rehydrateCtx)}</span>
+          <span className="min-w-0 break-words">{renderInlineCodeAndBold(numMatch[2], rehydrateCtx)}</span>
         </div>
       );
       return;
     }
 
     blocks.push(
-      <p key={`p-${idx}`} className="text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+      <p key={`p-${idx}`} className="break-words text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
         {renderInlineCodeAndBold(trimmed, rehydrateCtx)}
       </p>
     );
@@ -348,7 +342,9 @@ function SafeMarkdownView({
     flushCode(lines.length + 1);
   }
 
-  return <div className="space-y-1">{blocks}</div>;
+  // `[overflow-wrap:anywhere]` keeps long redaction tokens and inline chips from
+  // forcing the pane wider than a 390px mobile viewport (where an ancestor clips).
+  return <div className="space-y-1 [overflow-wrap:anywhere] break-words">{blocks}</div>;
 }
 
 export function RightWorkbenchPane({
@@ -358,17 +354,12 @@ export function RightWorkbenchPane({
   isGeneratingBrief,
   isRefreshingPolicy,
   offlineMode,
-  countdownMs,
-  countdownPaused,
   maskDirtySinceCloud,
   telemetry,
   runtimeConfig,
-  autoCloudMode,
-  onToggleAutoCloudMode,
   onRunLiveDemo,
   onToggleSpan,
   onAddManualSpan,
-  onPauseCountdown,
   onApproveOrRerunCloud,
   onPurgeRamVault,
   onGenerateHybridBrief,
@@ -729,7 +720,7 @@ export function RightWorkbenchPane({
       )}
 
       {/* Main Scrollable Pane Content */}
-      <div className="min-h-0 flex-1 overflow-y-auto p-3.5">
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-3.5">
         {/* Idle Visual Preview (No Empty Void) */}
         {!currentResult && !isRunning && activeTab !== "proof" && (
           <div className="flex h-full min-h-[290px] flex-col items-center justify-center gap-5 py-6 text-center">
@@ -1170,7 +1161,7 @@ export function RightWorkbenchPane({
             )}
 
             <div
-              className="rounded-lg border p-3.5"
+              className="rounded-lg border p-3.5 [overflow-wrap:anywhere]"
               style={{
                 backgroundColor: "var(--bg-surface)",
                 borderColor: "var(--border-subtle)",
@@ -1618,60 +1609,15 @@ export function RightWorkbenchPane({
             </div>
           ) : (
             <div className="flex w-full flex-wrap items-center justify-between gap-2">
-              {currentResult.resolutionMode === "PRE_CLOUD_COUNTDOWN" && countdownMs !== null ? (
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-xs tabular-nums" style={{ color: "var(--text-secondary)" }}>
-                    {countdownPaused
-                      ? "Auto-send paused"
-                      : `Sending in ${Math.ceil(countdownMs / 1000)}s...`}
-                  </span>
-                  {!countdownPaused && (
-                    <button
-                      type="button"
-                      onClick={onPauseCountdown}
-                      className="inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] font-medium"
-                      style={{
-                        backgroundColor: "var(--bg-surface)",
-                        borderColor: "var(--border-subtle)",
-                        color: "var(--text-primary)",
-                      }}
-                    >
-                      <Pause className="h-3 w-3" aria-hidden="true" />
-                      Pause
-                    </button>
-                  )}
-                </div>
-              ) : (
-                <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
-                  {unmaskedCount > 0
-                    ? `Mask ${unmaskedCount} unmasked span(s) to unlock cloud`
-                    : currentResult.resolutionMode === "CLOUD_ESCALATION"
-                      ? "Cloud analysis complete"
-                      : "Only [REDACTED:...] tokens leave your device"}
-                </span>
-              )}
+              <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+                {unmaskedCount > 0
+                  ? `Mask ${unmaskedCount} unmasked span(s) to unlock cloud`
+                  : currentResult.resolutionMode === "CLOUD_ESCALATION"
+                    ? "Cloud analysis complete"
+                    : "Only [REDACTED:...] tokens leave your device"}
+              </span>
 
               <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={autoCloudMode}
-                  aria-label="Toggle Auto-Cloud mode"
-                  onClick={onToggleAutoCloudMode}
-                  className="inline-flex min-h-[32px] items-center gap-1.5 rounded-md border px-2.5 text-[11px] font-medium"
-                  style={{
-                    backgroundColor: autoCloudMode ? "var(--safe-bg)" : "var(--bg-surface)",
-                    borderColor: autoCloudMode ? "var(--safe-border)" : "var(--border-subtle)",
-                    color: autoCloudMode ? "var(--safe-text)" : "var(--text-secondary)",
-                  }}
-                >
-                  <span
-                    className="h-1.5 w-1.5 rounded-full"
-                    style={{ backgroundColor: autoCloudMode ? "var(--safe-solid)" : "var(--text-muted)" }}
-                  />
-                  {autoCloudMode ? "Auto-Cloud" : "Pause at Airgap"}
-                </button>
-
                 {currentResult.riskProfile?.action === "CRITICAL_AIRGAP_LOCKDOWN" && !criticalOverrideArmed ? (
                   <div className="flex flex-wrap items-center gap-2">
                     <span

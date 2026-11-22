@@ -28,6 +28,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -246,23 +247,33 @@ class MainActivity : ComponentActivity() {
                     bottomBar = {
                         if (!showSetupScreen) {
                             NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+                                val itemColors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                                 NavigationBarItem(
                                     selected = activeTab == 0,
                                     onClick = { activeTab = 0 },
                                     icon = { Icon(Icons.Default.Shield, contentDescription = null) },
                                     label = { Text("Shield", fontSize = 11.sp) },
+                                    colors = itemColors,
                                 )
                                 NavigationBarItem(
                                     selected = activeTab == 1,
                                     onClick = { activeTab = 1 },
                                     icon = { Icon(Icons.Default.History, contentDescription = null) },
                                     label = { Text("History", fontSize = 11.sp) },
+                                    colors = itemColors,
                                 )
                                 NavigationBarItem(
                                     selected = activeTab == 2,
                                     onClick = { activeTab = 2 },
                                     icon = { Icon(Icons.Default.Settings, contentDescription = null) },
                                     label = { Text("Settings", fontSize = 11.sp) },
+                                    colors = itemColors,
                                 )
                             }
                         }

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   buildSanitizedHandoffUrl,
+  describeManualHost,
   isLikelyNonSendButton,
   mergeSpans,
   runLocalDeterministicScan,
@@ -117,10 +118,17 @@ describe("Chrome Extension MV3 companion", () => {
     const matches = manifest.content_scripts.flatMap((entry) => entry.matches);
     expect(matches).toContain("https://discord.com/*");
     expect(manifest.host_permissions).toContain("https://discord.com/*");
+    for (const perplexity of ["https://www.perplexity.ai/*", "https://perplexity.ai/*"]) {
+      expect(matches).toContain(perplexity);
+      expect(manifest.host_permissions).toContain(perplexity);
+    }
+    const swSource = fs.readFileSync(path.join(EXT_DIR, "service-worker.js"), "utf8");
+    expect(swSource).toContain("https://www.perplexity.ai/*");
+    expect(swSource).toContain("https://perplexity.ai/*");
     for (const dead of ["atlassian.net", "zendesk.com", "pagerduty.com", "linear.app"]) {
       expect(manifest.host_permissions.join(" ")).not.toContain(dead);
     }
-    expect(manifest.version).toBe("4.3.1");
+    expect(manifest.version).toBe("4.4.0");
   });
 
   it("keeps package and extension versions in lockstep", () => {
@@ -130,7 +138,7 @@ describe("Chrome Extension MV3 companion", () => {
     const manifest = JSON.parse(
       fs.readFileSync(path.join(EXT_DIR, "manifest.json"), "utf8"),
     ) as { version: string };
-    expect(pkg.version).toBe("4.3.1");
+    expect(pkg.version).toBe("4.4.0");
     expect(manifest.version).toBe(pkg.version);
   });
 
@@ -141,9 +149,28 @@ describe("Chrome Extension MV3 companion", () => {
     }
     expect(html).toMatch(/Open ChatGPT to test/i);
     expect(html).toContain("Discord");
-    expect(html).toContain("v4.3.1");
+    expect(html).toContain("v4.4.0");
     // The model download must be presented as optional, never as a required first step.
     expect(html).toMatch(/Optional:\s*on-device AI/i);
+  });
+
+  it("never renders a raw extension id in the side panel's Manual Mode pill", () => {
+    const extensionId = ["abahmomh", "foknlfoe", "kmndidnh", "imcohmhe"].join("");
+    expect(describeManualHost(`chrome-extension://${extensionId}/sidepanel/sidepanel.html`)).toBe(
+      "this browser tab",
+    );
+    expect(describeManualHost("chrome://settings/system")).toBe("this browser tab");
+    expect(describeManualHost("https://chatgpt.com/c/abc")).toBe("chatgpt.com");
+    expect(describeManualHost(undefined)).toBe("this browser tab");
+  });
+
+  it("puts the Protection Dial above the first-run Setup card", () => {
+    const html = fs.readFileSync(path.join(EXT_DIR, "sidepanel/sidepanel.html"), "utf8");
+    const dialAt = html.indexOf('class="card dial-card"');
+    const setupAt = html.indexOf('id="setup-gate"');
+    expect(dialAt).toBeGreaterThan(-1);
+    expect(setupAt).toBeGreaterThan(-1);
+    expect(dialAt).toBeLessThan(setupAt);
   });
 
   it("handles Unicode characters in Chrome Extension -> Web PWA handoff encoding", async () => {

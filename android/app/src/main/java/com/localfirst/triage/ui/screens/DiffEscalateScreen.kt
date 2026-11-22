@@ -55,6 +55,7 @@ import com.localfirst.triage.ui.theme.LocalFirstThemeTokens
 
 private fun friendlyCategoryName(category: String): String = when (category) {
     "AWS_ACCESS_KEY" -> "AWS Key"
+    "AWS_SECRET_KEY" -> "AWS Secret Key"
     "STRIPE_KEY" -> "Stripe Key"
     "FIREBASE_KEY" -> "Firebase Key"
     "WEBHOOK_SECRET" -> "Webhook Secret"

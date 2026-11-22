@@ -194,4 +194,192 @@ class SendInterceptionTest {
         assertNull(sm.trackedState)
         assertFalse(sm.shouldHoldShield("com.openai.chatgpt"))
     }
+
+    @Test
+    fun `a readable clean observation also clears the recent fallback`() {
+        val sm = SendPromptStateMachine()
+        observe(sm, secret, now = 1_000L)
+        observe(sm, "my key is [removed]", now = 1_050L)
+        // The secret is gone from the field, so the fallback must not resurrect it and
+        // overwrite whatever the user has typed since.
+        assertNull(sm.onSendClickedRecent("com.openai.chatgpt", nowMs = 1_100L))
+    }
+
+    // --- Tap path: one blank read at tap time must never send the raw secret ------------------
+
+    @Test
+    fun `a blank tap-time read still prompts from the recent risky state`() {
+        val sm = SendPromptStateMachine()
+        observe(sm, secret, now = 1_000L)
+        observe(sm, "", now = 1_020L) // event-path flap: tracked state gone, recent memory kept
+        assertNull(sm.trackedState)
+        // The tap handler re-reads the composer and the framework reports "" again.
+        val result = sm.onShieldTapped(
+            pkg = "com.openai.chatgpt",
+            appName = "ChatGPT",
+            fresh = "",
+            protectionLevel = ProtectionLevel.MEDIUM,
+            nowMs = 1_050L,
+        )
+        assertEquals(ShieldTapOutcome.SHOW_PROMPT, result.outcome)
+        assertNotNull("a blank read must not erase a secret seen moments earlier", result.prompt)
+        assertTrue(sm.isPromptVisible)
+    }
+
+    @Test
+    fun `an unreadable tap-time read holds the shield instead of sending`() {
+        val sm = SendPromptStateMachine()
+        observe(sm, secret, now = 1_000L)
+        val live = sm.onShieldTapped(
+            pkg = "com.openai.chatgpt",
+            appName = "ChatGPT",
+            fresh = null,
+            protectionLevel = ProtectionLevel.MEDIUM,
+            nowMs = 1_050L,
+        )
+        assertEquals(ShieldTapOutcome.SHOW_PROMPT, live.outcome)
+        assertTrue("the shield must stay armed", sm.shouldHoldShield("com.openai.chatgpt"))
+
+        // Same unreadable tap once the recent memory has expired: the composer still cannot be
+        // proven clean, so the tap must be held rather than sent.
+        val stale = SendPromptStateMachine()
+        observe(stale, secret, now = 1_000L)
+        observe(stale, "", now = 1_010L) // the flap the old tap path used to trust
+        val expired = stale.onShieldTapped(
+            pkg = "com.openai.chatgpt",
+            appName = "ChatGPT",
+            fresh = null,
+            protectionLevel = ProtectionLevel.MEDIUM,
+            nowMs = 1_000L + SendPromptStateMachine.RECENT_STATE_TTL_MS + 1,
+        )
+        assertEquals(ShieldTapOutcome.HOLD, expired.outcome)
+        assertNull(expired.prompt)
+    }
+
+    @Test
+    fun `a blank tap-time read with no recent state is never treated as clean`() {
+        val sm = SendPromptStateMachine()
+        val result = sm.onShieldTapped(
+            pkg = "com.openai.chatgpt",
+            appName = "ChatGPT",
+            fresh = "",
+            protectionLevel = ProtectionLevel.MEDIUM,
+            nowMs = 1_050L,
+        )
+        assertEquals(ShieldTapOutcome.HOLD, result.outcome)
+        assertNull(result.prompt)
+    }
+
+    @Test
+    fun `a readable clean tap-time read lets the tap through`() {
+        val sm = SendPromptStateMachine()
+        val result = sm.onShieldTapped(
+            pkg = "com.openai.chatgpt",
+            appName = "ChatGPT",
+            fresh = "just a normal question",
+            protectionLevel = ProtectionLevel.MEDIUM,
+            nowMs = 1_050L,
+        )
+        assertEquals(ShieldTapOutcome.SEND, result.outcome)
+    }
+
+    // --- Arming retry: a slow first scan must not let Send slip through ------------------------
+
+    @Test
+    fun `arming retries while the tree is unreadable so a fast Send tap is still caught`() {
+        // Window tree not ready yet (keyboard still animating): keep retrying, do not give up.
+        assertTrue(ShieldArmRetryPolicy.shouldRetry(attempt = 0, rootAvailable = false, targetAvailable = false))
+        assertTrue(ShieldArmRetryPolicy.shouldRetry(attempt = 3, rootAvailable = true, targetAvailable = false))
+        // Once the Send control is located the retry loop must stop.
+        assertFalse(ShieldArmRetryPolicy.shouldRetry(attempt = 3, rootAvailable = true, targetAvailable = true))
+    }
+
+    @Test
+    fun `arming retry is bounded so a dead window never spins forever`() {
+        var attempt = 0
+        while (ShieldArmRetryPolicy.shouldRetry(attempt, rootAvailable = false, targetAvailable = false)) {
+            attempt++
+            assertTrue("retry loop must terminate", attempt < 100)
+        }
+        assertEquals(ShieldArmRetryPolicy.MAX_ATTEMPTS, attempt)
+    }
+
+    @Test
+    fun `arming retry backs off and stays inside the send-tap window`() {
+        val delays = (0 until ShieldArmRetryPolicy.MAX_ATTEMPTS).map { ShieldArmRetryPolicy.delayMs(it) }
+        assertTrue("first retry must be fast, was ${delays.first()}", delays.first() <= 80L)
+        // Monotonic, non-decreasing backoff.
+        delays.zipWithNext().forEach { (a, b) -> assertTrue("backoff must not shrink: $a -> $b", b >= a) }
+        // Total time to exhaust retries must stay well under the time a user needs to tap Send.
+        assertTrue("total retry budget too long: ${delays.sum()}ms", delays.sum() <= 1_500L)
+    }
+
+    // --- Prompt placement: the dialog must sit next to the Send button ------------------------
+
+    @Test
+    fun `prompt is placed directly above the send control`() {
+        assertEquals(
+            1_000,
+            PromptPlacement.topFor(anchorTop = 1_230, promptHeight = 200, gapPx = 30, minTopPx = 150),
+        )
+    }
+
+    @Test
+    fun `prompt never climbs above the status bar on a short screen`() {
+        assertEquals(
+            150,
+            PromptPlacement.topFor(anchorTop = 300, promptHeight = 400, gapPx = 30, minTopPx = 150),
+        )
+    }
+
+    @Test
+    fun `prompt falls back to the minimum when no anchor is known`() {
+        assertEquals(
+            150,
+            PromptPlacement.topFor(anchorTop = 0, promptHeight = 0, gapPx = 30, minTopPx = 150),
+        )
+    }
+
+    // --- Geometric fallback: keep the shield over Send when the node tree hides it ------------
+
+    @Test
+    fun `fallback anchor covers the send corner of the composer row`() {
+        val composer = ShieldGeometry.ShieldRect(70, 1145, 1010, 1265)
+        val screen = ShieldGeometry.ShieldRect(0, 0, 1080, 2400)
+        val anchor = ShieldFallbackAnchor.forComposer(
+            editable = composer,
+            screen = screen,
+            widthPx = 150,
+            extraBottomPx = 60,
+        )!!
+        assertEquals(930, anchor.left)
+        assertEquals(1080, anchor.right)
+        assertEquals(1145, anchor.top)
+        // Reaches past the text field: the Send control sits on the row's bottom edge.
+        assertEquals(1325, anchor.bottom)
+    }
+
+    @Test
+    fun `fallback anchor is clamped inside the screen`() {
+        val composer = ShieldGeometry.ShieldRect(0, 20, 1080, 90)
+        val screen = ShieldGeometry.ShieldRect(0, 0, 1080, 2400)
+        val anchor = ShieldFallbackAnchor.forComposer(
+            editable = composer,
+            screen = screen,
+            widthPx = 150,
+            extraBottomPx = 60,
+        )!!
+        assertEquals(20, anchor.top)
+        assertTrue(anchor.bottom <= screen.bottom)
+        assertTrue(anchor.right <= screen.right)
+    }
+
+    @Test
+    fun `fallback anchor refuses an unreadable composer`() {
+        val empty = ShieldGeometry.ShieldRect(0, 0, 0, 0)
+        val screen = ShieldGeometry.ShieldRect(0, 0, 1080, 2400)
+        assertNull(
+            ShieldFallbackAnchor.forComposer(empty, screen, widthPx = 150, extraBottomPx = 60),
+        )
+    }
 }

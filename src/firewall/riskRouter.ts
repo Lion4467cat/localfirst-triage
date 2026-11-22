@@ -10,6 +10,7 @@ import type {
 const HARD_CREDENTIAL_CATEGORIES = new Set([
   "API_KEY",
   "AWS_ACCESS_KEY",
+  "AWS_SECRET_KEY",
   "BEARER_OR_JWT",
   "PRIVATE_KEY",
   "DB_URI",

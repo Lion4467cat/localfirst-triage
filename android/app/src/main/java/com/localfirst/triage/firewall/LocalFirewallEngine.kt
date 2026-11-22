@@ -58,7 +58,7 @@ object LocalFirewallEngine {
     )
 
     private val CANONICAL_CATEGORIES = setOf(
-        "API_KEY", "AWS_ACCESS_KEY", "SECRET", "PASSWORD", "BEARER_OR_JWT",
+        "API_KEY", "AWS_ACCESS_KEY", "AWS_SECRET_KEY", "SECRET", "PASSWORD", "BEARER_OR_JWT",
         "PRIVATE_KEY", "DB_URI", "CREDIT_CARD", "GOV_ID", "PHONE", "EMAIL",
         "ADDRESS", "PERSON", "ORG_TERM", "PHI", "M_AND_A_SECRET", "HIGH_ENTROPY",
         "IP_ADDRESS", "IBAN", "ACCOUNT_NUMBER", "POSTAL_CODE", "SENSITIVE",
@@ -136,6 +136,15 @@ object LocalFirewallEngine {
             category = "AWS_ACCESS_KEY",
             detector = DetectorSource.REGEX_FIREWALL,
             pattern = Regex("""\b(?:AKIA|ASIA|AIDA|AROA)[0-9A-Z]{16}\b"""),
+        ),
+        RegexRule(
+            // The 40-char secret that follows AWS_SECRET_ACCESS_KEY= has no recognisable prefix,
+            // so it is only identifiable by its assignment label.
+            category = "AWS_SECRET_KEY",
+            detector = DetectorSource.REGEX_FIREWALL,
+            pattern = Regex(
+                """(?i)\b(?:aws_?)?secret_?access_?key\b\s*[:=]\s*["']?[A-Za-z0-9/+=]{40}(?![A-Za-z0-9/+=])""",
+            ),
         ),
         RegexRule(
             category = "API_KEY",
@@ -261,7 +270,9 @@ object LocalFirewallEngine {
             category = "EMAIL",
             detector = DetectorSource.REGEX_FIREWALL,
             minLevel = ProtectionLevel.MEDIUM,
-            pattern = Regex("""\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"""),
+            // Lookbehind keeps the engine from restarting inside a long hyphen/dot run,
+            // which made this pattern quadratic on adversarial input (ReDoS guard).
+            pattern = Regex("""(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"""),
         ),
         RegexRule(
             category = "PHONE",

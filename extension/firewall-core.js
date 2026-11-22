@@ -59,7 +59,7 @@
   ]);
 
   const CANONICAL_CATEGORIES = new Set([
-    "API_KEY", "AWS_ACCESS_KEY", "SECRET", "PASSWORD", "BEARER_OR_JWT",
+    "API_KEY", "AWS_ACCESS_KEY", "AWS_SECRET_KEY", "SECRET", "PASSWORD", "BEARER_OR_JWT",
     "PRIVATE_KEY", "DB_URI", "CREDIT_CARD", "GOV_ID", "PHONE", "EMAIL",
     "ADDRESS", "PERSON", "ORG_TERM", "PHI", "M_AND_A_SECRET", "HIGH_ENTROPY",
     "IP_ADDRESS", "IBAN", "ACCOUNT_NUMBER", "POSTAL_CODE", "SENSITIVE",
@@ -109,6 +109,14 @@
       category: "AWS_ACCESS_KEY",
       detector: "REGEX_FIREWALL",
       pattern: /\b(?:AKIA|ASIA|AIDA|AROA)[0-9A-Z]{16}\b/g,
+    },
+    {
+      // The 40-char secret that follows AWS_SECRET_ACCESS_KEY=. Anchored to the
+      // key NAME so a bare 40-char base64 hash elsewhere is not falsely redacted.
+      category: "AWS_SECRET_KEY",
+      detector: "REGEX_FIREWALL",
+      pattern:
+        /\b(?:aws_?)?secret_?access_?key\b\s*[:=]\s*["']?[A-Za-z0-9/+=]{40}(?![A-Za-z0-9/+=])/gi,
     },
     {
       category: "API_KEY",
@@ -217,7 +225,7 @@
       category: "EMAIL",
       detector: "REGEX_FIREWALL",
       minLevel: "medium",
-      pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
+      pattern: /(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
     },
     {
       category: "PHONE",
@@ -558,6 +566,7 @@
   const CREDENTIAL_CATS = new Set([
     "API_KEY",
     "AWS_ACCESS_KEY",
+    "AWS_SECRET_KEY",
     "BEARER_OR_JWT",
     "PEM_PRIVATE_KEY",
     "PRIVATE_KEY",
@@ -753,6 +762,24 @@
     return NON_SEND_LABELS.some((bad) => norm === bad || norm.startsWith(`${bad} `));
   }
 
+  /**
+   * Plain-language label for the side panel's "Manual Mode" pill. Never returns
+   * a raw extension id or an internal scheme.
+   */
+  function describeManualHost(tabUrl) {
+    let host = "";
+    try {
+      const parsed = new URL(String(tabUrl || ""));
+      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return "this browser tab";
+      host = parsed.hostname || "";
+    } catch {
+      return "this browser tab";
+    }
+    // Chrome extension ids are 32 chars in the a-p range.
+    if (!host || /^[a-p]{32}$/i.test(host)) return "this browser tab";
+    return host;
+  }
+
   function buildSanitizedHandoffUrl(title, sanitizedText, baseUrl = "https://para-1-2e22b.web.app/") {
     const json = JSON.stringify({ title, sanitizedText });
     const bytes = new TextEncoder().encode(json);
@@ -773,6 +800,7 @@
     scrubSync,
     runExtensionNanoScan,
     buildSanitizedHandoffUrl,
+    describeManualHost,
     shouldInterceptSendKey,
     isLikelyNonSendButton,
   };

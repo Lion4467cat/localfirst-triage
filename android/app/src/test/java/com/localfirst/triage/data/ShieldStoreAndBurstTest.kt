@@ -505,6 +505,27 @@ class ShieldStoreAndBurstTest {
         assertFalse("enabled state must not ask to enable", on.contains("Enable", ignoreCase = true))
     }
 
+    @Test
+    fun `status label distinguishes off from paused and active`() {
+        assertEquals("OFF", ShieldStatusCopy.label(accessibilityEnabled = false, paused = false))
+        assertEquals("OFF", ShieldStatusCopy.label(accessibilityEnabled = false, paused = true))
+        assertEquals("PAUSED", ShieldStatusCopy.label(accessibilityEnabled = true, paused = true))
+        assertEquals("ACTIVE", ShieldStatusCopy.label(accessibilityEnabled = true, paused = false))
+
+        assertTrue(
+            ShieldStatusCopy.headline(accessibilityEnabled = false, paused = false, guardedAppCount = 12)
+                .contains("12"),
+        )
+        assertTrue(
+            ShieldStatusCopy.headline(accessibilityEnabled = true, paused = true, guardedAppCount = 12)
+                .contains("paused", ignoreCase = true),
+        )
+        assertTrue(
+            ShieldStatusCopy.headline(accessibilityEnabled = true, paused = false, guardedAppCount = 12)
+                .contains("Watching 12"),
+        )
+    }
+
     // =====================================================================
     // Guarded-app coverage: every major browser must be shielded
     // =====================================================================

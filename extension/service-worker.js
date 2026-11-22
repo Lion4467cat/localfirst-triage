@@ -1,5 +1,8 @@
 const MENU_ID = "localfirst-triage-selection";
-const CAPTURE_STORAGE_KEY = "pendingCapture";
+
+// Zero-PII: the raw selection lives in service-worker memory only and is handed
+// to the side panel exactly once. Nothing raw is ever written to chrome.storage.
+let pendingCapture = null;
 
 chrome.runtime.onInstalled.addListener(async () => {
   await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
@@ -19,6 +22,8 @@ chrome.runtime.onInstalled.addListener(async () => {
     "https://github.com/*",
     "https://app.slack.com/*",
     "https://discord.com/*",
+    "https://www.perplexity.ai/*",
+    "https://perplexity.ai/*",
     "http://localhost/*",
   ];
   try {
@@ -51,13 +56,11 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     // Fallback to generic label
   }
 
-  await chrome.storage.session.set({
-    [CAPTURE_STORAGE_KEY]: {
-      title: tab?.title ? `Capture (${sourceHost}): ${tab.title.slice(0, 60)}` : `Capture (${sourceHost})`,
-      rawText: info.selectionText,
-      capturedAt: Date.now(),
-    },
-  });
+  pendingCapture = {
+    title: tab?.title ? `Capture (${sourceHost}): ${tab.title.slice(0, 60)}` : `Capture (${sourceHost})`,
+    rawText: info.selectionText,
+    capturedAt: Date.now(),
+  };
 
   await chrome.action.setBadgeBackgroundColor({ color: "#4f46e5" });
   await chrome.action.setBadgeText({ text: "1" });
@@ -65,9 +68,22 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (tab?.windowId !== undefined) {
     await chrome.sidePanel.open({ windowId: tab.windowId });
   }
+
+  // Nudge an already-open side panel to pull the in-memory capture.
+  try {
+    await chrome.runtime.sendMessage({ type: "CAPTURE_READY" });
+  } catch {
+    // No open side panel listening; it will pull on next open.
+  }
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "GET_CAPTURE") {
+    const capture = pendingCapture;
+    pendingCapture = null;
+    sendResponse({ capture });
+    return false;
+  }
   if (message?.type === "CLEAR_BADGE") {
     (async () => {
       await chrome.action.setBadgeText({ text: "" });

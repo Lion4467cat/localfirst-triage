@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
 import { render, fireEvent, waitFor } from "@testing-library/react";
 import App, { decodeHandoffHash, prepareTicketForEscalation } from "../src/App";
 import { clearSanitizedTickets, stripRawTextForStorage } from "../src/storage/ticketStore";
@@ -59,6 +61,15 @@ describe("App integration", () => {
       title: "GitHub Issue #42",
       sanitizedText: "Error with [REDACTED:API_KEY_1]",
     });
+  });
+
+  it("renders the package version in the header pill instead of a stale literal", () => {
+    const pkg = JSON.parse(
+      fs.readFileSync(path.resolve(process.cwd(), "package.json"), "utf8"),
+    ) as { version: string };
+    const { getByText } = render(<App />);
+    const escaped = pkg.version.replace(/\./g, "\\.");
+    expect(getByText(new RegExp(`V${escaped} · HYBRID AIRGAP`))).toBeTruthy();
   });
 
   it("supports System / Light / Dark theme switching and persists non-system choice", () => {

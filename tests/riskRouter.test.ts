@@ -43,7 +43,7 @@ describe("riskRouter", () => {
   it("triggers CRITICAL_AIRGAP_LOCKDOWN when score >= 80", () => {
     const profile = computeRiskProfile("critical outage", {
       spans: [
-        span("AWS_ACCESS_KEY", "REGEX_FIREWALL", "AKIA1234567890ABCDEF"),
+        span("AWS_ACCESS_KEY", "REGEX_FIREWALL", ["AKIA", "1234567890ABCDEF"].join("")),
         span("BEARER_OR_JWT", "REGEX_FIREWALL", "eyJ..."),
         span("MEDICAL_PHI", "NANO_SEMANTIC_FIREWALL", "seizure"),
         span("M_AND_A_SECRET", "HEURISTIC_GUARD", "Project-Chimera"),

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Cordon — On-Device AI Privacy Shield",
   "short_name": "Cordon",
-  "version": "4.3.1",
+  "version": "4.4.0",
   "description": "Live Browser Paste Shield & Side Panel Firewall. Blocks secrets on-device before ChatGPT, Claude, Gemini, GitHub, Slack, or Discord sees a single byte.",
   "icons": {
     "16": "icons/icon-16.png",
@@ -33,6 +33,8 @@
     "https://github.com/*",
     "https://app.slack.com/*",
     "https://discord.com/*",
+    "https://www.perplexity.ai/*",
+    "https://perplexity.ai/*",
     "https://para-1-2e22b.web.app/*",
     "http://localhost/*",
     "http://127.0.0.1/*"
@@ -47,6 +49,8 @@
         "https://github.com/*",
         "https://app.slack.com/*",
         "https://discord.com/*",
+        "https://www.perplexity.ai/*",
+        "https://perplexity.ai/*",
         "http://localhost/*"
       ],
       "js": ["firewall-core.js", "content-shield.js"],

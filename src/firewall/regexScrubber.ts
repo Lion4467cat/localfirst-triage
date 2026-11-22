@@ -84,6 +84,14 @@ const DETERMINISTIC_REGEX_RULES: RegexRule[] = [
     pattern: /\b(?:AKIA|ASIA|AIDA|AROA)[0-9A-Z]{16}\b/g,
   },
   {
+    // The 40-char secret that follows AWS_SECRET_ACCESS_KEY=. Anchored to the
+    // key NAME so a bare 40-char base64 hash elsewhere is not falsely redacted.
+    category: "AWS_SECRET_KEY",
+    detector: "REGEX_FIREWALL",
+    pattern:
+      /\b(?:aws_?)?secret_?access_?key\b\s*[:=]\s*["']?[A-Za-z0-9/+=]{40}(?![A-Za-z0-9/+=])/gi,
+  },
+  {
     category: "API_KEY",
     detector: "REGEX_FIREWALL",
     pattern:
@@ -192,7 +200,7 @@ const DETERMINISTIC_REGEX_RULES: RegexRule[] = [
     category: "EMAIL",
     detector: "REGEX_FIREWALL",
     minLevel: "medium",
-    pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
+    pattern: /(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
   },
   {
     category: "PHONE",

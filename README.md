@@ -1,4 +1,4 @@
-# Cordon (`v4.3.1`)
+# Cordon (`v4.4.0`)
 
 **Unified 3-surface on-device hybrid AI privacy firewall across Chrome Extension (MV3), Native Android, and Web PWA.**
 
@@ -42,11 +42,11 @@ ChatGPT, Claude, Gemini, GitHub, Slack, Discord. Textareas are protected on `Ctr
 
 ## Verified Third-Party Benchmarks (`Before → After`, Medium tier)
 
-Measured against real external datasets — `ai4privacy/pii-masking-200k` (150 English rows), upstream `gitleaks/gitleaks` (`config/gitleaks.toml`, 221 rules parsed), and 100 clean developer/prose chunks:
+Measured against real external datasets — `ai4privacy/pii-masking-300k` (150 English rows), upstream `gitleaks/gitleaks` (`config/gitleaks.toml`, 221 rules parsed), and 100 clean developer/prose chunks:
 
 | Metric (`medium` Default · Web & Extension Parity) | Baseline | Optimized |
 | :--- | :---: | :---: |
-| **Suite A1 — Structured PII (`ai4privacy/pii-masking-200k`, 89 specs)** | `22.5%` (`20/89`) | **`70.8%` (`63/89`)** |
+| **Suite A1 — Structured PII (`ai4privacy/pii-masking-300k`, 89 specs)** | `22.5%` (`20/89`) | **`70.8%` (`63/89`)** |
 | **Suite A2 — Unstructured PII (`23 specs`)** | `0.0%` (`0/23`) | **`0.0%` (`0/23`)** — deterministic-only limit; see *Scope & limits* |
 | **Suite B — Gitleaks Vendor Credentials (`42` specs)** | `59.5%` (`25/42`) | **`100.0%` (`42/42`)** |
 | **Suite C — Dev / Code False-Positive Rate (`100` chunks)** | `1.0%` (`1/100`) | **`0.0%` (`0/100`)** |
@@ -82,7 +82,7 @@ You will see exactly **one** confirmation: **Scrub & Send** (safe version goes o
 
 ### C. Android app — 2 minutes
 
-1. On the phone, open the [Releases page](https://github.com/Lion4467cat/localfirst-triage/releases) and download `app-debug.apk`, then tap it to install (allow "install unknown apps" when Android asks).
+1. On the phone, open the [Releases page](https://github.com/Lion4467cat/localfirst-triage/releases) and download `cordon-android-v4.4.0.apk`, then tap it to install (allow "install unknown apps" when Android asks).
 2. Open **Cordon**. On the **Shield** tab, tap **Enable Background Shield**.
 3. Android opens Accessibility settings: tap **Cordon**, then switch it **on** and confirm.
 4. Go back to Cordon. The Shield tab now says the shield is on. Open ChatGPT (or any listed app), type a secret, and tap **Send**.
@@ -120,10 +120,10 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ```bash
 npm ci && npm run build            # TypeScript + Vite production build
-npm test                           # Vitest: 17 files, 125 tests passing
+npm test                           # Vitest: 17 files, 126 tests passing
 npm run test:e2e                   # Playwright: 10/10 flows, 0 page errors
 cd android && ./gradlew testDebugUnitTest lintDebug assembleDebug
-                                   # 59 tests passing, 0 lint errors
+                                   # 76 tests passing, 0 lint errors
 ```
 
 ---

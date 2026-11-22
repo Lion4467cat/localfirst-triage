@@ -65,3 +65,5 @@ export function buildSanitizedHandoffUrl(
   sanitizedText: string,
   baseUrl?: string,
 ): string;
+
+export function describeManualHost(tabUrl: string | undefined | null): string;

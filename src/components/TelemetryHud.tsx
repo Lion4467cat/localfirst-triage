@@ -15,6 +15,7 @@ import {
   WifiOff,
 } from "lucide-react";
 import type { ResolvedTheme, ThemePreference } from "../config/theme";
+import { APP_VERSION } from "../config/version";
 import type { HybridTelemetry } from "../types/triage";
 import { isSfxEnabled, playClick, setSfxEnabled } from "../utils/soundFx";
 import { CordonWordmark } from "./CordonWordmark";
@@ -137,7 +138,7 @@ export function TelemetryHud({
               className="hidden font-mono text-[10.5px] font-medium uppercase tracking-wider sm:inline"
               style={{ color: "var(--text-muted)" }}
             >
-              V4.2 · HYBRID AIRGAP
+              V{APP_VERSION} · HYBRID AIRGAP
             </span>
           </div>
 

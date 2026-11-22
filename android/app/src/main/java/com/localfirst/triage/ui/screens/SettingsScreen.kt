@@ -19,6 +19,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -33,12 +34,21 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.localfirst.triage.BuildConfig
 import com.localfirst.triage.data.GuardedAppSpec
 import com.localfirst.triage.data.ShieldStore
 import com.localfirst.triage.model.NanoStatus
 import com.localfirst.triage.model.ProtectionLevel
 import com.localfirst.triage.ui.theme.AppThemeMode
 import com.localfirst.triage.ui.theme.LocalFirstThemeTokens
+
+/** User-facing wording for the on-device model state; never the raw enum name. */
+private fun nanoStatusSentence(status: NanoStatus): String = when (status) {
+    NanoStatus.READY -> "Gemini Nano (AICore) is Ready"
+    NanoStatus.DOWNLOADABLE -> "On-device AI is available to download"
+    NanoStatus.MODEL_DOWNLOADING -> "AI model downloading…"
+    NanoStatus.UNAVAILABLE -> "On-device AI unavailable — using deterministic rules"
+}
 
 @Composable
 fun SettingsScreen(
@@ -130,29 +140,30 @@ fun SettingsScreen(
                     }
                 }
 
-                Surface(
-                    color = tokens.subtleSurface,
-                    border = BorderStroke(1.dp, tokens.borderSubtle),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(
-                        modifier = Modifier.padding(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                if (!isAccessibilityEnabled) {
+                    Surface(
+                        color = tokens.subtleSurface,
+                        border = BorderStroke(1.dp, tokens.borderSubtle),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(
-                            text = "2-Step Setup",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 11.5.sp,
-                        )
-                        Text(
-                            text = "1. Tap Open Accessibility Settings below.\n2. Select Cordon Privacy Shield and toggle Use Cordon ON.",
-                            fontSize = 11.5.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Text(
+                                text = "2-Step Setup",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.5.sp,
+                            )
+                            Text(
+                                text = "1. Tap Open Accessibility Settings below.\n2. Select Cordon Privacy Shield and toggle Use Cordon ON.",
+                                fontSize = 11.5.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
-
                 Button(
                     onClick = onOpenAccessibilitySettings,
                     modifier = Modifier.fillMaxWidth(),
@@ -257,6 +268,10 @@ fun SettingsScreen(
                                     fontWeight = FontWeight.SemiBold,
                                 )
                             },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = tokens.safeBg,
+                                selectedLabelColor = tokens.safeText,
+                            ),
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -293,6 +308,10 @@ fun SettingsScreen(
                             selected = themeMode == mode,
                             onClick = { onSelectThemeMode(mode) },
                             label = { Text(label, fontWeight = FontWeight.SemiBold) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = tokens.safeBg,
+                                selectedLabelColor = tokens.safeText,
+                            ),
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -322,11 +341,7 @@ fun SettingsScreen(
                             fontSize = 15.sp,
                         )
                         Text(
-                            text = if (nanoStatus == NanoStatus.READY) {
-                                "Gemini Nano (AICore) is Ready"
-                            } else {
-                                "Status: ${nanoStatus.name}"
-                            },
+                            text = nanoStatusSentence(nanoStatus),
                             fontSize = 11.5.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -338,6 +353,56 @@ fun SettingsScreen(
                 ) {
                     Text("Open First-Run Setup / AICore Check", fontWeight = FontWeight.SemiBold)
                 }
+            }
+        }
+
+        // 6. About
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, tokens.borderSubtle),
+            shape = RoundedCornerShape(14.dp),
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "About Cordon",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                    )
+                    Surface(
+                        color = tokens.subtleSurface,
+                        border = BorderStroke(1.dp, tokens.borderSubtle),
+                        shape = RoundedCornerShape(6.dp),
+                    ) {
+                        Text(
+                            text = "v${BuildConfig.VERSION_NAME}",
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        )
+                    }
+                }
+                Text(
+                    text = "1. Detect secrets on-device  ·  2. Scrub locally  ·  3. Send the safe version.",
+                    fontSize = 11.5.sp,
+                    lineHeight = 16.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = "Raw text never leaves this phone. History stores category counts only.",
+                    fontSize = 11.5.sp,
+                    lineHeight = 16.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }

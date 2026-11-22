@@ -1,8 +1,8 @@
-# Cordon (`v4.3.1`) — #BuildHybridAI 2026 Submission
+# Cordon (`v4.4.0`) — #BuildHybridAI 2026 Submission
 
 - **Live Web PWA:** [`https://para-1-2e22b.web.app/`](https://para-1-2e22b.web.app/)
 - **Public GitHub Repository:** [`https://github.com/Lion4467cat/localfirst-triage`](https://github.com/Lion4467cat/localfirst-triage)
-- **Releases (Extension ZIP + Android APK `v4.3.1`):** [`github.com/Lion4467cat/localfirst-triage/releases`](https://github.com/Lion4467cat/localfirst-triage/releases)
+- **Releases (Extension ZIP + Android APK `v4.4.0`):** [`github.com/Lion4467cat/localfirst-triage/releases`](https://github.com/Lion4467cat/localfirst-triage/releases)
 - **Demo video (≤3 min, YouTube, public):** `<!-- VIDEO_URL: add the public YouTube link here before submitting -->`
 
 ---
@@ -39,7 +39,7 @@ Engineers and support teams paste raw production stack traces, crash logs, and c
 
 - **Web (30 s):** open the live PWA → **Sign in as Guest** → **Run Privacy Firewall** on any scenario.
 - **Chrome extension (1 min):** download the ZIP from Releases → unzip → `chrome://extensions` → Developer mode → **Load unpacked** → pick the folder → click the Cordon icon → open ChatGPT and paste a key.
-- **Android (2 min):** install `app-debug.apk` from Releases → open Cordon → **Enable Background Shield** → turn on **Cordon** in Accessibility settings → open ChatGPT, type a secret, tap Send.
+- **Android (2 min):** install `cordon-android-v4.4.0.apk` from Releases → open Cordon → **Enable Background Shield** → turn on **Cordon** in Accessibility settings → open ChatGPT, type a secret, tap Send.
 
 Each surface shows exactly one confirmation on Send (**Scrub & Send** / **Send anyway**) and never interrupts typing.
 
@@ -66,7 +66,7 @@ Each surface shows exactly one confirmation on Send (**Scrub & Send** / **Send a
 
 | Suite | Baseline | Cordon |
 | :--- | :---: | :---: |
-| A1 — structured PII (`ai4privacy/pii-masking-200k`, 89 specs) | 22.5% | **70.8% (63/89)** |
+| A1 — structured PII (`ai4privacy/pii-masking-300k`, 89 specs) | 22.5% | **70.8% (63/89)** |
 | A2 — unstructured PII (23 specs) | 0% | **0% (0/23)** — why the Nano 4 pass exists |
 | B — Gitleaks credentials (42 specs, 221 upstream rules parsed) | 59.5% | **100% (42/42)** |
 | C — dev/code false positives (100 chunks) | 1.0% | **0.0% (0/100)** |
@@ -82,7 +82,7 @@ Reproduce: `node scripts/benchmark-third-party.mjs --out=benchmarks/third-party-
 - **Firebase:** AI Logic (`firebase/ai`, `firebase-ai:18.2.0`, `firebase-ai-ondevice:16.0.0-beta08`), Firestore (Zero-PII rules + indexes), Auth (Anonymous + Google), Remote Config, App Check (reCAPTCHA Enterprise + Play Integrity + Debug), Hosting — **Spark tier**
 - **Web & Extension:** React 19, TypeScript 5, Tailwind CSS 4, Vite 6, IndexedDB, MV3
 - **Android:** Kotlin, Jetpack Compose Material 3, `compileSdk`/`targetSdk` 36, `minSdk` 26, Gradle 9.8.0 / AGP 9.4.1
-- **Verification:** Vitest **17 files / 125 tests**, Playwright **10/10 flows**, Android JUnit **59 tests**, Gradle Lint **0 errors**
+- **Verification:** Vitest **17 files / 126 tests**, Playwright **10/10 flows**, Android JUnit **76 tests**, Gradle Lint **0 errors**
 
 ---
 

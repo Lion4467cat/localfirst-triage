@@ -339,6 +339,26 @@ data class PendingSendPromptState(
 )
 
 /**
+ * What a tap on the armed shield is allowed to do.
+ */
+enum class ShieldTapOutcome {
+    /** A risky state is available: show the prompt and keep the shield. */
+    SHOW_PROMPT,
+
+    /** The composer read was readable and clean: let the tap reach the real Send. */
+    SEND,
+
+    /** The composer could not be proven clean: keep the shield and never send. */
+    HOLD,
+}
+
+/** Result of [SendPromptStateMachine.onShieldTapped]. */
+data class ShieldTapResult(
+    val outcome: ShieldTapOutcome,
+    val prompt: PendingSendPromptState?,
+)
+
+/**
  * Pure state machine enforcing:
  * - Zero popups while typing or pasting
  * - Touch shield armed over Send button only while unredacted secrets/PII exist
@@ -378,6 +398,9 @@ class SendPromptStateMachine {
         val activeSpans = spans.filter { it.masked }
         if (activeSpans.isEmpty()) {
             trackedState = null
+            // A readable, clean reading is proof the field no longer holds the secret, so the
+            // fallback must not resurrect it later and scrub over what the user has typed since.
+            recentState = null
             return
         }
 
@@ -413,6 +436,35 @@ class SendPromptStateMachine {
         if (state.rawText.hashCode() == overriddenTextHash) return null
         isPromptVisible = true
         return state
+    }
+
+    /**
+     * Single entry point for a tap on the armed shield.
+     *
+     * A blank or unreadable composer read is ambiguous (a recomposition flap looks exactly like a
+     * cleared field), so it is never fed to [onFieldTextObserved] and never treated as proof that
+     * the text is safe. Only a non-blank read may change the tracked risk; otherwise the tap
+     * falls back to a risky state seen within [RECENT_STATE_TTL_MS], and failing that the shield
+     * is held instead of letting the tap send raw text.
+     */
+    fun onShieldTapped(
+        pkg: String,
+        appName: String,
+        fresh: String?,
+        protectionLevel: ProtectionLevel,
+        nowMs: Long = System.currentTimeMillis(),
+    ): ShieldTapResult {
+        val readable = !fresh.isNullOrBlank()
+        if (!fresh.isNullOrBlank()) {
+            onFieldTextObserved(pkg, appName, fresh, protectionLevel, nowMs)
+        }
+        val prompt = if (readable) onSendClicked(pkg) else onSendClickedRecent(pkg, nowMs)
+        val outcome = when {
+            prompt != null -> ShieldTapOutcome.SHOW_PROMPT
+            !readable -> ShieldTapOutcome.HOLD
+            else -> ShieldTapOutcome.SEND
+        }
+        return ShieldTapResult(outcome = outcome, prompt = prompt)
     }
 
     /**
@@ -476,6 +528,62 @@ class SendPromptStateMachine {
     }
 }
 
+/**
+ * Decides whether the shield should re-scan for the Send control.
+ *
+ * The first scan after typing can land while the IME is still animating (no window root)
+ * or before the Send node is attached. Without a retry the user can tap Send before the
+ * shield exists and the message leaves unredacted, so a missing tree is retried with a
+ * short backoff instead of waiting for the next accessibility event.
+ */
+object ShieldArmRetryPolicy {
+    const val MAX_ATTEMPTS = 8
+
+    fun shouldRetry(attempt: Int, rootAvailable: Boolean, targetAvailable: Boolean): Boolean {
+        if (attempt >= MAX_ATTEMPTS) return false
+        return !(rootAvailable && targetAvailable)
+    }
+
+    /** 60ms, then ×1.5 up to a 250ms ceiling: total budget stays under 1.5s. */
+    fun delayMs(attempt: Int): Long {
+        var delay = 60L
+        repeat(attempt.coerceAtLeast(0)) { delay = (delay * 3 / 2).coerceAtMost(250L) }
+        return delay
+    }
+}
+
+/**
+ * Where the confirmation dialog sits: right above the Send control it is guarding, so the
+ * choice appears next to the user's thumb instead of at the far end of the screen.
+ */
+object PromptPlacement {
+    fun topFor(anchorTop: Int, promptHeight: Int, gapPx: Int, minTopPx: Int): Int =
+        (anchorTop - promptHeight - gapPx).coerceAtLeast(minTopPx)
+}
+
+/**
+ * Last-resort target when the Send control is not exposed in the node tree (Compose often
+ * drops it while the composer is being re-measured). The Send button always sits at the
+ * right edge of the composer row, so a square there still catches the tap.
+ */
+object ShieldFallbackAnchor {
+    fun forComposer(
+        editable: ShieldGeometry.ShieldRect,
+        screen: ShieldGeometry.ShieldRect,
+        widthPx: Int,
+        extraBottomPx: Int,
+        edgeMarginPx: Int = 0,
+    ): ShieldGeometry.ShieldRect? {
+        if (editable.width <= 0 || editable.height <= 0 || widthPx <= 0) return null
+        val right = (screen.right - edgeMarginPx).coerceAtMost(screen.right)
+        val left = (right - widthPx).coerceAtLeast(screen.left)
+        val top = editable.top.coerceAtLeast(screen.top)
+        val bottom = (editable.bottom + extraBottomPx).coerceAtMost(screen.bottom)
+        if (right <= left || bottom <= top) return null
+        return ShieldGeometry.ShieldRect(left, top, right, bottom)
+    }
+}
+
 class CordonAccessibilityService : AccessibilityService() {
     companion object {
         private const val TAG = "CordonA11y"
@@ -486,6 +594,8 @@ class CordonAccessibilityService : AccessibilityService() {
         private const val REFRESH_COALESCE_MS = 100L
         private const val SHIELD_REMOVE_GRACE_MS = 450L
         private const val SHIELD_TOUCH_PADDING_DP = 6
+        /** Placement drift above this many pixels is corrected once (split-screen, insets, folds). */
+        private const val SHIELD_DRIFT_TOLERANCE_PX = 24
         private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
     }
 
@@ -505,6 +615,31 @@ class CordonAccessibilityService : AccessibilityService() {
     private var pendingRemovalReason = "unspecified"
     private var lastLoggedArmed = false
     private var consecutiveBlankObservations = 0
+    private var armRetryAttempt = 0
+    private var armRetryPending = false
+
+    private val delayedArmRetry = Runnable {
+        armRetryPending = false
+        val pkg = activePackage ?: return@Runnable
+        if (!stateMachine.shouldHoldShield(pkg)) return@Runnable
+        syncTouchShieldWithActiveWindow(pkg)
+    }
+
+    private fun cancelArmRetry() {
+        armRetryPending = false
+        armRetryAttempt = 0
+        mainHandler.removeCallbacks(delayedArmRetry)
+    }
+
+    private fun scheduleArmRetry(pkg: String, rootAvailable: Boolean, targetAvailable: Boolean) {
+        if (!ShieldArmRetryPolicy.shouldRetry(armRetryAttempt, rootAvailable, targetAvailable)) return
+        if (armRetryPending) return
+        val delay = ShieldArmRetryPolicy.delayMs(armRetryAttempt)
+        armRetryPending = true
+        armRetryAttempt++
+        Log.d(TAG, "shieldArmRetry pkg=$pkg attempt=$armRetryAttempt delay=${delay}ms")
+        mainHandler.postDelayed(delayedArmRetry, delay)
+    }
 
     private val delayedShieldRemoval = Runnable {
         shieldRemovalPending = false
@@ -693,6 +828,7 @@ class CordonAccessibilityService : AccessibilityService() {
         if (!stateMachine.shouldHoldShield(pkg)) {
             // Confirmed clean / empty / overridden text: tear down IMMEDIATELY so the next
             // normal tap reaches Send. Only transient node misses get the debounced path below.
+            cancelArmRetry()
             if (touchShieldView != null) {
                 Log.d(TAG, "shieldRemoved reason=hold=false pkg=$pkg")
             }
@@ -702,6 +838,8 @@ class CordonAccessibilityService : AccessibilityService() {
 
         val root = guardedRoot(pkg)
         if (root == null) {
+            Log.d(TAG, "shieldNoRoot pkg=$pkg")
+            scheduleArmRetry(pkg, rootAvailable = false, targetAvailable = false)
             scheduleShieldRemoval("rootNull")
             return
         }
@@ -711,7 +849,21 @@ class CordonAccessibilityService : AccessibilityService() {
         val target = locateSendTarget(root, editable)
         if (target == null) {
             Log.d(TAG, "shieldNoTarget pkg=$pkg")
+            // The node tree can drop the Send control while the composer is re-measured.
+            // Fall back to the right edge of the composer row rather than leaving a gap.
+            val fallback = fallbackShieldRect(editable)
+            if (fallback != null) {
+                Log.d(
+                    TAG,
+                    "shieldFallback pkg=$pkg rect=[${fallback.left},${fallback.top},${fallback.right},${fallback.bottom}]",
+                )
+                cancelArmRetry()
+                armedSendNode = null
+                showOrRepositionTouchShield(pkg, fallback, labelStrength = 0)
+                return
+            }
             // Debounced removal: don't remove immediately if we still have a valid target
+            scheduleArmRetry(pkg, rootAvailable = true, targetAvailable = false)
             scheduleShieldRemoval("noTarget")
             return
         }
@@ -719,15 +871,34 @@ class CordonAccessibilityService : AccessibilityService() {
         val c = target.candidate
         val shieldRect = Rect(c.left, c.top, c.right, c.bottom)
         if (shieldRect.isEmpty) {
+            scheduleArmRetry(pkg, rootAvailable = true, targetAvailable = false)
             scheduleShieldRemoval("rectEmpty")
             return
         }
 
+        cancelArmRetry()
         armedSendNode = target.node
         showOrRepositionTouchShield(pkg, shieldRect, c.labelStrength)
     }
 
     private class SendTarget(val node: AccessibilityNodeInfo, val candidate: ClickableBoundsCandidate)
+
+    /** Right-edge square of the composer row, used when no Send node can be resolved. */
+    private fun fallbackShieldRect(editable: AccessibilityNodeInfo?): Rect? {
+        val node = editable ?: return null
+        val r = Rect()
+        node.getBoundsInScreen(r)
+        if (r.isEmpty) return null
+        val screen = screenBounds()
+        val anchor = ShieldFallbackAnchor.forComposer(
+            editable = ShieldGeometry.ShieldRect(r.left, r.top, r.right, r.bottom),
+            screen = ShieldGeometry.ShieldRect(screen.left, screen.top, screen.right, screen.bottom),
+            widthPx = dp(56),
+            extraBottomPx = dp(28),
+            edgeMarginPx = dp(6),
+        ) ?: return null
+        return anchor.toRect()
+    }
 
     private class ScanLevel(
         val nodes: List<AccessibilityNodeInfo>,
@@ -995,7 +1166,7 @@ class CordonAccessibilityService : AccessibilityService() {
                         Log.e(TAG, "shieldUpdateFailed pkg=$pkg err=${err.message}")
                     }
                     .onSuccess { _ ->
-                        verifyShieldPlacement(existing, expandedRect, pkg, "shieldMoved")
+                        verifyShieldPlacement(existing, expandedRect, pkg, "shieldMoved", params)
                     }
             }
             return
@@ -1026,8 +1197,12 @@ class CordonAccessibilityService : AccessibilityService() {
             wm.addView(shield, params)
             touchShieldView = shield
             touchShieldBounds = Rect(expandedRect)
+            Log.d(
+                TAG,
+                "shieldPlaced pkg=$pkg rect=[${expandedRect.left},${expandedRect.top},${expandedRect.right},${expandedRect.bottom}] labelStrength=$labelStrength",
+            )
             verifyShieldPlacement(
-                shield, expandedRect, pkg, "shieldArmed",
+                shield, expandedRect, pkg, "shieldArmed", params,
                 "labelStrength=$labelStrength findingsCount=${stateMachine.trackedState?.spans?.size ?: 0}",
             )
         }.onFailure { err ->
@@ -1035,45 +1210,83 @@ class CordonAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun verifyShieldPlacement(view: View, target: Rect, pkg: String, event: String, extra: String = "") {
+    private fun verifyShieldPlacement(
+        view: View,
+        target: Rect,
+        pkg: String,
+        event: String,
+        params: WindowManager.LayoutParams,
+        extra: String = "",
+        attemptsLeft: Int = 3,
+        corrected: Boolean = false,
+    ) {
         view.post {
+            // A freshly added window reports (0,0) until it is attached and laid out; measuring
+            // then would log a phantom drift, so wait for attachment before reporting.
+            if (!view.isAttachedToWindow && attemptsLeft > 0) {
+                verifyShieldPlacement(view, target, pkg, event, params, extra, attemptsLeft - 1, corrected)
+                return@post
+            }
             val loc = IntArray(2)
             view.getLocationOnScreen(loc)
             val actual = Rect(loc[0], loc[1], loc[0] + view.width, loc[1] + view.height)
-            val dx = abs(actual.centerX() - target.centerX())
-            val dy = abs(actual.centerY() - target.centerY())
+            val dx = actual.centerX() - target.centerX()
+            val dy = actual.centerY() - target.centerY()
             Log.d(
                 TAG,
                 "$event pkg=$pkg target=[${target.left},${target.top},${target.right},${target.bottom}] actual=[${actual.left},${actual.top},${actual.right},${actual.bottom}] drift=($dx,$dy)px $extra".trim(),
             )
+            // Split-screen, foldables and inset changes can leave the guard off the Send button
+            // while the log still says "placed". Correct it once, never in a loop.
+            if (!corrected && (abs(dx) > SHIELD_DRIFT_TOLERANCE_PX || abs(dy) > SHIELD_DRIFT_TOLERANCE_PX)) {
+                params.x = target.left
+                params.y = target.top
+                runCatching { windowManager?.updateViewLayout(view, params) }
+                    .onSuccess {
+                        Log.d(
+                            TAG,
+                            "shieldDriftCorrected pkg=$pkg before=[${actual.left},${actual.top}] after=[${target.left},${target.top}] drift=($dx,$dy)px",
+                        )
+                        verifyShieldPlacement(view, target, pkg, event, params, extra, attemptsLeft = 1, corrected = true)
+                    }
+                    .onFailure { err ->
+                        Log.e(TAG, "shieldDriftCorrectFailed pkg=$pkg err=${err.message}")
+                    }
+            }
         }
     }
 
     private fun onShieldTapped(pkg: String) {
         // Re-read the composer at tap time so we judge the text that is about to be sent.
         val fresh = readFreshComposerText(pkg)
-        if (fresh != null) {
-            stateMachine.onFieldTextObserved(
-                pkg = pkg,
-                appName = ShieldStore.appDisplayNameForPackage(pkg),
-                rawText = fresh,
-                protectionLevel = ShieldStore.getProtectionLevel(this),
-            )
-        }
-        val promptState = if (fresh != null) {
-            stateMachine.onSendClicked(pkg)
-        } else {
-            stateMachine.onSendClickedRecent(pkg)
-        }
-        Log.d(TAG, "shieldTapped pkg=$pkg armed=${promptState != null} freshLen=${fresh?.length ?: -1}")
-        if (promptState != null) {
-            // The shield deliberately stays in place so a second tap can never leak the secret.
-            showSendPromptOverlay(promptState)
-        } else {
-            // Nothing risky is left in the field: let the user's tap through to the real button.
-            removeTouchShieldInternal()
-            val target = armedSendNode
-            mainHandler.postDelayed({ performSend(target, pkg) }, 40L)
+        val result = stateMachine.onShieldTapped(
+            pkg = pkg,
+            appName = ShieldStore.appDisplayNameForPackage(pkg),
+            fresh = fresh,
+            protectionLevel = ShieldStore.getProtectionLevel(this),
+        )
+        Log.d(TAG, "shieldTapped pkg=$pkg outcome=${result.outcome} freshLen=${fresh?.length ?: -1}")
+        when (result.outcome) {
+            ShieldTapOutcome.SHOW_PROMPT -> {
+                // The shield deliberately stays in place so a second tap can never leak the secret.
+                val prompt = result.prompt
+                if (prompt != null) {
+                    showSendPromptOverlay(prompt)
+                } else {
+                    Log.w(TAG, "shieldTapped held reason=missingPrompt pkg=$pkg")
+                }
+            }
+            ShieldTapOutcome.HOLD -> {
+                // Unreadable composer: we cannot prove it is clean, so the tap must not reach
+                // Send and the existing guard stays armed.
+                Log.w(TAG, "shieldTapped held reason=unreadableComposer pkg=$pkg")
+            }
+            ShieldTapOutcome.SEND -> {
+                // Nothing risky is left in the field: let the user's tap through to the real button.
+                removeTouchShieldInternal()
+                val target = armedSendNode
+                mainHandler.postDelayed({ performSend(target, pkg) }, 40L)
+            }
         }
     }
 
@@ -1109,6 +1322,9 @@ class CordonAccessibilityService : AccessibilityService() {
         val actionsRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.END
+            // Keep both actions off the card's inner edges instead of crushing the reject
+            // label against the left edge of the row.
+            setPadding(dp(6), dp(4), dp(6), 0)
         }
 
         val rejectBtn = Button(this).apply {
@@ -1116,6 +1332,10 @@ class CordonAccessibilityService : AccessibilityService() {
             setTextColor(Color.parseColor("#FDA4AF"))
             setBackgroundColor(Color.TRANSPARENT)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { marginEnd = dp(6) }
             setOnClickListener {
                 val rejected = stateMachine.rejectAndSendAnyway()
                 dismissPromptOverlayInternal()
@@ -1154,36 +1374,45 @@ class CordonAccessibilityService : AccessibilityService() {
             }
             setOnClickListener {
                 val accepted = stateMachine.acceptScrub()
+                if (accepted == null) {
+                    dismissPromptOverlayInternal()
+                    removeTouchShieldInternal()
+                    heldInputNode = null
+                    armedSendNode = null
+                    return@setOnClickListener
+                }
+                // ALWAYS re-query fresh nodes after the dialog: pre-dialog references are stale.
+                val root = guardedRoot(accepted.packageName)
+                val targetNode = findActiveEditableNode(root)
+                val sendTarget = root?.let { locateSendTarget(it, targetNode)?.node }
+                val scrubArgs = Bundle().apply {
+                    putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, accepted.sanitizedText)
+                }
+                val setTextOk = targetNode?.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, scrubArgs) ?: false
+                if (!setTextOk) {
+                    // WebView/Compose often reject ACTION_SET_TEXT. The composer still holds the
+                    // raw secret, so fail closed: keep the shield up and re-open the prompt
+                    // instead of leaving an unguarded field behind.
+                    Log.e(TAG, "setTextFailed pkg=${accepted.packageName} action=failClosed")
+                    restorePromptAfterFailedScrub(accepted)
+                    return@setOnClickListener
+                }
+
+                // The scrub landed: only now may the guard come down.
                 dismissPromptOverlayInternal()
                 removeTouchShieldInternal()
-                if (accepted != null) {
-                    // ALWAYS re-query fresh nodes after the dialog: pre-dialog references are stale.
-                    val root = guardedRoot(accepted.packageName)
-                    val targetNode = findActiveEditableNode(root)
-                    val sendTarget = root?.let { locateSendTarget(it, targetNode)?.node }
-                    val scrubArgs = Bundle().apply {
-                        putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, accepted.sanitizedText)
-                    }
-                    val setTextOk = targetNode?.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, scrubArgs) ?: false
-                    if (!setTextOk) {
-                        Log.e(TAG, "setTextFailed pkg=${accepted.packageName}")
-                    }
-                    // Single programmatic click (never twice); if unsupported, the scrubbed text
-                    // stays cleanly in the box so one normal tap sends it.
-                    val sendClickOk = setTextOk &&
-                        (sendTarget?.performAction(AccessibilityNodeInfo.ACTION_CLICK) ?: false)
-                    Log.d(TAG, "promptAction action=scrub setTextOk=$setTextOk sendClickOk=$sendClickOk pkg=${accepted.packageName}")
-                    if (setTextOk) {
-                        ShieldStore.recordBlockEvent(
-                            context = this@CordonAccessibilityService,
-                            appName = accepted.appName,
-                            spans = accepted.spans,
-                            engineUsed = "Deterministic Rules",
-                        )
-                        if (!sendClickOk) {
-                            Log.w(TAG, "sendClickFailed pkg=${accepted.packageName} scrubbed text left in composer for manual tap")
-                        }
-                    }
+                ShieldStore.recordBlockEvent(
+                    context = this@CordonAccessibilityService,
+                    appName = accepted.appName,
+                    spans = accepted.spans,
+                    engineUsed = "Deterministic Rules",
+                )
+                // Single programmatic click (never twice); if unsupported, the scrubbed text
+                // stays cleanly in the box so one normal tap sends it.
+                val sendClickOk = sendTarget?.performAction(AccessibilityNodeInfo.ACTION_CLICK) ?: false
+                Log.d(TAG, "promptAction action=scrub setTextOk=$setTextOk sendClickOk=$sendClickOk pkg=${accepted.packageName}")
+                if (!sendClickOk) {
+                    Log.w(TAG, "sendClickFailed pkg=${accepted.packageName} scrubbed text left in composer for manual tap")
                 }
                 heldInputNode = null
                 armedSendNode = null
@@ -1224,6 +1453,32 @@ class CordonAccessibilityService : AccessibilityService() {
             promptOverlayView = container
             Log.d(TAG, "promptShown pkg=${promptState.packageName} summary=${promptState.summaryText}")
             container.post {
+                // Once measured, move the dialog next to the Send control it is guarding.
+                // Anchor above the whole composer row so the text being sent stays readable.
+                val composerTop = heldInputNode?.let { node ->
+                    if (runCatching { node.refresh() }.getOrDefault(false)) {
+                        val r = Rect()
+                        node.getBoundsInScreen(r)
+                        if (r.isEmpty) null else r.top
+                    } else {
+                        null
+                    }
+                }
+                val anchorTop = listOfNotNull(touchShieldBounds?.top, composerTop).minOrNull() ?: 0
+                val height = container.height
+                if (height > 0) {
+                    val targetY = PromptPlacement.topFor(
+                        anchorTop = anchorTop,
+                        promptHeight = height,
+                        gapPx = dp(10),
+                        minTopPx = dp(64),
+                    )
+                    if (targetY != params.y) {
+                        params.y = targetY
+                        runCatching { wm.updateViewLayout(container, params) }
+                            .onFailure { err -> Log.e(TAG, "promptMoveFailed err=${err.message}") }
+                    }
+                }
                 val acceptLoc = IntArray(2)
                 val rejectLoc = IntArray(2)
                 acceptBtn.getLocationOnScreen(acceptLoc)
@@ -1240,6 +1495,26 @@ class CordonAccessibilityService : AccessibilityService() {
         }
     }
 
+    /**
+     * Rebuild the guard after ACTION_SET_TEXT was rejected: the composer still holds the raw
+     * secret, so tracking, the prompt and the shield must all come back up.
+     */
+    private fun restorePromptAfterFailedScrub(accepted: PendingSendPromptState) {
+        stateMachine.onFieldTextObserved(
+            pkg = accepted.packageName,
+            appName = accepted.appName,
+            rawText = accepted.rawText,
+            protectionLevel = ShieldStore.getProtectionLevel(this),
+        )
+        val rebuilt = stateMachine.onSendClicked(accepted.packageName) ?: accepted
+        showSendPromptOverlay(rebuilt)
+        // The shield is normally still attached (we never removed it), but re-sync if a
+        // background refresh dropped it while the prompt was open.
+        if (touchShieldView == null) {
+            syncTouchShieldWithActiveWindow(accepted.packageName)
+        }
+    }
+
     private fun clearAllStateAndOverlays() {
         stateMachine.reset()
         heldInputNode = null
@@ -1248,6 +1523,7 @@ class CordonAccessibilityService : AccessibilityService() {
         lastLoggedArmed = false
         consecutiveBlankObservations = 0
         cancelShieldRemoval()
+        cancelArmRetry()
         if (touchShieldView != null) Log.d(TAG, "shieldRemoved reason=clearAll")
         removeTouchShieldInternal()
         dismissPromptOverlayInternal()
