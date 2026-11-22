@@ -167,7 +167,7 @@ export async function saveToDedupCache(params: {
     executiveBrief: params.executiveBrief ?? existing?.executiveBrief ?? null,
     hitCount: existing?.hitCount ?? 0,
     lastUsedAt: Date.now(),
-    modelUsed: params.modelUsed ?? existing?.modelUsed ?? "gemini-2.5-flash",
+    modelUsed: params.modelUsed ?? existing?.modelUsed ?? "gemini-3.8-flash",
     savedCloudCalls: existing?.savedCloudCalls ?? 0,
   };
   await writeEntry(entry);

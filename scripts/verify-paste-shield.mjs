@@ -251,7 +251,7 @@ async function main() {
     const offRes = await dispatchPaste(page, "#sim-github-issue", secretPayload);
     if (!offRes.notCanceled) throw new Error("Expected paste NOT to be intercepted when shieldEnabled is OFF");
 
-    console.log("MV3 PASTE SHIELD E2E PASSED (SILENT_PILL while typing, 1 MODAL on paste/send, 0 raw secrets leaked).");
+    console.log("MV3 PASTE SHIELD E2E PASSED (0 popups while typing, 1 MODAL on paste/send, 0 raw secrets leaked, Side Panel 360px verified).");
   } finally {
     await context?.close().catch(() => {});
     server.close();

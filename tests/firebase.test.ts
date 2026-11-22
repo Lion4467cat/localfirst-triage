@@ -33,14 +33,14 @@ describe("firebase SDK & App Check config", () => {
 
   it("passes inCloudParams.model (and zero top-level model) to getGenerativeModel in PREFER_IN_CLOUD", () => {
     const fakeAi = {} as AI;
-    createCloudEscalationModel(fakeAi, "gemini-2.5-flash", "System prompt");
+    createCloudEscalationModel(fakeAi, "gemini-3.8-flash", "System prompt");
 
     expect(getGenerativeModelMock).toHaveBeenCalledTimes(1);
     const passedParams = getGenerativeModelMock.mock.calls[0][1] as Record<string, unknown>;
     expect(passedParams.mode).toBe(InferenceMode.PREFER_IN_CLOUD);
     expect(passedParams.model).toBeUndefined();
     expect(passedParams.inCloudParams).toEqual({
-      model: "gemini-2.5-flash",
+      model: "gemini-3.8-flash",
       systemInstruction: "System prompt",
     });
     expect(passedParams.onDeviceParams).toEqual({
@@ -141,7 +141,7 @@ describe("firebase SDK & App Check config", () => {
       },
       getStringFn: (_rc, key) => {
         if (key === "cloud_primary_model") return "gemini-3.5-flash-lite";
-        if (key === "cloud_fallback_model") return "gemini-2.5-flash";
+        if (key === "cloud_fallback_model") return "gemini-3.8-flash";
         if (key === "enterprise_blocked_terms") return '["Project-Apollo","Project-Helios"]';
         return "";
       },

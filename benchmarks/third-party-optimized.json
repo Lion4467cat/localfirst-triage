@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-22T11:48:21.561Z",
+  "generatedAt": "2026-11-22T12:06:18.281Z",
   "provenance": {
     "suiteA": {
       "dataset": "ai4privacy/pii-masking-200k",
@@ -44,8 +44,8 @@
       },
       "latency": {
         "medianMs": 0.011,
-        "p95Ms": 0.027,
-        "maxMs": 1.995
+        "p95Ms": 0.029,
+        "maxMs": 2.644
       },
       "idempotencyFailures": 0,
       "categoryBreakdown": {
@@ -708,14 +708,14 @@
         "recallPct": 100
       },
       "suiteC": {
-        "flagged": 1,
+        "flagged": 0,
         "total": 100,
-        "fprPct": 1
+        "fprPct": 0
       },
       "latency": {
         "medianMs": 0.022,
-        "p95Ms": 0.038,
-        "maxMs": 4.277
+        "p95Ms": 0.04,
+        "maxMs": 4.481
       },
       "idempotencyFailures": 0,
       "categoryBreakdown": {
@@ -1337,20 +1337,7 @@
           "snippet": "28802"
         }
       ],
-      "fpExamples": [
-        {
-          "source": "README.md",
-          "category": "NATURAL_SECRET",
-          "detector": "HEURISTIC_GUARD",
-          "matchedText": "log in using his dog's name followed by 2026exclamation`), M"
-        },
-        {
-          "source": "README.md",
-          "category": "M_AND_A_SECRET",
-          "detector": "HEURISTIC_GUARD",
-          "matchedText": "$42M valuation"
-        }
-      ]
+      "fpExamples": []
     },
     "high": {
       "level": "high",
@@ -1371,14 +1358,14 @@
         "recallPct": 100
       },
       "suiteC": {
-        "flagged": 1,
+        "flagged": 0,
         "total": 100,
-        "fprPct": 1
+        "fprPct": 0
       },
       "latency": {
         "medianMs": 0.02,
-        "p95Ms": 0.033,
-        "maxMs": 0.066
+        "p95Ms": 0.034,
+        "maxMs": 0.105
       },
       "idempotencyFailures": 0,
       "categoryBreakdown": {
@@ -2000,20 +1987,7 @@
           "snippet": "28802"
         }
       ],
-      "fpExamples": [
-        {
-          "source": "README.md",
-          "category": "NATURAL_SECRET",
-          "detector": "HEURISTIC_GUARD",
-          "matchedText": "log in using his dog's name followed by 2026exclamation`), M"
-        },
-        {
-          "source": "README.md",
-          "category": "M_AND_A_SECRET",
-          "detector": "HEURISTIC_GUARD",
-          "matchedText": "$42M valuation"
-        }
-      ]
+      "fpExamples": []
     }
   },
   "webSrcFirewall": {
@@ -2042,8 +2016,8 @@
       },
       "latency": {
         "medianMs": 0.009,
-        "p95Ms": 0.019,
-        "maxMs": 0.306
+        "p95Ms": 0.02,
+        "maxMs": 0.326
       },
       "idempotencyFailures": 0,
       "categoryBreakdown": {
@@ -2706,14 +2680,14 @@
         "recallPct": 100
       },
       "suiteC": {
-        "flagged": 1,
+        "flagged": 0,
         "total": 100,
-        "fprPct": 1
+        "fprPct": 0
       },
       "latency": {
-        "medianMs": 0.021,
-        "p95Ms": 0.041,
-        "maxMs": 0.091
+        "medianMs": 0.022,
+        "p95Ms": 0.036,
+        "maxMs": 0.085
       },
       "idempotencyFailures": 0,
       "categoryBreakdown": {
@@ -3335,20 +3309,7 @@
           "snippet": "28802"
         }
       ],
-      "fpExamples": [
-        {
-          "source": "README.md",
-          "category": "NATURAL_SECRET",
-          "detector": "HEURISTIC_GUARD",
-          "matchedText": "log in using his dog's name followed by 2026exclamation`), M"
-        },
-        {
-          "source": "README.md",
-          "category": "M_AND_A_SECRET",
-          "detector": "HEURISTIC_GUARD",
-          "matchedText": "$42M valuation"
-        }
-      ]
+      "fpExamples": []
     },
     "high": {
       "level": "high",
@@ -3369,14 +3330,14 @@
         "recallPct": 100
       },
       "suiteC": {
-        "flagged": 1,
+        "flagged": 0,
         "total": 100,
-        "fprPct": 1
+        "fprPct": 0
       },
       "latency": {
-        "medianMs": 0.021,
+        "medianMs": 0.02,
         "p95Ms": 0.034,
-        "maxMs": 0.127
+        "maxMs": 0.116
       },
       "idempotencyFailures": 0,
       "categoryBreakdown": {
@@ -3998,20 +3959,7 @@
           "snippet": "28802"
         }
       ],
-      "fpExamples": [
-        {
-          "source": "README.md",
-          "category": "NATURAL_SECRET",
-          "detector": "HEURISTIC_GUARD",
-          "matchedText": "log in using his dog's name followed by 2026exclamation`), M"
-        },
-        {
-          "source": "README.md",
-          "category": "M_AND_A_SECRET",
-          "detector": "HEURISTIC_GUARD",
-          "matchedText": "$42M valuation"
-        }
-      ]
+      "fpExamples": []
     }
   }
 }

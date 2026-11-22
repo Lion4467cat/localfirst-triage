@@ -130,7 +130,7 @@ data class RuntimeConfigValues(
 ) {
     companion object {
         const val DEFAULT_CLOUD_PRIMARY_MODEL = "gemini-3.5-flash-lite"
-        const val DEFAULT_CLOUD_FALLBACK_MODEL = "gemini-2.5-flash"
+        const val DEFAULT_CLOUD_FALLBACK_MODEL = "gemini-3.8-flash"
         const val DEFAULT_ENTROPY_THRESHOLD = 3.25
         val DEFAULT_ENTERPRISE_BLOCKED_TERMS = listOf("Project-Apollo", "Project-Valkyrie")
     }

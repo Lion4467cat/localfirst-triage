@@ -91,7 +91,7 @@ async function main() {
       throw new Error("Expected Light theme to set data-theme=light");
     }
 
-    await page.getByRole("button", { name: /Open Live Workbench/i }).click();
+    await page.getByRole("button", { name: /Run Live Workbench/i }).click();
     await page.waitForTimeout(350);
     const workbenchVisible = await page.locator("#workbench-act").isVisible();
     if (!workbenchVisible) {

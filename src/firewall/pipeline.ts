@@ -137,7 +137,7 @@ async function defaultCallCloud(
   }
 
   const candidateModels = [
-    ...new Set([config.cloudModel, config.cloudFallbackModel, "gemini-2.5-flash"].filter(Boolean)),
+    ...new Set([config.cloudModel, config.cloudFallbackModel, "gemini-3.8-flash"].filter(Boolean)),
   ];
   let lastError = "Unknown Cloud error";
 

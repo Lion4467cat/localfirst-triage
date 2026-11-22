@@ -34,7 +34,7 @@ describe("dedupCache", () => {
     await saveToDedupCache({
       sanitizedText: sanitized,
       aiSolution: "### Root Cause Hypothesis\nRotate [REDACTED:AWS_ACCESS_KEY_1].",
-      modelUsed: "gemini-2.5-flash",
+      modelUsed: "gemini-3.8-flash",
     });
 
     const repeatSanitized =
