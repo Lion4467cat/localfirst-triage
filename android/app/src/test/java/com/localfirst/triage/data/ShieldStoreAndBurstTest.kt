@@ -2,6 +2,7 @@ package com.localfirst.triage.data
 
 import com.localfirst.triage.accessibility.AccessibilityBurstDetector
 import com.localfirst.triage.accessibility.SendButtonMatcher
+import com.localfirst.triage.ui.screens.CloudMarkdownFormatter
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -109,5 +110,26 @@ class ShieldStoreAndBurstTest {
                 isEditable = false,
             ),
         )
+    }
+
+    @Test
+    fun `cloud markdown formatter strips headings bold markers and stray backticks`() {
+        val raw = """
+            ### Root Cause
+            - **Token Leak** in `env`
+            ```
+            Rotate `[REDACTED:API_KEY_1]` immediately.
+            ```
+        """.trimIndent()
+
+        val blocks = CloudMarkdownFormatter.parse(raw)
+        assertEquals(3, blocks.size)
+        assertTrue(blocks[0].isHeading)
+        assertEquals("Root Cause", blocks[0].text)
+        assertTrue(blocks[1].isBullet)
+        assertEquals("Token Leak in env", blocks[1].text)
+        assertFalse(blocks[2].isHeading)
+        assertFalse(blocks[2].isBullet)
+        assertEquals("Rotate [REDACTED:API_KEY_1] immediately.", blocks[2].text)
     }
 }

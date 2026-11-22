@@ -1,5 +1,11 @@
 package com.localfirst.triage.ui.screens
 
+import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.PauseCircle
@@ -44,6 +51,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -70,6 +78,7 @@ fun ShieldScreen(
     modifier: Modifier = Modifier,
 ) {
     val tokens = LocalFirstThemeTokens.colors
+    val context = LocalContext.current
     val isShieldActive = isAccessibilityEnabled && !isShieldPaused
     val activeEngineLabel = if (state.nanoStatus == NanoStatus.READY) {
         "Model: Gemini Nano (AICore)"
@@ -407,6 +416,41 @@ fun ShieldScreen(
                                 }
                             }
 
+                            Button(
+                                onClick = {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                    clipboard?.setPrimaryClip(ClipData.newPlainText("Cordon Safe Text", sanitizedOutput))
+                                    Toast.makeText(
+                                        context,
+                                        "Scrubbed text copied — pick an app to paste",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                    val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(Intent.EXTRA_TEXT, sanitizedOutput)
+                                    }
+                                    val chooser = Intent.createChooser(sendIntent, "Choose app to paste into").apply {
+                                        if (context !is Activity) {
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        }
+                                    }
+                                    runCatching { context.startActivity(chooser) }
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary,
+                                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                                ),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Text(
+                                    text = "Choose App to Paste Into",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(start = 6.dp),
+                                )
+                            }
+
                             OutlinedButton(
                                 onClick = { onSendScrubbedToCloud(sanitizedOutput) },
                                 enabled = !state.isRunning && !state.offlineMode,
@@ -450,16 +494,23 @@ fun ShieldScreen(
                                         verticalArrangement = Arrangement.spacedBy(4.dp),
                                     ) {
                                         Text(
-                                            text = "Cloud AI Response (Only redacted tokens sent)",
+                                            text = "Cloud AI Response · 0 raw PII bytes left device",
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 11.sp,
                                             color = tokens.infoText,
                                         )
-                                        Text(
-                                            text = cloudResult.resolution,
-                                            fontSize = 12.sp,
-                                            color = MaterialTheme.colorScheme.onSurface,
-                                        )
+                                        CloudMarkdownFormatter.parse(cloudResult.resolution).forEach { block ->
+                                            Text(
+                                                text = if (block.isBullet) "• ${block.text}" else block.text,
+                                                fontWeight = if (block.isHeading) FontWeight.Bold else FontWeight.Normal,
+                                                fontSize = if (block.isHeading) 12.5.sp else 12.sp,
+                                                color = if (block.isHeading) tokens.infoText else MaterialTheme.colorScheme.onSurface,
+                                                modifier = Modifier.padding(
+                                                    start = if (block.isBullet) 6.dp else 0.dp,
+                                                    top = if (block.isHeading) 4.dp else 0.dp,
+                                                ),
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -502,5 +553,47 @@ private fun HowItWorksStep(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+}
+
+data class CloudResponseBlock(
+    val text: String,
+    val isHeading: Boolean = false,
+    val isBullet: Boolean = false,
+)
+
+object CloudMarkdownFormatter {
+    private val HEADING_PREFIX = Regex("""^#{1,6}\s+""")
+    private val BULLET_PREFIX = Regex("""^[-*•]\s+""")
+    private val FENCE_LINE = Regex("""^```.*$""")
+
+    fun cleanInline(line: String): String = line
+        .replace("**", "")
+        .replace("__", "")
+        .replace("`", "")
+        .trim()
+
+    fun parse(raw: String): List<CloudResponseBlock> {
+        if (raw.isBlank()) return emptyList()
+        return raw.lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && !FENCE_LINE.matches(it) }
+            .mapNotNull { line ->
+                when {
+                    HEADING_PREFIX.containsMatchIn(line) -> {
+                        val cleaned = cleanInline(HEADING_PREFIX.replace(line, ""))
+                        if (cleaned.isEmpty()) null else CloudResponseBlock(cleaned, isHeading = true)
+                    }
+                    BULLET_PREFIX.containsMatchIn(line) -> {
+                        val cleaned = cleanInline(BULLET_PREFIX.replace(line, ""))
+                        if (cleaned.isEmpty()) null else CloudResponseBlock(cleaned, isBullet = true)
+                    }
+                    else -> {
+                        val cleaned = cleanInline(line)
+                        if (cleaned.isEmpty()) null else CloudResponseBlock(cleaned)
+                    }
+                }
+            }
+            .toList()
     }
 }
