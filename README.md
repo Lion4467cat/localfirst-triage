@@ -120,7 +120,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ```bash
 npm ci && npm run build            # TypeScript + Vite production build
-npm test                           # Vitest: 17 files, 126 tests passing
+npm test                           # Vitest: 20 files, 138 tests passing
 npm run test:e2e                   # Playwright: 10/10 flows, 0 page errors
 cd android && ./gradlew testDebugUnitTest lintDebug assembleDebug
                                    # 76 tests passing, 0 lint errors
