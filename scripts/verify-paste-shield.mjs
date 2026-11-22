@@ -225,6 +225,12 @@ async function main() {
     if (!(await spPage.locator("#setup-gate").isVisible())) {
       throw new Error("Expected #setup-gate to be visible on first launch");
     }
+    await spPage.locator('[data-open-url="chrome://flags/#prompt-api-for-gemini-nano-multimodal-input"]').click();
+    await spPage.waitForTimeout(100);
+    const progText = await spPage.locator("#setup-progress-text").textContent();
+    if (!progText?.includes("1/5 opened")) {
+      throw new Error(`Expected #setup-progress-text to show '1/5 opened', got '${progText}'`);
+    }
     await spPage.locator("#btn-setup-check-model").click();
     await spPage.waitForTimeout(100);
     const feedbackText = await spPage.locator("#setup-model-feedback").textContent();

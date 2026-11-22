@@ -53,8 +53,8 @@ const setupSkipBtn = document.getElementById("btn-setup-skip");
 const setupDetWarning = document.getElementById("setup-deterministic-warning");
 const setupConfirmDetBtn = document.getElementById("btn-setup-confirm-det");
 const openSetupBtn = document.getElementById("btn-open-setup");
-const copyInlineBtns = Array.from(document.querySelectorAll("[data-copy-text]"));
-const setupExtLinks = Array.from(document.querySelectorAll(".setup-ext-link"));
+const setupProgressText = document.getElementById("setup-progress-text");
+const setupOpenButtons = Array.from(document.querySelectorAll("[data-open-url]"));
 const sfxToggleBtn = document.getElementById("btn-sfx-toggle");
 const sfxToggleLabel = document.getElementById("sfx-toggle-label");
 const shieldToggleBtn = document.getElementById("btn-shield-toggle");
@@ -292,30 +292,45 @@ setupCheckModelBtn?.addEventListener("click", async () => {
   }
 });
 
-for (const btn of copyInlineBtns) {
-  btn.addEventListener("click", async () => {
-    const text = btn.getAttribute("data-copy-text");
-    if (!text) return;
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      // Fallback for restricted contexts
-    }
-    const prev = btn.textContent;
-    btn.textContent = "Copied!";
-    setTimeout(() => {
-      btn.textContent = prev || "Copy";
-    }, 1400);
-  });
+const visitedSetupUrls = new Set();
+
+function markSetupUrlVisited(btn, url) {
+  visitedSetupUrls.add(url);
+  const row = btn.closest(".setup-option-row");
+  if (row) row.setAttribute("data-step-visited", "true");
+  if (setupProgressText) {
+    setupProgressText.textContent = `${visitedSetupUrls.size}/${setupOpenButtons.length} opened`;
+  }
 }
 
-for (const link of setupExtLinks) {
-  link.addEventListener("click", async (ev) => {
-    const href = link.getAttribute("href");
-    if (!href) return;
+for (const btn of setupOpenButtons) {
+  btn.addEventListener("click", async (ev) => {
+    const url = btn.getAttribute("data-open-url");
+    if (!url) return;
+    ev.preventDefault();
+    markSetupUrlVisited(btn, url);
+
+    let opened = false;
     if (typeof chrome !== "undefined" && chrome.tabs?.create) {
-      ev.preventDefault();
-      await chrome.tabs.create({ url: href });
+      try {
+        await chrome.tabs.create({ url, active: true });
+        opened = true;
+      } catch {
+        opened = false;
+      }
+    } else if (url.startsWith("https://")) {
+      window.open(url, "_blank", "noopener,noreferrer");
+      opened = true;
+    }
+
+    if (!opened && url.startsWith("chrome://")) {
+      try {
+        await navigator.clipboard.writeText(url);
+      } catch { /* ignore */ }
+      if (setupModelFeedback) {
+        setupModelFeedback.hidden = false;
+        setupModelFeedback.textContent = `Chrome blocked direct open — copied ${url} to clipboard. Paste into the address bar and toggle the setting on.`;
+      }
     }
   });
 }

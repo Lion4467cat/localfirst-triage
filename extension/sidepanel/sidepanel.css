@@ -220,56 +220,68 @@ h1 {
   color: var(--mint);
 }
 
-.setup-copy-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: 2px;
-}
-
-.setup-copy-row {
+.setup-step-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  padding: 4px 6px;
 }
 
-.setup-copy-row code {
-  font-size: 9.5px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
+.setup-progress {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--mint);
 }
 
-.btn-copy-inline {
-  border: 1px solid var(--border-strong);
-  border-radius: 5px;
-  background: var(--bg-subtle);
-  color: var(--text-primary);
-  font-size: 9.5px;
-  font-weight: 600;
-  padding: 2px 6px;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.setup-links-row {
+.setup-option-list {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
   margin-top: 2px;
 }
 
-.setup-ext-link {
-  font-size: 10.5px;
-  font-weight: 600;
-  color: var(--cyan);
-  text-decoration: underline;
+.setup-option-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+  padding: 6px 7px;
+}
+
+.setup-option-row[data-step-visited="true"] {
+  border-color: var(--mint-border);
+}
+
+.setup-open-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 5px 7px;
+  text-decoration: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.setup-open-btn:hover {
+  border-color: var(--mint-border);
+  color: var(--mint);
+}
+
+.setup-option-hint {
+  font-size: 10px;
+  color: var(--text-secondary);
+  line-height: 1.35;
+  min-width: 0;
 }
 
 .setup-guide-list {

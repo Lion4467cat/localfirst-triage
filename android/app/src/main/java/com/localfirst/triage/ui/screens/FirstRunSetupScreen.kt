@@ -2,6 +2,7 @@ package com.localfirst.triage.ui.screens
 
 import android.content.Intent
 import android.net.Uri
+import android.provider.Settings
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -69,15 +70,32 @@ fun FirstRunSetupScreen(
     val view = LocalView.current
     var showOptOutWarning by remember { mutableStateOf(false) }
     var actionFeedback by remember { mutableStateOf<String?>(null) }
+    var openedGuidesCount by remember { mutableStateOf(0) }
 
-    fun openExternalUrl(url: String) {
+    fun openExternalUrl(url: String, label: String) {
+        openedGuidesCount = (openedGuidesCount + 1).coerceAtMost(3)
         try {
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(intent)
+            actionFeedback = "Opened $label in browser."
         } catch (_: Exception) {
             actionFeedback = "No browser app found to open $url"
+        }
+    }
+
+    fun openAppSettings() {
+        openedGuidesCount = (openedGuidesCount + 1).coerceAtMost(3)
+        try {
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.fromParts("package", context.packageName, null)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+            actionFeedback = "Opened Cordon App Settings."
+        } catch (_: Exception) {
+            actionFeedback = "Unable to open system App Settings on this device."
         }
     }
 
@@ -223,14 +241,54 @@ fun FirstRunSetupScreen(
                     )
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = { openExternalUrl("https://developer.android.com/ai/gemini-nano") }) {
-                        Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
-                        Text("On-Device AI Docs", fontSize = 11.5.sp)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        OutlinedButton(onClick = { openExternalUrl("https://developer.android.com/ai/gemini-nano", "On-Device AI Docs") }) {
+                            Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
+                            Text("AI Docs", fontSize = 11.5.sp)
+                        }
+                        Text(
+                            text = "Open page → verify AICore & Gemini Nano support on your device.",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
+                        )
                     }
-                    TextButton(onClick = { openExternalUrl("https://para-1-2e22b.web.app") }) {
-                        Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
-                        Text("Web Workbench", fontSize = 11.5.sp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        OutlinedButton(onClick = { openAppSettings() }) {
+                            Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
+                            Text("App Settings", fontSize = 11.5.sp)
+                        }
+                        Text(
+                            text = "Open page → toggle on permissions & text/share defaults if needed.",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        OutlinedButton(onClick = { openExternalUrl("https://para-1-2e22b.web.app", "Web Workbench") }) {
+                            Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
+                            Text("Workbench", fontSize = 11.5.sp)
+                        }
+                        Text(
+                            text = "Open page → sign in or toggle Sync to view Zero-PII Cloud Feed.",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
+                        )
                     }
                 }
             }
