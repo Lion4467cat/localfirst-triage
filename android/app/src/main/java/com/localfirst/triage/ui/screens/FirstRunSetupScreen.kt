@@ -19,8 +19,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Shield
@@ -70,10 +70,10 @@ fun FirstRunSetupScreen(
     val view = LocalView.current
     var showOptOutWarning by remember { mutableStateOf(false) }
     var actionFeedback by remember { mutableStateOf<String?>(null) }
-    var openedGuidesCount by remember { mutableStateOf(0) }
+    var visitedSteps by remember { mutableStateOf(setOf<String>()) }
 
-    fun openExternalUrl(url: String, label: String) {
-        openedGuidesCount = (openedGuidesCount + 1).coerceAtMost(3)
+    fun openExternalUrl(stepKey: String, url: String, label: String) {
+        visitedSteps = visitedSteps + stepKey
         try {
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -86,7 +86,7 @@ fun FirstRunSetupScreen(
     }
 
     fun openAppSettings() {
-        openedGuidesCount = (openedGuidesCount + 1).coerceAtMost(3)
+        visitedSteps = visitedSteps + "settings"
         try {
             val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                 data = Uri.fromParts("package", context.packageName, null)
@@ -161,7 +161,7 @@ fun FirstRunSetupScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "STEP 1 · ON-DEVICE AI MODEL",
+                        text = "STEP 1 · ON-DEVICE AI (${visitedSteps.size}/4)",
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                         fontSize = 11.sp,
@@ -202,33 +202,51 @@ fun FirstRunSetupScreen(
                     )
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = {
-                        onRecheckNano()
-                        actionFeedback = when (state.nanoStatus) {
-                            NanoStatus.READY -> "On-device AI model is ready."
-                            NanoStatus.DOWNLOADABLE -> "Model is downloadable. Tap Download Model."
-                            NanoStatus.MODEL_DOWNLOADING -> "Model download is in progress."
-                            NanoStatus.UNAVAILABLE -> "On-device model unavailable on this device — deterministic firewall remains active."
-                        }
-                    }) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedButton(
+                        border = BorderStroke(
+                            1.dp,
+                            if ("model" in visitedSteps) tokens.safeBorder else tokens.borderSubtle,
+                        ),
+                        onClick = {
+                            visitedSteps = visitedSteps + "model"
+                            onRecheckNano()
+                            actionFeedback = when (state.nanoStatus) {
+                                NanoStatus.READY -> "On-device AI model is ready."
+                                NanoStatus.DOWNLOADABLE -> "Model is downloadable. Tap Download Model."
+                                NanoStatus.MODEL_DOWNLOADING -> "Model download is in progress."
+                                NanoStatus.UNAVAILABLE -> "On-device model unavailable on this device — deterministic firewall remains active."
+                            }
+                        },
+                    ) {
                         Icon(Icons.Default.Refresh, contentDescription = null)
-                        Text("Check Model", modifier = Modifier.padding(start = 4.dp), fontSize = 12.sp)
+                        Text("Check Model", modifier = Modifier.padding(start = 4.dp), fontSize = 11.5.sp)
                     }
-                    if (state.nanoStatus == NanoStatus.DOWNLOADABLE) {
-                        Button(
-                            onClick = {
-                                actionFeedback = "Starting on-device model download…"
-                                onWarmupNano()
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.secondary,
-                                contentColor = MaterialTheme.colorScheme.onSecondary,
-                            ),
-                        ) {
-                            Icon(Icons.Default.Download, contentDescription = null)
-                            Text("Download Model", modifier = Modifier.padding(start = 4.dp), fontSize = 12.sp)
-                        }
+                    Text(
+                        text = "Tap to check AICore / Gemini Nano and toggle on-device model download.",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                if (state.nanoStatus == NanoStatus.DOWNLOADABLE) {
+                    Button(
+                        onClick = {
+                            visitedSteps = visitedSteps + "model"
+                            actionFeedback = "Starting on-device model download…"
+                            onWarmupNano()
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.secondary,
+                            contentColor = MaterialTheme.colorScheme.onSecondary,
+                        ),
+                    ) {
+                        Icon(Icons.Default.Download, contentDescription = null)
+                        Text("Download Model", modifier = Modifier.padding(start = 4.dp), fontSize = 12.sp)
                     }
                 }
 
@@ -247,8 +265,14 @@ fun FirstRunSetupScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        OutlinedButton(onClick = { openExternalUrl("https://developer.android.com/ai/gemini-nano", "On-Device AI Docs") }) {
-                            Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
+                        OutlinedButton(
+                            border = BorderStroke(
+                                1.dp,
+                                if ("docs" in visitedSteps) tokens.safeBorder else tokens.borderSubtle,
+                            ),
+                            onClick = { openExternalUrl("docs", "https://developer.android.com/ai/gemini-nano", "On-Device AI Docs") },
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
                             Text("AI Docs", fontSize = 11.5.sp)
                         }
                         Text(
@@ -263,8 +287,14 @@ fun FirstRunSetupScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        OutlinedButton(onClick = { openAppSettings() }) {
-                            Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
+                        OutlinedButton(
+                            border = BorderStroke(
+                                1.dp,
+                                if ("settings" in visitedSteps) tokens.safeBorder else tokens.borderSubtle,
+                            ),
+                            onClick = { openAppSettings() },
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
                             Text("App Settings", fontSize = 11.5.sp)
                         }
                         Text(
@@ -279,8 +309,14 @@ fun FirstRunSetupScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        OutlinedButton(onClick = { openExternalUrl("https://para-1-2e22b.web.app", "Web Workbench") }) {
-                            Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
+                        OutlinedButton(
+                            border = BorderStroke(
+                                1.dp,
+                                if ("workbench" in visitedSteps) tokens.safeBorder else tokens.borderSubtle,
+                            ),
+                            onClick = { openExternalUrl("workbench", "https://para-1-2e22b.web.app", "Web Workbench") },
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
                             Text("Workbench", fontSize = 11.5.sp)
                         }
                         Text(
