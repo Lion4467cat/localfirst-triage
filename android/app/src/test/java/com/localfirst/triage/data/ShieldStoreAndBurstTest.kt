@@ -2,9 +2,13 @@ package com.localfirst.triage.data
 
 import com.localfirst.triage.accessibility.AccessibilityBurstDetector
 import com.localfirst.triage.accessibility.SendButtonMatcher
+import com.localfirst.triage.accessibility.SendPromptStateMachine
+import com.localfirst.triage.model.ProtectionLevel
 import com.localfirst.triage.ui.screens.CloudMarkdownFormatter
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -131,5 +135,42 @@ class ShieldStoreAndBurstTest {
         assertFalse(blocks[2].isHeading)
         assertFalse(blocks[2].isBullet)
         assertEquals("Rotate [REDACTED:API_KEY_1] immediately.", blocks[2].text)
+    }
+
+    @Test
+    fun `send prompt state machine holds silently while typing and prompts once on send`() {
+        val sm = SendPromptStateMachine()
+        val rawSecretText = "Use key AKIAIOSFODNN7EXAMPLE and call +1-415-555-0199"
+
+        // Typing/pasting tracks state silently without arming visible prompt
+        sm.onFieldTextObserved("com.openai.chatgpt", "ChatGPT", rawSecretText, ProtectionLevel.MEDIUM)
+        assertFalse(sm.isPromptVisible)
+        assertNotNull(sm.trackedState)
+
+        // Clicking Send opens the prompt
+        val prompt = sm.onSendClicked("com.openai.chatgpt")
+        assertNotNull(prompt)
+        assertTrue(sm.isPromptVisible)
+        assertTrue(prompt!!.sanitizedText.contains("[REDACTED:"))
+
+        // Self-triggered empty text event while holding prompt must NOT wipe tracked state
+        sm.onFieldTextObserved("com.openai.chatgpt", "ChatGPT", "", ProtectionLevel.MEDIUM)
+        assertNotNull(sm.trackedState)
+
+        // Reject & Send Anyway restores raw text and suppresses re-prompting for the exact same text
+        val rejected = sm.rejectAndSendAnyway()
+        assertEquals(rawSecretText, rejected?.rawText)
+        assertFalse(sm.isPromptVisible)
+        sm.onFieldTextObserved("com.openai.chatgpt", "ChatGPT", rawSecretText, ProtectionLevel.MEDIUM)
+        assertNull(sm.onSendClicked("com.openai.chatgpt"))
+
+        // Editing to a new secret arms the prompt again, and Accept Scrub clears state
+        val newSecretText = "New key AKIAIOSFODNN7EXAMPLE"
+        sm.onFieldTextObserved("com.openai.chatgpt", "ChatGPT", newSecretText, ProtectionLevel.MEDIUM)
+        assertNotNull(sm.onSendClicked("com.openai.chatgpt"))
+        val accepted = sm.acceptScrub()
+        assertNotNull(accepted)
+        assertFalse(sm.isPromptVisible)
+        assertNull(sm.trackedState)
     }
 }
