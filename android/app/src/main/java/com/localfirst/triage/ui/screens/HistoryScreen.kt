@@ -3,6 +3,7 @@ package com.localfirst.triage.ui.screens
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -48,8 +49,8 @@ fun HistoryScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -58,25 +59,26 @@ fun HistoryScreen(
         ) {
             Column {
                 Text(
-                    text = "Zero-PII Block Log",
+                    text = "History",
                     fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
+                    fontSize = 16.sp,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
-                    text = "Metadata only · Raw secrets are never saved",
-                    fontSize = 12.sp,
+                    text = "Zero-PII · metadata only",
+                    fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             OutlinedButton(
                 onClick = onClearHistory,
                 enabled = entries.isNotEmpty(),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
             ) {
-                Icon(Icons.Default.DeleteOutline, contentDescription = null, modifier = Modifier.size(16.dp))
+                Icon(Icons.Default.DeleteOutline, contentDescription = null, modifier = Modifier.size(14.dp))
                 Text(
                     text = "Clear History",
-                    fontSize = 12.sp,
+                    fontSize = 11.5.sp,
                     modifier = Modifier.padding(start = 4.dp),
                 )
             }
@@ -86,48 +88,49 @@ fun HistoryScreen(
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 border = BorderStroke(1.dp, tokens.borderSubtle),
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Column(
-                    modifier = Modifier.padding(20.dp),
+                    modifier = Modifier.padding(14.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     Icon(
                         imageVector = Icons.Default.History,
                         contentDescription = null,
                         tint = tokens.safeText,
-                        modifier = Modifier.size(32.dp),
+                        modifier = Modifier.size(24.dp),
                     )
                     Text(
-                        text = "No Blocked Events Yet",
+                        text = "No Events Yet",
                         fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
+                        fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
-                        text = "When Cordon scrubs secrets in ChatGPT, Claude, Gemini, Slack, or Quick Sandbox, only the app name, timestamp, and category counts are logged here. Raw secrets are never persisted.",
-                        fontSize = 12.sp,
+                        text = "Events appear automatically when secrets are scrubbed or held. Raw secrets are never stored.",
+                        fontSize = 11.5.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
         } else {
             LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
                 items(entries, key = { it.id }) { entry ->
+                    val isOverride = entry.actionType == BlockHistoryEntry.ACTION_OVERRIDE
                     Card(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        border = BorderStroke(1.dp, tokens.borderSubtle),
-                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, if (isOverride) tokens.warnBorder else tokens.borderSubtle),
+                        shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Column(
-                            modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -136,27 +139,41 @@ fun HistoryScreen(
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp),
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.VerifiedUser,
                                         contentDescription = null,
-                                        tint = tokens.safeText,
-                                        modifier = Modifier.size(16.dp),
+                                        tint = if (isOverride) tokens.warnText else tokens.safeText,
+                                        modifier = Modifier.size(14.dp),
                                     )
                                     Text(
                                         text = entry.appName,
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 14.sp,
+                                        fontSize = 13.5.sp,
                                         color = MaterialTheme.colorScheme.onSurface,
                                     )
+                                    Text(
+                                        text = formatter.format(Date(entry.timestampMs)),
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 10.5.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
                                 }
-                                Text(
-                                    text = formatter.format(Date(entry.timestampMs)),
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+                                Surface(
+                                    color = if (isOverride) tokens.warnBg else tokens.safeBg,
+                                    border = BorderStroke(1.dp, if (isOverride) tokens.warnBorder else tokens.safeBorder),
+                                    shape = RoundedCornerShape(5.dp),
+                                ) {
+                                    Text(
+                                        text = "${entry.totalBlocked} caught",
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 9.5.sp,
+                                        color = if (isOverride) tokens.warnText else tokens.safeText,
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                                    )
+                                }
                             }
 
                             Row(
@@ -166,21 +183,21 @@ fun HistoryScreen(
                             ) {
                                 Text(
                                     text = entry.formatSummary(),
-                                    fontSize = 12.sp,
+                                    fontSize = 11.5.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = tokens.safeText,
+                                    color = if (isOverride) tokens.warnText else tokens.safeText,
                                     modifier = Modifier.weight(1f),
                                 )
                                 Surface(
                                     color = tokens.subtleSurface,
                                     border = BorderStroke(1.dp, tokens.borderSubtle),
-                                    shape = RoundedCornerShape(6.dp),
+                                    shape = RoundedCornerShape(5.dp),
                                 ) {
                                     Text(
                                         text = entry.engineUsed,
-                                        fontSize = 10.sp,
+                                        fontSize = 9.5.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
                                     )
                                 }
                             }

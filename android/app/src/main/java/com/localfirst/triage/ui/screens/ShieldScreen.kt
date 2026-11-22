@@ -12,11 +12,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -81,9 +83,9 @@ fun ShieldScreen(
     val context = LocalContext.current
     val isShieldActive = isAccessibilityEnabled && !isShieldPaused
     val activeEngineLabel = if (state.nanoStatus == NanoStatus.READY) {
-        "Model: Gemini Nano (AICore)"
+        "Gemini Nano (AICore)"
     } else {
-        "Model: Deterministic Rules Only"
+        "Deterministic Rules"
     }
 
     var sandboxExpanded by remember { mutableStateOf(true) }
@@ -95,21 +97,21 @@ fun ShieldScreen(
         modifier = modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        // 1. Live Status Hero Card
+        // 1. Compact Status Card
         Card(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             border = BorderStroke(
                 width = 1.dp,
                 color = if (isShieldActive) tokens.safeBorder else tokens.warnBorder,
             ),
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(12.dp),
         ) {
             Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -118,45 +120,34 @@ fun ShieldScreen(
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         Icon(
                             imageVector = if (isShieldActive) Icons.Default.Shield else Icons.Default.PauseCircle,
                             contentDescription = null,
                             tint = if (isShieldActive) tokens.safeText else tokens.warnText,
-                            modifier = Modifier.size(24.dp),
+                            modifier = Modifier.size(18.dp),
                         )
-                        Column {
-                            Text(
-                                text = "Background Shield",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            Text(
-                                text = when {
-                                    isShieldActive -> "Guarding AI & chat apps on-device"
-                                    isAccessibilityEnabled -> "Paused by user — tap Resume"
-                                    else -> "Enable Accessibility Service to guard apps"
-                                },
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
+                        Text(
+                            text = "Background Shield",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.5.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
                     }
 
                     Surface(
                         color = if (isShieldActive) tokens.safeBg else tokens.warnBg,
                         border = BorderStroke(1.dp, if (isShieldActive) tokens.safeBorder else tokens.warnBorder),
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(6.dp),
                     ) {
                         Text(
                             text = if (isShieldActive) "ACTIVE" else "PAUSED",
                             color = if (isShieldActive) tokens.safeText else tokens.warnText,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 11.sp,
-                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                            fontSize = 10.sp,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                         )
                     }
                 }
@@ -172,97 +163,95 @@ fun ShieldScreen(
                             1.dp,
                             if (state.nanoStatus == NanoStatus.READY) tokens.infoBorder else tokens.borderSubtle,
                         ),
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(6.dp),
                     ) {
                         Text(
                             text = activeEngineLabel,
                             color = if (state.nanoStatus == NanoStatus.READY) tokens.infoText else tokens.textMuted,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.SemiBold,
-                            fontSize = 11.sp,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            fontSize = 10.5.sp,
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
                         )
                     }
 
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text(
-                            text = "$totalSecretsBlocked",
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 20.sp,
-                            color = tokens.safeText,
-                        )
-                        Text(
-                            text = "Secrets Blocked",
-                            fontSize = 10.5.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    Text(
+                        text = "$totalSecretsBlocked blocked",
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = tokens.safeText,
+                    )
                 }
 
                 if (!isAccessibilityEnabled) {
                     Button(
                         onClick = onEnableAccessibility,
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.primary,
                             contentColor = MaterialTheme.colorScheme.onPrimary,
                         ),
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 38.dp),
                     ) {
-                        Icon(Icons.Default.Security, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Default.Security, contentDescription = null, modifier = Modifier.size(16.dp))
                         Text(
                             text = "Enable Background Shield",
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(start = 8.dp),
+                            modifier = Modifier.padding(start = 6.dp),
                         )
                     }
                 } else if (isShieldPaused) {
                     OutlinedButton(
                         onClick = onResumeShield,
-                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 38.dp),
                     ) {
-                        Text("Resume Background Shield", fontWeight = FontWeight.Bold)
+                        Text("Resume Background Shield", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
         }
 
-        // 2. How It Works (Compact 3-Step Card)
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        // 2. Crisp 3-Step Flow Strip
+        Surface(
+            color = MaterialTheme.colorScheme.surface,
             border = BorderStroke(1.dp, tokens.borderSubtle),
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(10.dp),
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            Column(
-                modifier = Modifier.padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "HOW IT WORKS",
-                    fontFamily = FontFamily.Monospace,
+                    text = "1. Detect",
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text("→", fontSize = 11.sp, color = tokens.textMuted)
+                Text(
+                    text = "2. Scrub",
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text("→", fontSize = 11.sp, color = tokens.textMuted)
+                Text(
+                    text = "3. Safe Send",
                     fontWeight = FontWeight.Bold,
                     fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = tokens.safeText,
                 )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    HowItWorksStep(
-                        step = "1. Detect Locally",
-                        detail = "0.02ms on paste",
-                        modifier = Modifier.weight(1f),
-                    )
-                    HowItWorksStep(
-                        step = "2. Scrub On-Device",
-                        detail = "Replace tokens",
-                        modifier = Modifier.weight(1f),
-                    )
-                    HowItWorksStep(
-                        step = "3. Safe to Send",
-                        detail = "0 Raw PII Leaves",
-                        modifier = Modifier.weight(1f),
-                    )
-                }
             }
         }
 
@@ -270,9 +259,9 @@ fun ShieldScreen(
         Card(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             border = BorderStroke(1.dp, tokens.borderSubtle),
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(12.dp),
         ) {
-            Column(modifier = Modifier.padding(14.dp)) {
+            Column(modifier = Modifier.padding(12.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -436,13 +425,16 @@ fun ShieldScreen(
                                     }
                                     runCatching { context.startActivity(chooser) }
                                 },
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = MaterialTheme.colorScheme.primary,
                                     contentColor = MaterialTheme.colorScheme.onPrimary,
                                 ),
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 38.dp),
                             ) {
-                                Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(15.dp))
                                 Text(
                                     text = "Choose App to Paste Into",
                                     fontSize = 12.sp,
@@ -454,7 +446,10 @@ fun ShieldScreen(
                             OutlinedButton(
                                 onClick = { onSendScrubbedToCloud(sanitizedOutput) },
                                 enabled = !state.isRunning && !state.offlineMode,
-                                modifier = Modifier.fillMaxWidth(),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 38.dp),
                             ) {
                                 if (state.isRunning) {
                                     CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
@@ -499,17 +494,25 @@ fun ShieldScreen(
                                             fontSize = 11.sp,
                                             color = tokens.infoText,
                                         )
-                                        CloudMarkdownFormatter.parse(cloudResult.resolution).forEach { block ->
-                                            Text(
-                                                text = if (block.isBullet) "• ${block.text}" else block.text,
-                                                fontWeight = if (block.isHeading) FontWeight.Bold else FontWeight.Normal,
-                                                fontSize = if (block.isHeading) 12.5.sp else 12.sp,
-                                                color = if (block.isHeading) tokens.infoText else MaterialTheme.colorScheme.onSurface,
-                                                modifier = Modifier.padding(
-                                                    start = if (block.isBullet) 6.dp else 0.dp,
-                                                    top = if (block.isHeading) 4.dp else 0.dp,
-                                                ),
-                                            )
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .heightIn(max = 220.dp)
+                                                .verticalScroll(rememberScrollState()),
+                                            verticalArrangement = Arrangement.spacedBy(3.dp),
+                                        ) {
+                                            CloudMarkdownFormatter.parse(cloudResult.resolution).forEach { block ->
+                                                Text(
+                                                    text = if (block.isBullet) "• ${block.text}" else block.text,
+                                                    fontWeight = if (block.isHeading) FontWeight.Bold else FontWeight.Normal,
+                                                    fontSize = if (block.isHeading) 12.sp else 11.5.sp,
+                                                    color = if (block.isHeading) tokens.infoText else MaterialTheme.colorScheme.onSurface,
+                                                    modifier = Modifier.padding(
+                                                        start = if (block.isBullet) 6.dp else 0.dp,
+                                                        top = if (block.isHeading) 3.dp else 0.dp,
+                                                    ),
+                                                )
+                                            }
                                         }
                                     }
                                 }
