@@ -112,7 +112,7 @@ describe("App integration", () => {
     }
 
     await waitFor(() => {
-      const sendBtn = getByRole("button", { name: /Approve & Get Safe AI Solution/i });
+      const sendBtn = getByRole("button", { name: /Approve & (Get Safe AI Solution|Send Scrubbed Text to Cloud AI)/i });
       expect((sendBtn as HTMLButtonElement).disabled).toBe(true);
     });
   });

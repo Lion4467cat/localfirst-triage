@@ -109,10 +109,10 @@ async function main() {
     await page.locator("#ticket-body").focus();
     await page.keyboard.press("Control+Enter");
     await page.waitForSelector("text=Paused for Review");
-    const unlockBtn = page.getByRole("button", { name: /Unlock Critical Lockdown/i });
+    const unlockBtn = page.getByRole("button", { name: /Approve & Send Scrubbed Text to Cloud AI/i });
     await unlockBtn.waitFor();
     await unlockBtn.click();
-    const approveBtn = page.getByRole("button", { name: /Confirm Critical Override|Approve & Get Safe AI Solution/i });
+    const approveBtn = page.getByRole("button", { name: /Confirm Critical Override|Approve & Send Scrubbed Text to Cloud AI/i });
     await approveBtn.waitFor();
     if (await approveBtn.isDisabled()) {
       throw new Error("Expected Critical Override / Approve button to be enabled after Stage 1");

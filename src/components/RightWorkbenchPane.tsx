@@ -997,10 +997,39 @@ export function RightWorkbenchPane({
           );
           const vaultSummary = getVaultSummary(currentResult.id);
 
+          const isHoldState =
+            !currentResult.dedupCacheHit?.hit &&
+            currentResult.resolutionMode !== "LOCAL_RUNBOOK" &&
+            currentResult.resolutionMode !== "CLOUD_ESCALATION" &&
+            currentResult.resolutionMode !== "CLOUD_ERROR";
+          const localEngineLabel =
+            telemetry.nanoStatus === "READY" || currentResult.stage1Source.includes("Nano")
+              ? "Gemini Nano 4 / Deterministic"
+              : "Deterministic / Nano 4";
+          const cloudModelLabel = currentResult.activeCloudModel ?? runtimeConfig.cloudModel;
+
           return (
           <div className="space-y-3">
+            {/* Active Two-Stage Hybrid Stack Strip */}
             <div
-              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2"
+              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-1.5 font-mono text-[10.5px]"
+              style={{
+                backgroundColor: "var(--bg-subtle)",
+                borderColor: "var(--border-subtle)",
+                color: "var(--text-secondary)",
+              }}
+            >
+              <span className="truncate">
+                <strong style={{ color: "var(--safe-text)" }}>Local: {localEngineLabel}</strong>
+                {" → "}
+                <strong style={{ color: "var(--nano-text)" }}>
+                  Cloud: {cloudModelLabel} (Firebase AI Logic)
+                </strong>
+              </span>
+            </div>
+
+            <div
+              className="flex flex-col gap-1.5 rounded-lg border px-3 py-2"
               style={{
                 backgroundColor:
                   currentResult.resolutionMode === "CLOUD_ERROR"
@@ -1012,50 +1041,57 @@ export function RightWorkbenchPane({
                     : "var(--safe-border)",
               }}
             >
-              <div className="flex flex-wrap items-center gap-2">
-                {currentResult.resolutionMode === "CLOUD_ERROR" ? (
-                  <AlertTriangle className="h-4 w-4" style={{ color: "var(--warn-text)" }} aria-hidden="true" />
-                ) : (
-                  <ShieldCheck className="h-4 w-4" style={{ color: "var(--safe-text)" }} aria-hidden="true" />
-                )}
-                <span
-                  className="text-xs font-semibold"
-                  style={{
-                    color:
-                      currentResult.resolutionMode === "CLOUD_ERROR"
-                        ? "var(--warn-text)"
-                        : "var(--safe-text)",
-                  }}
-                >
-                  {currentResult.dedupCacheHit?.hit
-                    ? `Semantic Cache Hit · <5ms · $0 Cloud`
-                    : currentResult.resolutionMode === "LOCAL_RUNBOOK"
-                      ? `Instant On-Device Fix ($0) · ${currentResult.runbookId ?? "Runbook"}`
-                      : currentResult.resolutionMode === "CLOUD_ESCALATION"
-                        ? `Safe Cloud Analysis · ${currentResult.activeCloudModel ?? "Gemini"}`
-                        : currentResult.resolutionMode === "CLOUD_ERROR"
-                          ? "Local Deterministic Fallback"
-                          : "On-Device Firewall Hold"}
-                </span>
-                {currentResult.dedupCacheHit?.hit && (
-                  <button
-                    type="button"
-                    disabled={isRunning || offlineMode}
-                    onClick={() => onApproveOrRerunCloud({ bypassCache: true })}
-                    className="rounded border px-2 py-0.5 font-mono text-[10px] font-medium disabled:opacity-45"
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  {currentResult.resolutionMode === "CLOUD_ERROR" ? (
+                    <AlertTriangle className="h-4 w-4" style={{ color: "var(--warn-text)" }} aria-hidden="true" />
+                  ) : (
+                    <ShieldCheck className="h-4 w-4" style={{ color: "var(--safe-text)" }} aria-hidden="true" />
+                  )}
+                  <span
+                    className="text-xs font-semibold"
                     style={{
-                      backgroundColor: "var(--bg-surface)",
-                      borderColor: "var(--border-subtle)",
-                      color: "var(--text-primary)",
+                      color:
+                        currentResult.resolutionMode === "CLOUD_ERROR"
+                          ? "var(--warn-text)"
+                          : "var(--safe-text)",
                     }}
                   >
-                    Bypass Cache &amp; Re-run Cloud
-                  </button>
-                )}
+                    {currentResult.dedupCacheHit?.hit
+                      ? `Semantic Cache Hit · <5ms · $0 Cloud`
+                      : currentResult.resolutionMode === "LOCAL_RUNBOOK"
+                        ? `Instant On-Device Fix ($0) · ${currentResult.runbookId ?? "Runbook"}`
+                        : currentResult.resolutionMode === "CLOUD_ESCALATION"
+                          ? `Safe Cloud Analysis · ${cloudModelLabel}`
+                          : currentResult.resolutionMode === "CLOUD_ERROR"
+                            ? "Local Deterministic Fallback"
+                            : "On-Device Firewall Hold"}
+                  </span>
+                  {currentResult.dedupCacheHit?.hit && (
+                    <button
+                      type="button"
+                      disabled={isRunning || offlineMode}
+                      onClick={() => onApproveOrRerunCloud({ bypassCache: true })}
+                      className="rounded border px-2 py-0.5 font-mono text-[10px] font-medium disabled:opacity-45"
+                      style={{
+                        backgroundColor: "var(--bg-surface)",
+                        borderColor: "var(--border-subtle)",
+                        color: "var(--text-primary)",
+                      }}
+                    >
+                      Bypass Cache &amp; Re-run Cloud
+                    </button>
+                  )}
+                </div>
+                <span className="font-mono text-[11px] tabular-nums" style={{ color: "var(--text-secondary)" }}>
+                  {currentResult.dedupCacheHit?.hit ? `${currentResult.dedupCacheHit.latencyMs}ms` : `${currentResult.latencyMs}ms`}
+                </span>
               </div>
-              <span className="font-mono text-[11px] tabular-nums" style={{ color: "var(--text-secondary)" }}>
-                {currentResult.dedupCacheHit?.hit ? `${currentResult.dedupCacheHit.latencyMs}ms` : `${currentResult.latencyMs}ms`}
-              </span>
+              {isHoldState && (
+                <p className="text-[11px] leading-snug" style={{ color: "var(--text-secondary)" }}>
+                  Stage 1 scrubbed 100% locally. Review redacted tokens above, then click &ldquo;Approve &amp; Send Scrubbed Text to Cloud AI&rdquo; to run Cloud Gemini reasoning.
+                </p>
+              )}
             </div>
 
             {/* Ephemeral RAM-Only Rehydration Controls */}
@@ -1518,7 +1554,7 @@ export function RightWorkbenchPane({
                   color: "var(--accent-on-primary)",
                 }}
               >
-                Approve &amp; Get Safe AI Solution →
+                Approve &amp; Send Scrubbed Text to Cloud AI →
               </button>
             </div>
           ) : currentResult.resolutionMode === "CLOUD_ESCALATION" && !maskDirtySinceCloud ? (
@@ -1637,19 +1673,30 @@ export function RightWorkbenchPane({
                 </button>
 
                 {currentResult.riskProfile?.action === "CRITICAL_AIRGAP_LOCKDOWN" && !criticalOverrideArmed ? (
-                  <button
-                    type="button"
-                    disabled={!canEscalate}
-                    onClick={() => setCriticalOverrideArmed(true)}
-                    className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border px-3.5 text-xs font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-45"
-                    style={{
-                      backgroundColor: "var(--mask-bg)",
-                      borderColor: "var(--mask-border)",
-                      color: "var(--mask-text)",
-                    }}
-                  >
-                    <span>Unlock Critical Lockdown ({currentResult.riskProfile.score}/100)</span>
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className="rounded border px-2 py-1 font-mono text-[10px] font-bold tabular-nums"
+                      style={{
+                        backgroundColor: "var(--mask-bg)",
+                        borderColor: "var(--mask-border)",
+                        color: "var(--mask-text)",
+                      }}
+                    >
+                      {currentResult.riskProfile.score}/100 Risk Hold
+                    </span>
+                    <button
+                      type="button"
+                      disabled={!canEscalate}
+                      onClick={() => setCriticalOverrideArmed(true)}
+                      className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg px-3.5 text-xs font-semibold transition-opacity disabled:cursor-not-allowed disabled:opacity-45"
+                      style={{
+                        backgroundColor: "var(--accent-primary)",
+                        color: "var(--accent-on-primary)",
+                      }}
+                    >
+                      <span>Approve &amp; Send Scrubbed Text to Cloud AI →</span>
+                    </button>
+                  </div>
                 ) : (
                   <button
                     type="button"
@@ -1670,7 +1717,7 @@ export function RightWorkbenchPane({
                         ? "Confirm Critical Override →"
                         : currentResult.resolutionMode === "CLOUD_ERROR"
                           ? "Retry Safe AI Solution"
-                          : "Approve & Get Safe AI Solution →"}
+                          : "Approve & Send Scrubbed Text to Cloud AI →"}
                     </span>
                   </button>
                 )}
