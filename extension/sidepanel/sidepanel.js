@@ -43,15 +43,25 @@ const LEVEL_CAPABILITIES = {
   },
 };
 
+const SIDEPANEL_LM_OPTIONS = {
+  expectedOutputs: [{ type: "text", languages: ["en"] }],
+};
+
 const nanoBadge = document.getElementById("nano-badge");
 const setupGate = document.getElementById("setup-gate");
 const setupModelStatus = document.getElementById("setup-model-status");
 const setupReadyView = document.getElementById("setup-ready-view");
-const setupNeedsAiView = document.getElementById("setup-needs-ai-view");
+const setupDownloadView = document.getElementById("setup-download-view");
+const setupUnavailableView = document.getElementById("setup-unavailable-view");
+const setupDownloadProgress = document.getElementById("setup-download-progress");
+const setupProgressFill = document.getElementById("setup-progress-fill");
+const setupProgressPct = document.getElementById("setup-progress-pct");
 const setupEnterBtn = document.getElementById("btn-setup-enter");
+const setupDownloadBtn = document.getElementById("btn-setup-download");
+const setupRecheckBtn = document.getElementById("btn-setup-recheck");
+const setupSkipDlBtn = document.getElementById("btn-setup-skip-dl");
+const setupSkipUnavailBtn = document.getElementById("btn-setup-skip-unavail");
 const setupModelFeedback = document.getElementById("setup-model-feedback");
-const setupVerifyBtn = document.getElementById("btn-setup-verify");
-const setupSkipBtn = document.getElementById("btn-setup-skip");
 const setupDetWarning = document.getElementById("setup-deterministic-warning");
 const setupConfirmDetBtn = document.getElementById("btn-setup-confirm-det");
 const openSetupBtn = document.getElementById("btn-open-setup");
@@ -208,34 +218,37 @@ function setupThemeSwitcher() {
 
 function syncSetupModeView(avail) {
   const ready = avail === "readily" || avail === "available";
+  const downloadable =
+    avail === "downloadable" || avail === "after-download" || avail === "downloading";
   if (setupReadyView) setupReadyView.hidden = !ready;
-  if (setupNeedsAiView) setupNeedsAiView.hidden = ready;
+  if (setupDownloadView) setupDownloadView.hidden = !downloadable;
+  if (setupUnavailableView) setupUnavailableView.hidden = ready || downloadable;
 }
 
 async function refreshNanoStatus() {
   if (!globalThis.LanguageModel?.availability) {
     nanoBadge.textContent = "Deterministic Mode";
-    if (setupModelStatus) setupModelStatus.textContent = "Not Enabled";
+    if (setupModelStatus) setupModelStatus.textContent = "Unavailable";
     syncSetupModeView("unavailable");
     return "unavailable";
   }
   try {
-    const avail = await globalThis.LanguageModel.availability(TEXT_ONLY_OPTIONS);
+    const avail = await globalThis.LanguageModel.availability(SIDEPANEL_LM_OPTIONS);
     if (avail === "readily" || avail === "available") {
       nanoBadge.textContent = "Nano 4 Ready";
       if (setupModelStatus) setupModelStatus.textContent = "Ready";
     } else if (avail === "downloadable" || avail === "downloading" || avail === "after-download") {
       nanoBadge.textContent = "Nano 4 Downloadable";
-      if (setupModelStatus) setupModelStatus.textContent = "Downloadable";
+      if (setupModelStatus) setupModelStatus.textContent = avail === "downloading" ? "Downloading" : "Downloadable";
     } else {
       nanoBadge.textContent = "Deterministic Mode";
-      if (setupModelStatus) setupModelStatus.textContent = "Not Enabled";
+      if (setupModelStatus) setupModelStatus.textContent = "Unavailable";
     }
     syncSetupModeView(avail);
     return avail;
   } catch {
     nanoBadge.textContent = "Deterministic Mode";
-    if (setupModelStatus) setupModelStatus.textContent = "Not Enabled";
+    if (setupModelStatus) setupModelStatus.textContent = "Unavailable";
     syncSetupModeView("unavailable");
     return "unavailable";
   }
@@ -273,6 +286,7 @@ openSetupBtn?.addEventListener("click", () => {
   setupGate.hidden = !setupGate.hidden;
   if (!setupGate.hidden) {
     if (setupDetWarning) setupDetWarning.hidden = true;
+    if (setupModelFeedback) setupModelFeedback.hidden = true;
     void refreshNanoStatus();
   }
 });
@@ -282,22 +296,54 @@ setupEnterBtn?.addEventListener("click", async () => {
   await persistSetupState("completed");
 });
 
-setupVerifyBtn?.addEventListener("click", async () => {
+setupDownloadBtn?.addEventListener("click", async () => {
+  if (!globalThis.LanguageModel?.create) {
+    await refreshNanoStatus();
+    return;
+  }
+  setupDownloadBtn.disabled = true;
+  if (setupDownloadProgress) setupDownloadProgress.hidden = false;
+  if (setupProgressFill) setupProgressFill.style.width = "5%";
+  if (setupProgressPct) setupProgressPct.textContent = "5%";
   if (setupModelFeedback) {
     setupModelFeedback.hidden = false;
-    setupModelFeedback.textContent = "Checking on-device model…";
+    setupModelFeedback.textContent = "Downloading on-device Gemini Nano 4 model…";
   }
-  let avail = await refreshNanoStatus();
-  if ((avail === "downloadable" || avail === "after-download") && globalThis.LanguageModel?.create) {
-    if (setupModelFeedback) setupModelFeedback.textContent = "Downloading on-device model…";
-    try {
-      const session = await globalThis.LanguageModel.create(TEXT_ONLY_OPTIONS);
-      session?.destroy?.();
-      avail = await refreshNanoStatus();
-    } catch {
-      avail = await refreshNanoStatus();
+
+  try {
+    const session = await globalThis.LanguageModel.create({
+      ...SIDEPANEL_LM_OPTIONS,
+      monitor(m) {
+        m.addEventListener("downloadprogress", (e) => {
+          const pct = Math.max(5, Math.min(100, Math.round((e.loaded ?? 0) * 100)));
+          if (setupProgressFill) setupProgressFill.style.width = `${pct}%`;
+          if (setupProgressPct) setupProgressPct.textContent = `${pct}%`;
+        });
+      },
+    });
+    session?.destroy?.();
+    if (setupProgressFill) setupProgressFill.style.width = "100%";
+    if (setupProgressPct) setupProgressPct.textContent = "100%";
+    await refreshNanoStatus();
+    playPanelLock();
+    await persistSetupState("completed");
+  } catch {
+    await refreshNanoStatus();
+    if (setupModelFeedback) {
+      setupModelFeedback.hidden = false;
+      setupModelFeedback.textContent = "Download failed or paused. Try again or continue in Deterministic Mode.";
     }
+  } finally {
+    setupDownloadBtn.disabled = false;
   }
+});
+
+setupRecheckBtn?.addEventListener("click", async () => {
+  if (setupModelFeedback) {
+    setupModelFeedback.hidden = false;
+    setupModelFeedback.textContent = "Checking on-device AI availability…";
+  }
+  const avail = await refreshNanoStatus();
   if (avail === "readily" || avail === "available") {
     playPanelLock();
     await persistSetupState("completed");
@@ -306,7 +352,9 @@ setupVerifyBtn?.addEventListener("click", async () => {
   if (setupModelFeedback) {
     setupModelFeedback.hidden = false;
     setupModelFeedback.textContent =
-      "Model not enabled yet — set both flags above & relaunch Chrome, or Skip below.";
+      avail === "downloadable" || avail === "after-download" || avail === "downloading"
+        ? "On-device AI is now downloadable — click Download On-Device Model above."
+        : "Still unavailable — enable On-device AI in Chrome System Settings or continue in Deterministic Mode.";
   }
 });
 
@@ -338,7 +386,11 @@ for (const btn of setupOpenButtons) {
   });
 }
 
-setupSkipBtn?.addEventListener("click", () => {
+setupSkipDlBtn?.addEventListener("click", () => {
+  if (setupDetWarning) setupDetWarning.hidden = false;
+});
+
+setupSkipUnavailBtn?.addEventListener("click", () => {
   if (setupDetWarning) setupDetWarning.hidden = false;
 });
 

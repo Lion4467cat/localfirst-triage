@@ -177,11 +177,40 @@ h1 {
   border-color: var(--mint-border);
 }
 
-.setup-ready-box,
-.setup-needs-box {
+.setup-state-box {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.setup-progress-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.setup-progress-track {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  overflow: hidden;
+}
+
+.setup-progress-fill {
+  height: 100%;
+  background: var(--mint);
+  border-radius: 999px;
+  transition: width 0.15s ease;
+}
+
+.setup-progress-pct {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--mint);
+  font-variant-numeric: tabular-nums;
 }
 
 .setup-ready-title {

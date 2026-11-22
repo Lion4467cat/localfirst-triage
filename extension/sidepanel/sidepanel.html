@@ -82,8 +82,8 @@
           <span id="setup-model-status" class="mode-tag">Checking…</span>
         </div>
 
-        <!-- Ready State -->
-        <div id="setup-ready-view" class="setup-ready-box" hidden>
+        <!-- 1. Ready State -->
+        <div id="setup-ready-view" class="setup-state-box" hidden>
           <div class="setup-ready-title">On-Device AI Ready</div>
           <p class="setup-step-desc">Gemini Nano 4 is active. Paste &amp; Send protection is armed.</p>
           <button id="btn-setup-enter" type="button" class="btn primary">
@@ -91,40 +91,49 @@
           </button>
         </div>
 
-        <!-- Needs Setup State -->
-        <div id="setup-needs-ai-view" class="setup-needs-box">
-          <div class="setup-option-list">
-            <div class="setup-option-row">
-              <button type="button" class="setup-open-btn" data-open-url="chrome://flags/#prompt-api-for-gemini-nano-multimodal-input">
-                Enable Prompt API ↗
-              </button>
-              <span class="setup-option-hint">Set to <strong>Enabled</strong></span>
+        <!-- 2. Downloadable / Downloading State -->
+        <div id="setup-download-view" class="setup-state-box" hidden>
+          <p class="setup-step-desc">
+            On-device AI is supported on this browser. Download the local model once for full contextual protection.
+          </p>
+          <div id="setup-download-progress" class="setup-progress-wrap" hidden>
+            <div class="setup-progress-track">
+              <div id="setup-progress-fill" class="setup-progress-fill" style="width: 0%"></div>
             </div>
-            <div class="setup-option-row">
-              <button type="button" class="setup-open-btn" data-open-url="chrome://flags/#optimization-guide-on-device-model">
-                Enable On-Device Model ↗
-              </button>
-              <span class="setup-option-hint">Set to <strong>Enabled BypassPerfRequirement</strong>, then relaunch Chrome</span>
-            </div>
+            <span id="setup-progress-pct" class="setup-progress-pct">0%</span>
           </div>
+          <button id="btn-setup-download" type="button" class="btn primary">
+            Download On-Device Model
+          </button>
+          <button id="btn-setup-skip-dl" type="button" class="btn-link-subtle">
+            Skip — Use Deterministic Only
+          </button>
+        </div>
 
-          <div id="setup-model-feedback" class="setup-feedback" hidden></div>
-
-          <div class="setup-actions">
-            <button id="btn-setup-verify" type="button" class="btn primary">
-              Verify &amp; Continue
+        <!-- 3. Unavailable State -->
+        <div id="setup-unavailable-view" class="setup-state-box" hidden>
+          <p class="setup-step-desc">On-device AI is unavailable in this browser.</p>
+          <div class="setup-option-row">
+            <button type="button" class="setup-open-btn" data-open-url="chrome://settings/system">
+              Open Chrome System Settings ↗
             </button>
-            <button id="btn-setup-skip" type="button" class="btn-link-subtle">
-              Skip — Use Deterministic Only
-            </button>
+            <span class="setup-option-hint">Ensure "On-device AI" is enabled (Chrome 138+ desktop).</span>
           </div>
+          <button id="btn-setup-recheck" type="button" class="btn primary">
+            Re-Check Status
+          </button>
+          <button id="btn-setup-skip-unavail" type="button" class="btn-link-subtle">
+            Continue in Deterministic Mode
+          </button>
+        </div>
 
-          <div id="setup-deterministic-warning" class="setup-warning" hidden>
-            <p>Local rules only — lower accuracy on unstructured PII/medical context.</p>
-            <button id="btn-setup-confirm-det" type="button" class="btn warn-confirm">
-              Continue Anyway
-            </button>
-          </div>
+        <div id="setup-model-feedback" class="setup-feedback" hidden></div>
+
+        <div id="setup-deterministic-warning" class="setup-warning" hidden>
+          <p>Local rules only — lower accuracy on unstructured PII/medical context.</p>
+          <button id="btn-setup-confirm-det" type="button" class="btn warn-confirm">
+            Continue Anyway
+          </button>
         </div>
       </section>
 

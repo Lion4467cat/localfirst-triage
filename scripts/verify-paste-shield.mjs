@@ -221,21 +221,21 @@ async function main() {
       throw new Error("Side panel has horizontal overflow at 360px width");
     }
 
-    // Verify First-Run Setup Gate: visible initially, compact 2-flag view, disappears after confirm, stays hidden on reload
+    // Verify First-Run Setup Gate: visible initially, unavailable state shows System Settings + Re-Check, disappears after confirm, stays hidden on reload
     if (!(await spPage.locator("#setup-gate").isVisible())) {
       throw new Error("Expected #setup-gate to be visible on first launch");
     }
-    await spPage.locator('[data-open-url="chrome://flags/#prompt-api-for-gemini-nano-multimodal-input"]').click();
+    await spPage.locator('[data-open-url="chrome://settings/system"]').click();
     await spPage.waitForTimeout(100);
-    await spPage.locator("#btn-setup-verify").click();
+    await spPage.locator("#btn-setup-recheck").click();
     await spPage.waitForTimeout(100);
     const feedbackText = await spPage.locator("#setup-model-feedback").textContent();
     if (!feedbackText || !feedbackText.trim()) {
-      throw new Error("Expected #setup-model-feedback to show status after clicking Verify & Continue");
+      throw new Error("Expected #setup-model-feedback to show status after clicking Re-Check Status");
     }
-    await spPage.locator("#btn-setup-skip").click();
+    await spPage.locator("#btn-setup-skip-unavail").click();
     if (!(await spPage.locator("#setup-deterministic-warning").isVisible())) {
-      throw new Error("Expected #setup-deterministic-warning to appear after clicking Skip");
+      throw new Error("Expected #setup-deterministic-warning to appear after clicking Continue in Deterministic Mode");
     }
     await spPage.locator("#btn-setup-confirm-det").click();
     await spPage.waitForTimeout(100);
@@ -251,7 +251,7 @@ async function main() {
     if (!(await spPage.locator("#setup-gate").isVisible())) {
       throw new Error("Expected #btn-open-setup to re-open #setup-gate");
     }
-    await spPage.locator("#btn-setup-skip").click();
+    await spPage.locator("#btn-setup-skip-unavail").click();
     await spPage.locator("#btn-setup-confirm-det").click();
     await spPage.waitForTimeout(100);
     if (await spPage.locator("#setup-gate").isVisible()) {
