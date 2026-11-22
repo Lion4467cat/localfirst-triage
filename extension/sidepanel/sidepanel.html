@@ -36,9 +36,9 @@
               id="btn-open-setup"
               type="button"
               class="setup-mini-btn"
-              title="Open First-Run Setup & Usage Guide"
+              title="Open First-Run Setup"
             >
-              Setup Guide
+              Setup
             </button>
             <button
               id="btn-sfx-toggle"
@@ -75,84 +75,56 @@
         </p>
       </header>
 
-      <!-- First-Run Setup & Usage Gate -->
+      <!-- First-Run Setup Gate (Minimal One-Screen) -->
       <section id="setup-gate" class="card setup-card" aria-label="Cordon First-Run Setup" hidden>
         <div class="section-head">
-          <span class="section-label">First-Run Setup</span>
-          <span id="setup-model-status" class="mode-tag">Checking Model…</span>
+          <span class="section-label">Setup</span>
+          <span id="setup-model-status" class="mode-tag">Checking…</span>
         </div>
 
-        <div class="setup-step">
-          <div class="setup-step-head">
-            <span class="setup-step-title">Step 1 · On-Device Model Setup</span>
-            <span id="setup-progress-text" class="setup-progress">0/5 opened</span>
-          </div>
-          <p class="setup-step-desc">
-            Click each option below to open it and toggle on the required setting, or skip into Deterministic-Only mode:
-          </p>
+        <!-- Ready State -->
+        <div id="setup-ready-view" class="setup-ready-box" hidden>
+          <div class="setup-ready-title">On-Device AI Ready</div>
+          <p class="setup-step-desc">Gemini Nano 4 is active. Paste &amp; Send protection is armed.</p>
+          <button id="btn-setup-enter" type="button" class="btn primary">
+            Enter Cordon →
+          </button>
+        </div>
+
+        <!-- Needs Setup State -->
+        <div id="setup-needs-ai-view" class="setup-needs-box">
           <div class="setup-option-list">
             <div class="setup-option-row">
               <button type="button" class="setup-open-btn" data-open-url="chrome://flags/#prompt-api-for-gemini-nano-multimodal-input">
-                Open Prompt API Flag ↗
+                Enable Prompt API ↗
               </button>
-              <span class="setup-option-hint">Open page → toggle on Prompt API / Gemma 4 built-in AI → click Relaunch.</span>
+              <span class="setup-option-hint">Set to <strong>Enabled</strong></span>
             </div>
             <div class="setup-option-row">
               <button type="button" class="setup-open-btn" data-open-url="chrome://flags/#optimization-guide-on-device-model">
-                Open On-Device Flag ↗
+                Enable On-Device Model ↗
               </button>
-              <span class="setup-option-hint">Open page → toggle to Enabled BypassPerfRequirement → Relaunch.</span>
-            </div>
-            <div class="setup-option-row">
-              <button type="button" class="setup-open-btn" data-open-url="chrome://on-device-internals">
-                Open Model Internals ↗
-              </button>
-              <span class="setup-option-hint">Open page → verify On-Device Model status is Ready / Downloaded.</span>
-            </div>
-            <div class="setup-option-row">
-              <a class="setup-open-btn" data-open-url="https://developer.chrome.com/docs/ai/built-in" href="https://developer.chrome.com/docs/ai/built-in" target="_blank" rel="noopener noreferrer">
-                Open Built-in AI Docs ↗
-              </a>
-              <span class="setup-option-hint">Open page → review Chrome flags &amp; hardware requirements.</span>
-            </div>
-            <div class="setup-option-row">
-              <a class="setup-open-btn" data-open-url="https://para-1-2e22b.web.app" href="https://para-1-2e22b.web.app" target="_blank" rel="noopener noreferrer">
-                Open Live Workbench ↗
-              </a>
-              <span class="setup-option-hint">Open page → test full Hybrid AI Workbench &amp; Zero-PII receipts.</span>
+              <span class="setup-option-hint">Set to <strong>Enabled BypassPerfRequirement</strong>, then relaunch Chrome</span>
             </div>
           </div>
-          <button id="btn-setup-check-model" type="button" class="btn secondary setup-check-btn">
-            Check / Download On-Device Model
-          </button>
+
           <div id="setup-model-feedback" class="setup-feedback" hidden></div>
-        </div>
 
-        <div class="setup-step">
-          <div class="setup-step-title">Step 2 · Quick How-to-Use Guide</div>
-          <ol class="setup-guide-list">
-            <li><strong>Auto-Guard:</strong> Paste or press Send on ChatGPT, Claude, Gemini, GitHub &amp; Slack (0 popups while typing).</li>
-            <li><strong>Dial &amp; Controls:</strong> Switch <code>Low</code> / <code>Medium</code> / <code>High</code> or toggle the shield anytime below.</li>
-            <li><strong>Live Workbench:</strong> Scrub selections manually or hand off to the Live Workbench for receipts &amp; briefs.</li>
-          </ol>
-        </div>
+          <div class="setup-actions">
+            <button id="btn-setup-verify" type="button" class="btn primary">
+              Verify &amp; Continue
+            </button>
+            <button id="btn-setup-skip" type="button" class="btn-link-subtle">
+              Skip — Use Deterministic Only
+            </button>
+          </div>
 
-        <div class="setup-actions">
-          <button id="btn-setup-complete" type="button" class="btn primary">
-            Complete Setup &amp; Start
-          </button>
-          <button id="btn-setup-skip" type="button" class="btn secondary">
-            Skip Model — Use Deterministic Only
-          </button>
-        </div>
-
-        <div id="setup-deterministic-warning" class="setup-warning" hidden>
-          <p>
-            <strong>Deterministic-Only Warning:</strong> Without the on-device model, Cordon falls back to deterministic rules only (lower contextual/unstructured coverage; instant local rules remain active).
-          </p>
-          <button id="btn-setup-confirm-det" type="button" class="btn warn-confirm">
-            Confirm Deterministic Mode
-          </button>
+          <div id="setup-deterministic-warning" class="setup-warning" hidden>
+            <p>Local rules only — lower accuracy on unstructured PII/medical context.</p>
+            <button id="btn-setup-confirm-det" type="button" class="btn warn-confirm">
+              Continue Anyway
+            </button>
+          </div>
         </div>
       </section>
 

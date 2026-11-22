@@ -46,14 +46,15 @@ const LEVEL_CAPABILITIES = {
 const nanoBadge = document.getElementById("nano-badge");
 const setupGate = document.getElementById("setup-gate");
 const setupModelStatus = document.getElementById("setup-model-status");
+const setupReadyView = document.getElementById("setup-ready-view");
+const setupNeedsAiView = document.getElementById("setup-needs-ai-view");
+const setupEnterBtn = document.getElementById("btn-setup-enter");
 const setupModelFeedback = document.getElementById("setup-model-feedback");
-const setupCheckModelBtn = document.getElementById("btn-setup-check-model");
-const setupCompleteBtn = document.getElementById("btn-setup-complete");
+const setupVerifyBtn = document.getElementById("btn-setup-verify");
 const setupSkipBtn = document.getElementById("btn-setup-skip");
 const setupDetWarning = document.getElementById("setup-deterministic-warning");
 const setupConfirmDetBtn = document.getElementById("btn-setup-confirm-det");
 const openSetupBtn = document.getElementById("btn-open-setup");
-const setupProgressText = document.getElementById("setup-progress-text");
 const setupOpenButtons = Array.from(document.querySelectorAll("[data-open-url]"));
 const sfxToggleBtn = document.getElementById("btn-sfx-toggle");
 const sfxToggleLabel = document.getElementById("sfx-toggle-label");
@@ -205,28 +206,37 @@ function setupThemeSwitcher() {
   });
 }
 
+function syncSetupModeView(avail) {
+  const ready = avail === "readily" || avail === "available";
+  if (setupReadyView) setupReadyView.hidden = !ready;
+  if (setupNeedsAiView) setupNeedsAiView.hidden = ready;
+}
+
 async function refreshNanoStatus() {
   if (!globalThis.LanguageModel?.availability) {
     nanoBadge.textContent = "Deterministic Mode";
-    if (setupModelStatus) setupModelStatus.textContent = "Unavailable (Deterministic Floor)";
+    if (setupModelStatus) setupModelStatus.textContent = "Not Enabled";
+    syncSetupModeView("unavailable");
     return "unavailable";
   }
   try {
     const avail = await globalThis.LanguageModel.availability(TEXT_ONLY_OPTIONS);
     if (avail === "readily" || avail === "available") {
       nanoBadge.textContent = "Nano 4 Ready";
-      if (setupModelStatus) setupModelStatus.textContent = "Ready (Nano 4)";
+      if (setupModelStatus) setupModelStatus.textContent = "Ready";
     } else if (avail === "downloadable" || avail === "downloading" || avail === "after-download") {
       nanoBadge.textContent = "Nano 4 Downloadable";
       if (setupModelStatus) setupModelStatus.textContent = "Downloadable";
     } else {
       nanoBadge.textContent = "Deterministic Mode";
-      if (setupModelStatus) setupModelStatus.textContent = "Unavailable (Deterministic Floor)";
+      if (setupModelStatus) setupModelStatus.textContent = "Not Enabled";
     }
+    syncSetupModeView(avail);
     return avail;
   } catch {
     nanoBadge.textContent = "Deterministic Mode";
-    if (setupModelStatus) setupModelStatus.textContent = "Unavailable (Deterministic Floor)";
+    if (setupModelStatus) setupModelStatus.textContent = "Not Enabled";
+    syncSetupModeView("unavailable");
     return "unavailable";
   }
 }
@@ -261,54 +271,50 @@ async function persistSetupState(nextState) {
 openSetupBtn?.addEventListener("click", () => {
   if (!setupGate) return;
   setupGate.hidden = !setupGate.hidden;
-  if (!setupGate.hidden && setupDetWarning) setupDetWarning.hidden = true;
+  if (!setupGate.hidden) {
+    if (setupDetWarning) setupDetWarning.hidden = true;
+    void refreshNanoStatus();
+  }
 });
 
-setupCheckModelBtn?.addEventListener("click", async () => {
+setupEnterBtn?.addEventListener("click", async () => {
+  playPanelLock();
+  await persistSetupState("completed");
+});
+
+setupVerifyBtn?.addEventListener("click", async () => {
   if (setupModelFeedback) {
     setupModelFeedback.hidden = false;
-    setupModelFeedback.textContent = "Checking on-device model availability…";
+    setupModelFeedback.textContent = "Checking on-device model…";
   }
-  const avail = await refreshNanoStatus();
+  let avail = await refreshNanoStatus();
   if ((avail === "downloadable" || avail === "after-download") && globalThis.LanguageModel?.create) {
-    if (setupModelStatus) setupModelStatus.textContent = "Downloading…";
-    if (setupModelFeedback) setupModelFeedback.textContent = "Starting on-device model download…";
+    if (setupModelFeedback) setupModelFeedback.textContent = "Downloading on-device model…";
     try {
       const session = await globalThis.LanguageModel.create(TEXT_ONLY_OPTIONS);
       session?.destroy?.();
-      const postAvail = await refreshNanoStatus();
-      if (setupModelFeedback) setupModelFeedback.textContent = `Model status: ${postAvail}`;
+      avail = await refreshNanoStatus();
     } catch {
-      await refreshNanoStatus();
-      if (setupModelFeedback) setupModelFeedback.textContent = "Model download requires Chrome AI flags enabled.";
+      avail = await refreshNanoStatus();
     }
+  }
+  if (avail === "readily" || avail === "available") {
+    playPanelLock();
+    await persistSetupState("completed");
     return;
   }
   if (setupModelFeedback) {
+    setupModelFeedback.hidden = false;
     setupModelFeedback.textContent =
-      avail === "readily" || avail === "available"
-        ? "On-device Gemini Nano 4 is ready."
-        : "On-device model unavailable — deterministic firewall is active, or enable Chrome flags above.";
+      "Model not enabled yet — set both flags above & relaunch Chrome, or Skip below.";
   }
 });
-
-const visitedSetupUrls = new Set();
-
-function markSetupUrlVisited(btn, url) {
-  visitedSetupUrls.add(url);
-  const row = btn.closest(".setup-option-row");
-  if (row) row.setAttribute("data-step-visited", "true");
-  if (setupProgressText) {
-    setupProgressText.textContent = `${visitedSetupUrls.size}/${setupOpenButtons.length} opened`;
-  }
-}
 
 for (const btn of setupOpenButtons) {
   btn.addEventListener("click", async (ev) => {
     const url = btn.getAttribute("data-open-url");
     if (!url) return;
     ev.preventDefault();
-    markSetupUrlVisited(btn, url);
 
     let opened = false;
     if (typeof chrome !== "undefined" && chrome.tabs?.create) {
@@ -318,9 +324,6 @@ for (const btn of setupOpenButtons) {
       } catch {
         opened = false;
       }
-    } else if (url.startsWith("https://")) {
-      window.open(url, "_blank", "noopener,noreferrer");
-      opened = true;
     }
 
     if (!opened && url.startsWith("chrome://")) {
@@ -329,16 +332,11 @@ for (const btn of setupOpenButtons) {
       } catch { /* ignore */ }
       if (setupModelFeedback) {
         setupModelFeedback.hidden = false;
-        setupModelFeedback.textContent = `Chrome blocked direct open — copied ${url} to clipboard. Paste into the address bar and toggle the setting on.`;
+        setupModelFeedback.textContent = `Copied ${url} — paste in Chrome address bar.`;
       }
     }
   });
 }
-
-setupCompleteBtn?.addEventListener("click", async () => {
-  playPanelLock();
-  await persistSetupState("completed");
-});
 
 setupSkipBtn?.addEventListener("click", () => {
   if (setupDetWarning) setupDetWarning.hidden = false;
