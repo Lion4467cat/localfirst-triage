@@ -327,7 +327,34 @@
   animation: airgap-scan-sweep 1.2s var(--ease-out) infinite;
 }
 
+.cordon-pointer-aura {
+  background: radial-gradient(
+    520px circle at var(--pointer-x, 50%) var(--pointer-y, 30%),
+    rgba(5, 150, 105, 0.09),
+    rgba(2, 132, 199, 0.04) 40%,
+    transparent 70%
+  );
+}
+
+.dark .cordon-pointer-aura {
+  background: radial-gradient(
+    520px circle at var(--pointer-x, 50%) var(--pointer-y, 30%),
+    rgba(0, 229, 163, 0.14),
+    rgba(56, 189, 248, 0.05) 42%,
+    transparent 72%
+  );
+}
+
+@media (pointer: coarse) {
+  .cordon-pointer-layer {
+    display: none !important;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .cordon-pointer-layer {
+    display: none !important;
+  }
   html {
     scroll-behavior: auto;
   }

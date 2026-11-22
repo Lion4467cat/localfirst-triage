@@ -77,6 +77,23 @@ describe("App integration", () => {
     expect(window.localStorage.getItem("localfirst-theme")).toBeNull();
   });
 
+  it("renders Cordon wordmark and toggles UI sound effects cleanly", () => {
+    window.localStorage.removeItem("cordon_sfx_enabled");
+    const { getByLabelText, getByRole } = render(<App />);
+
+    expect(getByLabelText("Cordon")).toBeTruthy();
+    const sfxBtn = getByRole("button", { name: "Toggle UI sound effects" });
+    expect(sfxBtn.getAttribute("aria-pressed")).toBe("true");
+
+    fireEvent.click(sfxBtn);
+    expect(sfxBtn.getAttribute("aria-pressed")).toBe("false");
+    expect(window.localStorage.getItem("cordon_sfx_enabled")).toBe("false");
+
+    fireEvent.click(sfxBtn);
+    expect(sfxBtn.getAttribute("aria-pressed")).toBe("true");
+    expect(window.localStorage.getItem("cordon_sfx_enabled")).toBe("true");
+  });
+
   it("runs triage on P0 scenario into fail-closed review and respects Offline Mode toggle in Cloud Sync popover", async () => {
     const { getByRole, findByText } = render(<App />);
 

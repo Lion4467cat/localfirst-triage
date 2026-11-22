@@ -204,7 +204,7 @@
     const priLabel = isSend ? "Scrub Draft" : "Paste Safe Version";
     const bypLabel = isSend ? (hudState.bypassArmed ? "Confirm Send Raw Once?" : "Send Raw Once") : (hudState.bypassArmed ? "Confirm Paste Raw Once?" : "Paste Raw Once");
     box.className = "box modal";
-    box.innerHTML = `<div class="row"><span class="title" id="lf-headline">${headline}</span><span class="badge">${protectionLevel.toUpperCase()}</span></div><div class="prev" id="lf-preview"></div><div class="acts"><button type="button" class="pri" id="lf-primary">${priLabel}</button><button type="button" class="gho" id="lf-cancel">Cancel</button></div><button type="button" class="byp" id="lf-bypass">${bypLabel}</button>`;
+    box.innerHTML = `<div class="row"><span class="title" id="lf-headline">${headline}</span><span class="badge">CORDON · ${protectionLevel.toUpperCase()}</span></div><div class="prev" id="lf-preview"></div><div class="acts"><button type="button" class="pri" id="lf-primary">${priLabel}</button><button type="button" class="gho" id="lf-cancel">Cancel</button></div><button type="button" class="byp" id="lf-bypass">${bypLabel}</button>`;
     hudShadow.getElementById("lf-preview").textContent = hudState.scan.sanitizedText.slice(0, 110);
     hudShadow.getElementById("lf-primary").onclick = () => {
       if (isSend) return scrubCurrentDraft(hudState.target, hudState.scan);

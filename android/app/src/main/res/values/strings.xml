@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Cordon</string>
+    <string name="process_text_label">Scrub with Cordon</string>
+    <string name="share_sheet_label">Cordon</string>
+</resources>

@@ -489,7 +489,7 @@ export function RightWorkbenchPane({
   const buildSafeMarkdownReport = () => {
     if (!currentResult) return "";
     return [
-      `# LocalFirst Triage — Zero-PII Audit Report`,
+      `# Cordon — Zero-PII Audit Report`,
       ``,
       `- **Ticket:** ${currentResult.title}`,
       `- **Severity / Category:** ${currentResult.severity} / ${currentResult.category}`,
@@ -1385,7 +1385,7 @@ export function RightWorkbenchPane({
                       type="button"
                       onClick={() =>
                         downloadBlobFile(
-                          `${currentResult.id}-signed-receipt.json`,
+                          `cordon-receipt-${currentResult.id}.json`,
                           JSON.stringify(currentResult.auditReceipt, null, 2),
                           "application/json",
                         )

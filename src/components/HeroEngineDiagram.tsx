@@ -12,6 +12,7 @@ import {
   Zap,
 } from "lucide-react";
 import { scanAndRedactLocal } from "../firewall/regexScrubber";
+import { playAirgapLock, playHoverTick } from "../utils/soundFx";
 import baselineBench from "../../benchmarks/third-party-baseline.json";
 import optimizedBench from "../../benchmarks/third-party-optimized.json";
 
@@ -62,7 +63,7 @@ const MOMENTS = [
   {
     id: "03",
     title: "03 · Android + Web Hybrid Proof",
-    desc: "OS-wide Android Scrub with LocalFirst, ECDSA P-256 zero-leak receipts, and Zero-PII Firestore sync via firebase-ai.",
+    desc: "OS-wide Android Scrub with Cordon, ECDSA P-256 zero-leak receipts, and Zero-PII Firestore sync via firebase-ai.",
   },
 ] as const;
 
@@ -306,6 +307,9 @@ export function HeroEngineDiagram({
                   onClick={() => {
                     setActivePillId(pill.id);
                     setPlaygroundInput(pill.sample);
+                    if (pill.id !== "clean") {
+                      playAirgapLock();
+                    }
                   }}
                   className="rounded-md border px-2.5 py-1 font-mono text-[11px] font-semibold"
                   style={{
@@ -446,7 +450,10 @@ export function HeroEngineDiagram({
                 }}
                 data-moment-idx={idx}
                 type="button"
-                onClick={() => setActiveMoment(idx)}
+                onClick={() => {
+                  setActiveMoment(idx);
+                  playHoverTick();
+                }}
                 className="rounded-xl border p-4 text-left"
                 style={{
                   backgroundColor: active ? "var(--bg-surface)" : "transparent",
@@ -566,7 +573,7 @@ export function HeroEngineDiagram({
                   <div className="rounded-lg border p-3" style={{ backgroundColor: "var(--bg-subtle)", borderColor: "var(--border-subtle)" }}>
                     <div className="flex items-center gap-1.5 font-mono text-[11px] font-bold" style={{ color: "var(--text-primary)" }}>
                       <Smartphone className="h-3.5 w-3.5" style={{ color: "var(--safe-text)" }} />
-                      <span>Scrub with LocalFirst</span>
+                      <span>Scrub with Cordon</span>
                     </div>
                     <p className="mt-1 text-[11px]" style={{ color: "var(--text-secondary)" }}>
                       ACTION_PROCESS_TEXT + Share Sheet + Kotlin firebase-ai hybrid inference.

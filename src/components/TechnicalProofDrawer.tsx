@@ -128,7 +128,7 @@ export function TechnicalProofDrawer({
   const buildSafeMarkdownReport = () => {
     if (!currentResult) return "";
     return [
-      `# LocalFirst Triage — Zero-PII Audit Report`,
+      `# Cordon — Zero-PII Audit Report`,
       ``,
       `- **Ticket:** ${currentResult.title}`,
       `- **Severity / Category:** ${currentResult.severity} / ${currentResult.category}`,

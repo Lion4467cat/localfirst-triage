@@ -58,21 +58,21 @@ class ProcessTextScrubActivity : Activity() {
             val resultIntent = Intent().putExtra(Intent.EXTRA_PROCESS_TEXT, outcome.sanitizedText)
             setResult(RESULT_OK, resultIntent)
             val msg = if (outcome.blockedCount > 0) {
-                "LocalFirst [${level.name}] blocked ${outcome.blockedCount} secret(s) · 0 leaked"
+                "Cordon [${level.name}] blocked ${outcome.blockedCount} secret(s) · 0 leaked"
             } else {
-                "LocalFirst: No secrets detected"
+                "Cordon: No secrets detected"
             }
             Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
         } else {
             val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
             clipboard?.setPrimaryClip(
-                ClipData.newPlainText("LocalFirst Safe Text", outcome.sanitizedText),
+                ClipData.newPlainText("Cordon Safe Text", outcome.sanitizedText),
             )
             setResult(RESULT_CANCELED)
             val msg = if (outcome.blockedCount > 0) {
                 "Blocked ${outcome.blockedCount} secret(s) · Safe text copied"
             } else {
-                "LocalFirst: No secrets detected"
+                "Cordon: No secrets detected"
             }
             Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
         }

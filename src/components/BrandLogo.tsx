@@ -1,13 +1,14 @@
 interface BrandLogoProps {
   size?: number;
   className?: string;
+  beamGlow?: boolean;
 }
 
 /**
  * Geometric Airgap Mark:
  * Solid left vault (raw data stays local) | Glowing center airgap beam | Hollow right shell (safe sanitized output).
  */
-export function BrandLogo({ size = 24, className = "" }: BrandLogoProps) {
+export function BrandLogo({ size = 24, className = "", beamGlow = false }: BrandLogoProps) {
   return (
     <svg
       viewBox="0 0 32 32"
@@ -27,6 +28,10 @@ export function BrandLogo({ size = 24, className = "" }: BrandLogoProps) {
         height="27"
         rx="0.75"
         fill="var(--signal-mint, #00E5A3)"
+        style={{
+          filter: beamGlow ? "drop-shadow(0 0 6px var(--accent-primary))" : "none",
+          transition: "filter 180ms ease",
+        }}
       />
       {/* Hollow right shell: sanitized output */}
       <path

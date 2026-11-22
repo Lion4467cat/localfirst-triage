@@ -117,14 +117,14 @@ class MainActivity : ComponentActivity() {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Image(
                                         painter = painterResource(id = R.drawable.ic_brand_logo),
-                                        contentDescription = "LocalFirst Airgap Logo",
+                                        contentDescription = "Cordon Airgap Logo",
                                         modifier = Modifier
                                             .padding(end = 10.dp)
                                             .size(28.dp),
                                     )
                                     Column {
                                         Text(
-                                            text = "LocalFirst Triage",
+                                            text = "Cordon",
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 17.sp,
                                         )

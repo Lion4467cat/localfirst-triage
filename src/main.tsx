@@ -65,7 +65,7 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryS
             }}
           >
             <h1 style={{ fontSize: "18px", fontWeight: 700, margin: "0 0 8px" }}>
-              Unable to render LocalFirst Triage
+              Unable to render Cordon
             </h1>
             <p
               style={{

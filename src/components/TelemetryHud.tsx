@@ -10,11 +10,14 @@ import {
   Sparkles,
   Sun,
   UserCheck,
+  Volume2,
+  VolumeX,
   WifiOff,
 } from "lucide-react";
 import type { ResolvedTheme, ThemePreference } from "../config/theme";
 import type { HybridTelemetry } from "../types/triage";
-import { BrandLogo } from "./BrandLogo";
+import { isSfxEnabled, setSfxEnabled } from "../utils/soundFx";
+import { CordonWordmark } from "./CordonWordmark";
 
 export type WorkspaceView = "triage" | "history" | "rules" | "runbooks";
 
@@ -57,7 +60,14 @@ export function TelemetryHud({
   onSignOut,
 }: TelemetryHudProps) {
   const [syncOpen, setSyncOpen] = useState(false);
+  const [sfxEnabled, setSfxState] = useState<boolean>(() => isSfxEnabled());
   const popoverContainerRef = useRef<HTMLDivElement>(null);
+
+  const handleToggleSfx = () => {
+    const next = !sfxEnabled;
+    setSfxEnabled(next);
+    setSfxState(next);
+  };
 
   useEffect(() => {
     if (!syncOpen) return;
@@ -116,16 +126,10 @@ export function TelemetryHud({
       }}
     >
       <div className="mx-auto flex min-h-12 max-w-[1680px] flex-wrap items-center justify-between gap-2 py-1.5 lg:h-12 lg:flex-nowrap lg:py-0">
-        {/* Left: Bespoke Geometric Airgap Mark + Word-First Hardware Status */}
+        {/* Left: Kinetic Cordon Airgap Wordmark + Word-First Hardware Status */}
         <div className="flex min-w-0 items-center gap-2.5">
           <div className="flex items-center gap-2">
-            <BrandLogo size={22} />
-            <span
-              className="font-display text-sm font-bold tracking-tight uppercase"
-              style={{ color: "var(--text-primary)" }}
-            >
-              LOCALFIRST
-            </span>
+            <CordonWordmark />
             <span
               className="hidden font-mono text-[10px] font-medium uppercase tracking-wider sm:inline"
               style={{ color: "var(--text-muted)" }}
@@ -251,8 +255,28 @@ export function TelemetryHud({
           })}
         </nav>
 
-        {/* Right: Theme Switcher + Cloud Sync Popover */}
+        {/* Right: Sound Toggle + Theme Switcher + Cloud Sync Popover */}
         <div className="order-2 flex items-center gap-2 lg:order-3">
+          <button
+            type="button"
+            aria-label="Toggle UI sound effects"
+            aria-pressed={sfxEnabled}
+            title={sfxEnabled ? "UI sound effects: On" : "UI sound effects: Off"}
+            onClick={handleToggleSfx}
+            className="inline-flex min-h-[30px] items-center justify-center rounded-lg border px-2 text-xs transition-colors"
+            style={{
+              backgroundColor: "var(--bg-subtle)",
+              borderColor: "var(--border-subtle)",
+              color: sfxEnabled ? "var(--text-primary)" : "var(--text-muted)",
+            }}
+          >
+            {sfxEnabled ? (
+              <Volume2 className="h-3.5 w-3.5" aria-hidden="true" />
+            ) : (
+              <VolumeX className="h-3.5 w-3.5" aria-hidden="true" />
+            )}
+          </button>
+
           <div
             role="group"
             aria-label="Color theme"

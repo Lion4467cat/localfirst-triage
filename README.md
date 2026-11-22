@@ -1,6 +1,6 @@
-# LocalFirst Triage (`v4.2.0`)
+# Cordon (`v4.2.0`)
 
-**Unified 3-Surface Hybrid-AI Privacy Firewall across Chrome Extension (MV3), Native Android, and Web PWA.**
+**Unified 3-Surface On-Device Hybrid AI Privacy Firewall across Chrome Extension (MV3), Native Android, and Web PWA.**
 
 Built for **#BuildHybridAI 2026** on **100% `$0.00` Firebase Spark Tier** infrastructure (`para-1-2e22b`) using **Firebase AI Logic** (`firebase/ai` & `firebase-ai`), **Gemini Nano 4 / Gemma 4** on-device, **Cloud Gemini** (`gemini-3.5-flash-lite` primary → `gemini-3.8-flash` fallback), **Firebase App Check**, and **Zero-PII Cloud Firestore**.
 
@@ -16,7 +16,7 @@ Built for **#BuildHybridAI 2026** on **100% `$0.00` Firebase Spark Tier** infras
 | Surface | Role & Capabilities | Core Engine |
 | :--- | :--- | :--- |
 | **Chrome Extension (`extension/`)** | Live browser Paste & Submit (`Enter` / Send button) guardrail across `chatgpt.com`, `claude.ai`, `gemini.google.com`, `github.com`, `app.slack.com` + Daily Side Panel Control Center (`Low` / `Medium` / `High`, live tab ping, 0-PII stats, `#handoff=` bridge) | `firewall-core.js` + Chrome `LanguageModel` (Nano 4) |
-| **Native Android (`android/`)** | OS-wide text action (`Scrub with LocalFirst` via `ACTION_PROCESS_TEXT`), Share Sheet (`ACTION_SEND`), weighted Risk Router, offline 6-runbook resolution, and Zero-PII Firestore sync | `LocalFirewallEngine.kt` + `firebase-ai` (`18.2.0`) & `firebase-ai-ondevice` (`16.0.0-beta08`) |
+| **Native Android (`android/`)** | OS-wide text action (`Scrub with Cordon` via `ACTION_PROCESS_TEXT`), Share Sheet (`ACTION_SEND`), weighted Risk Router, offline 6-runbook resolution, and Zero-PII Firestore sync | `LocalFirewallEngine.kt` + `firebase-ai` (`18.2.0`) & `firebase-ai-ondevice` (`16.0.0-beta08`) |
 | **Web PWA (`src/`)** | Interactive Hybrid Workbench (`ONLY_ON_DEVICE`, `PREFER_ON_DEVICE`, `PREFER_IN_CLOUD`), `<5ms` IndexedDB Dedup Cache, RAM-only Rehydration Vault, ECDSA P-256 Zero-Leakage Audit Receipts, and lazy-loaded Firestore sync | `src/firewall/` + `firebase/ai` (`firebase@13.3.0`) + Anime.js v4 |
 
 ---
@@ -51,7 +51,7 @@ node scripts/benchmark-third-party.mjs --out=benchmarks/third-party-optimized.js
    - Open ChatGPT/Claude/Gemini/GitHub/Slack, paste a key or type a secret and click Send to see single-modal interception (`0` popups while typing).
 3. **Android App:**
    - Install `app-debug.apk` from Releases (or build via `cd android && ./gradlew :app:assembleDebug`).
-   - Highlight text in any Android app and tap **Scrub with LocalFirst** or share text via the OS Share Sheet.
+   - Highlight text in any Android app and tap **Scrub with Cordon** or share text via the OS Share Sheet.
 
 ---
 

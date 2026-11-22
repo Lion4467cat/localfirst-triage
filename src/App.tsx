@@ -45,9 +45,11 @@ import {
 import { AirgapSpine } from "./components/AirgapSpine";
 import { HeroEngineDiagram } from "./components/HeroEngineDiagram";
 import { LivePipelineRail } from "./components/LivePipelineRail";
+import { PointerField } from "./components/PointerField";
 import { RightWorkbenchPane } from "./components/RightWorkbenchPane";
 import { TelemetryHud, type WorkspaceView } from "./components/TelemetryHud";
 import { TriageInbox } from "./components/TriageInbox";
+import { installGlobalClickSfx, playAirgapLock } from "./utils/soundFx";
 import {
   HistoryWorkspaceView,
   PrivacyRulesWorkspaceView,
@@ -568,6 +570,8 @@ export function App() {
     setCountdownPaused(false);
   };
 
+  useEffect(() => installGlobalClickSfx(), []);
+
   const handleRunTriage = async () => {
     if (!rawText.trim() || isRunning || inFlightRef.current) return;
     inFlightRef.current = true;
@@ -605,6 +609,7 @@ export function App() {
       }
 
       setTelemetry((prev) => recordTriageRunTelemetry(prev, result));
+      playAirgapLock();
     } finally {
       if (gen === runGenerationRef.current) {
         inFlightRef.current = false;
@@ -785,6 +790,7 @@ export function App() {
 
   return (
     <MotionConfig reducedMotion="user">
+    <PointerField />
     <div
       className="lf-dot-grid flex min-h-screen flex-col"
       style={{

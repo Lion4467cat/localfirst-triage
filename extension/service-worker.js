@@ -6,7 +6,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   await chrome.contextMenus.removeAll();
   chrome.contextMenus.create({
     id: MENU_ID,
-    title: "Sanitize & Triage with LocalFirst",
+    title: "Sanitize & Triage with Cordon",
     contexts: ["selection"],
   });
 

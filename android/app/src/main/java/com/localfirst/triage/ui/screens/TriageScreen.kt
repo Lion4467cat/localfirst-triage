@@ -163,7 +163,7 @@ fun TriageScreen(
                     color = tokens.safeText,
                 )
                 Text(
-                    text = "Active Level: ${state.protectionLevel.name} · OS Integrations: Scrub with LocalFirst (ACTION_PROCESS_TEXT), Share Sheet (ACTION_SEND) & Zero-PII Firestore Sync",
+                    text = "Active Level: ${state.protectionLevel.name} · OS Integrations: Scrub with Cordon (ACTION_PROCESS_TEXT), Share Sheet (ACTION_SEND) & Zero-PII Firestore Sync",
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

@@ -1,6 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "LocalFirst Triage — Live Privacy Firewall",
+  "name": "Cordon — On-Device AI Privacy Shield",
+  "short_name": "Cordon",
   "version": "4.2.0",
   "description": "Live Browser Paste Shield & Side Panel Firewall. Blocks secrets on-device before ChatGPT, Claude, Gemini, GitHub, or Slack sees a single byte.",
   "icons": {
@@ -9,7 +10,7 @@
     "128": "icons/icon-128.png"
   },
   "action": {
-    "default_title": "Open LocalFirst Triage Side Panel",
+    "default_title": "Open Cordon Shield Side Panel",
     "default_icon": {
       "16": "icons/icon-16.png",
       "48": "icons/icon-48.png",

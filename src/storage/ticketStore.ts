@@ -359,7 +359,7 @@ export function exportAuditReportMarkdown(result: TriageResult): string {
   const zeroPii = stripRawTextForStorage(result);
   const maskedCount = zeroPii.spans.filter((s) => s.masked !== false).length;
   return [
-    `# LocalFirst Triage — Zero-PII Compliance Audit Report`,
+    `# Cordon — Zero-PII Compliance Audit Report`,
     ``,
     `- **Title:** ${zeroPii.title}`,
     `- **Severity / Category:** \`${zeroPii.severity}\` · \`${zeroPii.category}\``,
