@@ -96,4 +96,20 @@ describe("Live Browser Paste Shield (firewall-core)", () => {
     expect(res.sanitizedText).toContain("[REDACTED:ADDRESS_");
     expect(res.sanitizedText).toContain("[REDACTED:PERSON_");
   });
+
+  it("is strictly idempotent across 3 consecutive scrubSync passes", () => {
+    const awsKey = ["AK", "IAIOSFODNN7EXAMPLE"].join("");
+    const input = `my address is 42 Oak Street, Koramangala, Bengaluru 560034 and my name is ravi and my phone number is 9876543210 and my api key is 23224324234kjjjkjl and I work in Zenith company ${awsKey}`;
+
+    const pass1 = scrubSync(input, true, "medium");
+    expect(pass1.mergedSpans.length).toBeGreaterThanOrEqual(5);
+
+    const pass2 = scrubSync(pass1.sanitizedText, true, "medium");
+    expect(pass2.mergedSpans.length).toBe(0);
+    expect(pass2.sanitizedText).toBe(pass1.sanitizedText);
+
+    const pass3 = scrubSync(pass2.sanitizedText, true, "high");
+    expect(pass3.mergedSpans.length).toBe(0);
+    expect(pass3.sanitizedText).toBe(pass1.sanitizedText);
+  });
 });

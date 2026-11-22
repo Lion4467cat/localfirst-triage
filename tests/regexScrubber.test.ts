@@ -269,4 +269,25 @@ describe("regexScrubber", () => {
     expect(res.sanitizedText).toContain("[REDACTED:ADDRESS_");
     expect(res.sanitizedText).toContain("[REDACTED:PERSON_");
   });
+
+  it("is strictly idempotent across 3 consecutive passes (0 new masks on pass 2 and pass 3)", () => {
+    const awsKey = ["AK", "IAIOSFODNN7EXAMPLE"].join("");
+    const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.sig12345";
+    const inputs = [
+      `my address is 42 Oak Street, Koramangala, Bengaluru 560034 and my name is ravi and my phone number is 9876543210 and my api key is 23224324234kjjjkjl`,
+      `I work in Zenith company. Key: ${awsKey} | Bearer ${jwt}`,
+    ];
+    for (const raw of inputs) {
+      const pass1 = scanAndRedactLocal(raw, { protectionLevel: "medium", includeHeuristics: true });
+      expect(pass1.mergedSpans.length).toBeGreaterThan(0);
+
+      const pass2 = scanAndRedactLocal(pass1.sanitizedText, { protectionLevel: "medium", includeHeuristics: true });
+      expect(pass2.mergedSpans.length).toBe(0);
+      expect(pass2.sanitizedText).toBe(pass1.sanitizedText);
+
+      const pass3 = scanAndRedactLocal(pass2.sanitizedText, { protectionLevel: "high", includeHeuristics: true });
+      expect(pass3.mergedSpans.length).toBe(0);
+      expect(pass3.sanitizedText).toBe(pass1.sanitizedText);
+    }
+  });
 });

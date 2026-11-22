@@ -608,13 +608,25 @@ object LocalFirewallEngine {
         return sb.toString()
     }
 
+    private val PROTECTED_PLACEHOLDER_REGEX = Regex("""\[REDACTED:[A-Z0-9_]+\]""")
+
     fun mergeAndRedactSpans(
         rawText: String,
         spans: List<RedactionSpan>,
     ): Pair<String, List<RedactionSpan>> {
         if (spans.isEmpty()) return rawText to emptyList()
 
-        val sorted = spans.sortedWith(
+        val protectedRanges = PROTECTED_PLACEHOLDER_REGEX.findAll(rawText).map {
+            it.range.first..(it.range.last + 1)
+        }.toList()
+
+        val safeSpans = spans.filter { span ->
+            !span.matchedText.contains("[REDACTED:") &&
+                protectedRanges.none { pr -> span.start < pr.last && span.end > pr.first }
+        }
+        if (safeSpans.isEmpty()) return rawText to emptyList()
+
+        val sorted = safeSpans.sortedWith(
             compareBy<RedactionSpan> { it.start }
                 .thenByDescending { it.end - it.start }
                 .thenByDescending { it.detector.priority },

@@ -289,7 +289,20 @@
 
   function mergeSpans(rawText, spans) {
     if (spans.length === 0) return { sanitizedText: rawText, mergedSpans: [] };
-    const sorted = [...spans].sort((a, b) => {
+
+    const protectedRanges = [];
+    const placeholderRegex = /\[REDACTED:[A-Z0-9_]+\]/g;
+    let pMatch;
+    while ((pMatch = placeholderRegex.exec(rawText)) !== null) {
+      protectedRanges.push({ start: pMatch.index, end: pMatch.index + pMatch[0].length });
+    }
+    const safeSpans = spans.filter((s) => {
+      if (s.matchedText && s.matchedText.includes("[REDACTED:")) return false;
+      return !protectedRanges.some((pr) => s.start < pr.end && s.end > pr.start);
+    });
+    if (safeSpans.length === 0) return { sanitizedText: rawText, mergedSpans: [] };
+
+    const sorted = [...safeSpans].sort((a, b) => {
       if (a.start !== b.start) return a.start - b.start;
       const lenDiff = b.end - b.start - (a.end - a.start);
       if (lenDiff !== 0) return lenDiff;

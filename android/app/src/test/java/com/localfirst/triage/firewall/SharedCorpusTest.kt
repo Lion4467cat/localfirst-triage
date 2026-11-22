@@ -139,6 +139,15 @@ class SharedCorpusTest {
                 if (rule["expectZeroMasks"] == true) {
                     assertEquals("[$id @ $levelName] expected 0 masks", 0, spans.size)
                 }
+
+                // Strict 3-pass idempotency invariant
+                val (pass2Text, pass2Spans) = LocalFirewallEngine.scrub(sanitized, level)
+                assertEquals("[$id @ $levelName] pass 2 must emit 0 masks", 0, pass2Spans.size)
+                assertEquals("[$id @ $levelName] pass 2 must not mutate sanitized text", sanitized, pass2Text)
+
+                val (pass3Text, pass3Spans) = LocalFirewallEngine.scrub(pass2Text, level)
+                assertEquals("[$id @ $levelName] pass 3 must emit 0 masks", 0, pass3Spans.size)
+                assertEquals("[$id @ $levelName] pass 3 must not mutate sanitized text", sanitized, pass3Text)
             }
         }
     }

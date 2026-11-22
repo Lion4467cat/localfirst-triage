@@ -108,6 +108,26 @@ export function applyMaskedSpans(rawText: string, spans: RedactionSpan[]): strin
   return sanitizedText;
 }
 
+const PROTECTED_PLACEHOLDER_REGEX = /\[REDACTED:[A-Z0-9_]+\]/g;
+
+function getProtectedPlaceholderRanges(rawText: string): Array<{ start: number; end: number }> {
+  const ranges: Array<{ start: number; end: number }> = [];
+  const regex = new RegExp(PROTECTED_PLACEHOLDER_REGEX.source, "g");
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(rawText)) !== null) {
+    ranges.push({ start: match.index, end: match.index + match[0].length });
+  }
+  return ranges;
+}
+
+function overlapsProtectedRange(
+  span: RedactionSpan,
+  protectedRanges: Array<{ start: number; end: number }>,
+): boolean {
+  if (span.matchedText.includes("[REDACTED:")) return true;
+  return protectedRanges.some((pr) => span.start < pr.end && span.end > pr.start);
+}
+
 export function mergeAndRedactSpans(
   rawText: string,
   spans: RedactionSpan[],
@@ -116,8 +136,14 @@ export function mergeAndRedactSpans(
     return { sanitizedText: rawText, mergedSpans: [] };
   }
 
+  const protectedRanges = getProtectedPlaceholderRanges(rawText);
+  const safeSpans = spans.filter((s) => !overlapsProtectedRange(s, protectedRanges));
+  if (safeSpans.length === 0) {
+    return { sanitizedText: rawText, mergedSpans: [] };
+  }
+
   // Sort by start ascending, then longest span first, then detector priority
-  const sorted = [...spans].sort((a, b) => {
+  const sorted = [...safeSpans].sort((a, b) => {
     if (a.start !== b.start) return a.start - b.start;
     const lenDiff = b.end - b.start - (a.end - a.start);
     if (lenDiff !== 0) return lenDiff;

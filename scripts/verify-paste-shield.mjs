@@ -135,15 +135,35 @@ async function main() {
       throw new Error(`Expected safe redacted text in #sim-github-issue, got '${taAfter}'`);
     }
 
-    // 4. Typing natural-language secrets into nested ChatGPT ProseMirror (<div contenteditable><p>) -> HUD + Enter block + Scrub Draft Now
+    // 4. Typing natural-language secrets into nested ChatGPT ProseMirror (<div contenteditable><p>)
+    // Verify: pause-only single HUD (hudMountCount === 1), Scrub Draft Now triggers 0 follow-up HUDs over 1500ms
     await page.waitForTimeout(1600);
+    await page.evaluate(() => {
+      window.__hudMountCount = 0;
+      const obs = new MutationObserver((mutations) => {
+        for (const m of mutations) {
+          for (const node of m.addedNodes) {
+            if (node.id === "localfirst-paste-shield-host") {
+              window.__hudMountCount++;
+            }
+          }
+        }
+      });
+      obs.observe(document.documentElement, { childList: true });
+      window.__lfHudObs = obs;
+    });
+
     await page.locator("#sim-prosemirror p").click();
     const nlSample =
       "my phone number is 9876543210 and my name is ravi and i work in Zenith company and my api key is 23224324234kjjjkjl";
     await page.keyboard.type(nlSample, { delay: 2 });
-    // Immediately press Enter before debounce finishes -> must be intercepted by pre-submit Enter guard!
-    await page.keyboard.press("Enter");
+    // Wait for 1100ms post-typing pause timer
+    await page.waitForTimeout(1350);
     await page.locator("#localfirst-paste-shield-host").waitFor();
+    const mountCount1 = await page.evaluate(() => window.__hudMountCount);
+    if (mountCount1 !== 1) {
+      throw new Error(`Expected EXACTLY 1 HUD mount after typing pause, got ${mountCount1}`);
+    }
     const draftHeadline = await page.evaluate(
       () => document.querySelector("#localfirst-paste-shield-host")?.shadowRoot?.querySelector("#lf-headline")?.textContent || "",
     );
@@ -153,7 +173,12 @@ async function main() {
     await page.evaluate(() => {
       document.querySelector("#localfirst-paste-shield-host")?.shadowRoot?.querySelector("#lf-paste-safe")?.click();
     });
-    await page.waitForTimeout(200);
+    // Ensure 0 follow-up HUD pops over the next 1500ms (strict idempotency + WeakMap guard)
+    await page.waitForTimeout(1500);
+    const mountCountAfterScrub = await page.evaluate(() => window.__hudMountCount);
+    if (mountCountAfterScrub !== 1) {
+      throw new Error(`Expected 0 follow-up HUD pops after Scrub Draft Now, got ${mountCountAfterScrub}`);
+    }
     const scrubbedDraft = await page.locator("#sim-prosemirror").textContent();
     if (
       !scrubbedDraft ||
@@ -165,17 +190,33 @@ async function main() {
       throw new Error(`Expected all 4 natural-language secrets scrubbed from nested ProseMirror draft, got '${scrubbedDraft}'`);
     }
 
-    // 4b. Multi-segment comma-separated address + PIN typing into nested ProseMirror -> full address & PIN scrubbed
-    await page.waitForTimeout(1600);
+    // 4b. Clicking simulated ChatGPT Send button while unscrubbed multi-segment address exists -> intercepts click & pops Send Intercepted HUD
     await page.locator("#sim-prosemirror").evaluate((el) => {
       el.innerHTML = "<p><br></p>";
+    });
+    await page.evaluate(() => {
+      window.__sendHandlerCallCount = 0;
+      document.querySelector("#sim-send-btn").addEventListener("click", () => {
+        window.__sendHandlerCallCount++;
+      });
     });
     await page.locator("#sim-prosemirror p").click();
     const addrSample =
       "my address is 42 Oak Street, Koramangala, Bengaluru 560034 and my name is ravi";
-    await page.keyboard.type(addrSample, { delay: 2 });
-    await page.keyboard.press("Enter");
+    await page.keyboard.type(addrSample, { delay: 1 });
+    // Click Send immediately (before 1100ms typing pause) -> Send-button guard must intercept!
+    await page.locator("#sim-send-btn").click();
+    const sendCalls = await page.evaluate(() => window.__sendHandlerCallCount);
+    if (sendCalls !== 0) {
+      throw new Error(`Expected Send button click to be intercepted (0 calls), got ${sendCalls}`);
+    }
     await page.locator("#localfirst-paste-shield-host").waitFor();
+    const sendHeadline = await page.evaluate(
+      () => document.querySelector("#localfirst-paste-shield-host")?.shadowRoot?.querySelector("#lf-headline")?.textContent || "",
+    );
+    if (!sendHeadline.includes("Send Intercepted")) {
+      throw new Error(`Expected 'Send Intercepted' HUD headline, got '${sendHeadline}'`);
+    }
     await page.evaluate(() => {
       document.querySelector("#localfirst-paste-shield-host")?.shadowRoot?.querySelector("#lf-paste-safe")?.click();
     });
