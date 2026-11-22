@@ -57,6 +57,64 @@ object LocalFirewallEngine {
         Regex("""-----BEGIN [A-Z ]*PRIVATE KEY-----"""),
     )
 
+    private val CANONICAL_CATEGORIES = setOf(
+        "API_KEY", "AWS_ACCESS_KEY", "SECRET", "PASSWORD", "BEARER_OR_JWT",
+        "PRIVATE_KEY", "DB_URI", "CREDIT_CARD", "GOV_ID", "PHONE", "EMAIL",
+        "ADDRESS", "PERSON", "ORG_TERM", "PHI", "M_AND_A_SECRET", "HIGH_ENTROPY",
+        "IP_ADDRESS", "IBAN", "ACCOUNT_NUMBER", "POSTAL_CODE", "SENSITIVE",
+    )
+
+    private val CATEGORY_SYNONYMS = mapOf(
+        "KEY" to "API_KEY", "TOKEN" to "API_KEY", "CREDENTIAL" to "API_KEY", "APIKEY" to "API_KEY",
+        "NAME" to "PERSON", "PERSON_PII" to "PERSON", "FIRSTNAME" to "PERSON", "LASTNAME" to "PERSON",
+        "COMPANY" to "ORG_TERM", "ORG" to "ORG_TERM", "ORGANIZATION" to "ORG_TERM",
+        "LOCATION" to "ADDRESS", "STREET" to "ADDRESS", "PERSONAL_PII_LOCATION" to "ADDRESS",
+        "MEDICAL" to "PHI", "HEALTH" to "PHI", "CONTEXTUAL_PHI" to "PHI", "MEDICAL_PHI" to "PHI",
+        "SSN" to "GOV_ID", "US_SSN" to "GOV_ID", "PAN" to "GOV_ID", "PASSPORT" to "GOV_ID", "AADHAAR" to "GOV_ID",
+        "MOBILE" to "PHONE", "TEL" to "PHONE", "TELEPHONENUM" to "PHONE", "PHONENUMBER" to "PHONE",
+        "IP" to "IP_ADDRESS", "IPV4" to "IP_ADDRESS", "IPV6" to "IP_ADDRESS",
+        "ZIP" to "POSTAL_CODE", "ZIPCODE" to "POSTAL_CODE", "PINCODE" to "POSTAL_CODE",
+        "PEM_PRIVATE_KEY" to "PRIVATE_KEY", "DB_CONNECTION_URI" to "DB_URI",
+        "HIGH_ENTROPY_SECRET" to "HIGH_ENTROPY", "NATURAL_SECRET" to "SECRET",
+    )
+
+    fun normalizeRedactionCategory(rawType: String?): String {
+        if (rawType.isNullOrBlank()) return "SENSITIVE"
+        val cleaned = rawType.trim().uppercase()
+            .replace(Regex("""[^A-Z0-9_]+"""), "_")
+            .trim('_')
+        if (cleaned.isEmpty()) return "SENSITIVE"
+        if (cleaned in CANONICAL_CATEGORIES) return cleaned
+        CATEGORY_SYNONYMS[cleaned]?.let { return it }
+        if (cleaned.any { it.isDigit() } || cleaned.length > 24) return "SENSITIVE"
+        return "SENSITIVE"
+    }
+
+    private val PASSWORD_STOPWORDS = setOf(
+        "required", "invalid", "reset", "expired", "policy", "manager", "field",
+        "hash", "missing", "incorrect", "protected", "strength", "prompt",
+        "input", "change", "update", "placeholder", "string", "boolean", "hints",
+    )
+
+    private val NANO_CUE_PHRASE_REGEX = Regex(
+        """^(?:my\s+)?(?:apis?\s*key|secret\s*key|access\s*key|auth\s*token|password|passcode|passphrase|pin|phone(?:\s+number)?|email|address|full\s+name|name|company)\s*(?:is|was|are|:|=)?$""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    fun passesIbanMod97(raw: String): Boolean {
+        val cleaned = raw.replace(Regex("""[\s-]"""), "").uppercase()
+        if (!Regex("""^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$""").matches(cleaned)) return false
+        val rearranged = cleaned.substring(4) + cleaned.substring(0, 4)
+        var remainder = 0
+        for (ch in rearranged) {
+            val digits = if (ch in 'A'..'Z') (ch.code - 55).toString() else ch.toString()
+            for (d in digits) {
+                remainder = (remainder * 10 + (d.code - 48)) % 97
+            }
+        }
+        return remainder == 1
+    }
+
     private val DETERMINISTIC_REGEX_RULES: List<RegexRule> = listOf(
         RegexRule(
             category = "PEM_PRIVATE_KEY",
@@ -83,7 +141,7 @@ object LocalFirewallEngine {
             category = "API_KEY",
             detector = DetectorSource.REGEX_FIREWALL,
             pattern = Regex(
-                """\b(?:AIza[0-9A-Za-z\-_]{20,}|(?:sk|pk|rk)_(?:live|test)_[0-9A-Za-z]{16,}|sk-(?:proj-|ant-)?[0-9A-Za-z\-_]{20,}|(?:ghp|gho|ghu|ghs|ghr)_[0-9A-Za-z]{20,}|github_pat_[0-9A-Za-z_]{22,}|xox[baprs]-[0-9A-Za-z\-]{10,})\b""",
+                """\b(?:AIza[0-9A-Za-z\-_]{20,}|(?:sk|pk|rk)_(?:live|test)_[0-9A-Za-z]{16,}|sk-(?:proj-|ant-)?[0-9A-Za-z\-_]{20,}|(?:ghp|gho|ghu|ghs|ghr)_[0-9A-Za-z]{20,}|github_pat_[0-9A-Za-z_]{22,}|xox[baprs]-[0-9A-Za-z\-]{10,}|glpat-[A-Za-z0-9_-]{15,}|hf_[A-Za-z0-9]{20,}|SK[0-9a-fA-F]{32}|SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{20,}|npm_[A-Za-z0-9]{20,}|pypi-[A-Za-z0-9_-]{20,}|shp(?:at|ca|pa|ss)_[0-9a-fA-F]{20,}|ddapi_[A-Za-z0-9_-]{16,}|lin_api_[A-Za-z0-9]{20,}|sbp_[0-9a-fA-F]{20,}|glsa_[A-Za-z0-9_-]{20,}|[A-Za-z0-9]{14}\.atlasv1\.[A-Za-z0-9_-]{20,}|PMAK-[0-9a-fA-F]{20,}-[0-9a-fA-F]{20,}|pul-[0-9a-fA-F]{20,}|pplx-[A-Za-z0-9]{20,}|gsk_[A-Za-z0-9]{20,}|dop_v1_[0-9a-fA-F]{32,})\b""",
             ),
         ),
         RegexRule(
@@ -130,6 +188,74 @@ object LocalFirewallEngine {
             pattern = Regex("""\b\d{4}[\s-]\d{4}[\s-]\d{4}\b"""),
         ),
         RegexRule(
+            category = "IBAN",
+            detector = DetectorSource.REGEX_FIREWALL,
+            pattern = Regex("""\b[A-Z]{2}\d{2}(?:[\s-]?[A-Z0-9]){11,30}\b"""),
+            validator = { passesIbanMod97(it) },
+        ),
+        RegexRule(
+            category = "IBAN",
+            detector = DetectorSource.REGEX_FIREWALL,
+            captureGroup = 1,
+            pattern = Regex(
+                """\b(?:iban|bank|account|wire|swift|sepa)\b[^A-Z0-9\n]{0,25}([A-Z]{2}\d{2}(?:[\s-]?[A-Z0-9]){11,30})\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+        ),
+        RegexRule(
+            category = "PASSWORD",
+            detector = DetectorSource.REGEX_FIREWALL,
+            captureGroup = 1,
+            pattern = Regex(
+                """\b(?:password|passwd|passcode|passphrase|pwd|login\s+pass)\s*(?:is|was|are|[:=]|->)?\s*["']?([^\s"',;\[\]\u0000*]{6,64})["']?""",
+                RegexOption.IGNORE_CASE,
+            ),
+            validator = {
+                !it.contains("[REDACTED:") &&
+                    !it.contains('\u0000') &&
+                    it.lowercase() !in PASSWORD_STOPWORDS
+            },
+        ),
+        RegexRule(
+            category = "IP_ADDRESS",
+            detector = DetectorSource.REGEX_FIREWALL,
+            minLevel = ProtectionLevel.MEDIUM,
+            pattern = Regex(
+                """(?<![vV\d.])\b(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\b(?![.\d])""",
+            ),
+            validator = { it != "127.0.0.1" && it != "0.0.0.0" && it != "255.255.255.255" },
+        ),
+        RegexRule(
+            category = "IP_ADDRESS",
+            detector = DetectorSource.REGEX_FIREWALL,
+            minLevel = ProtectionLevel.MEDIUM,
+            pattern = Regex(
+                """(?<![:\w])(?:(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,7}:|(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}|(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}|::(?:[0-9a-fA-F]{1,4}:){0,5}[0-9a-fA-F]{1,4})(?![:\w])""",
+            ),
+            validator = { it.length >= 6 && it.count { ch -> ch == ':' } >= 2 },
+        ),
+        RegexRule(
+            category = "CREDIT_CARD",
+            detector = DetectorSource.REGEX_FIREWALL,
+            captureGroup = 1,
+            minLevel = ProtectionLevel.MEDIUM,
+            pattern = Regex(
+                """\b(?:credit\s*card|debit\s*card|card\s*(?:number|no\.?|#)|cc\s*[:#])\b[^0-9\n]{0,30}(\d(?:[ -]?\d){12,18})\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+        ),
+        RegexRule(
+            category = "ACCOUNT_NUMBER",
+            detector = DetectorSource.REGEX_FIREWALL,
+            captureGroup = 1,
+            minLevel = ProtectionLevel.MEDIUM,
+            pattern = Regex(
+                """\b(?:account\s*(?:number|no\.?|#)|acct\s*(?:number|no\.?|#)|bank\s*account|routing\s*(?:number|no\.?|#))\b[^A-Za-z0-9\n]{0,25}([A-Z0-9][A-Z0-9-]{5,19})\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            validator = { it.count { ch -> ch.isDigit() } >= 4 },
+        ),
+        RegexRule(
             category = "EMAIL",
             detector = DetectorSource.REGEX_FIREWALL,
             minLevel = ProtectionLevel.MEDIUM,
@@ -140,8 +266,13 @@ object LocalFirewallEngine {
             detector = DetectorSource.REGEX_FIREWALL,
             minLevel = ProtectionLevel.MEDIUM,
             pattern = Regex(
-                """(?:\+?\d{1,3}[\s.-]?)?(?:\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}|\+?\d{1,3}[\s.-]\d{5}[\s.-]\d{5})\b""",
+                """(?<!\d[.-])(?:\+\d{1,3}[\s.-]?\(?\d{2,4}\)?[\s.-]?\d{3,4}[\s.-]?\d{3,4}|\(\d{3}\)\s*\d{3}[-.\s]\d{4}|\b\d{3}[-.\s]\d{3}[-.\s]\d{4}\b)(?!\s*T\d{2}:)""",
             ),
+            validator = {
+                if (Regex("""^\d{4}[-.]\d{2}[-.]\d{2}$""").matches(it)) return@RegexRule false
+                val digits = it.count { ch -> ch.isDigit() }
+                digits in 7..15
+            },
         ),
         RegexRule(
             category = "PHONE",
@@ -149,19 +280,24 @@ object LocalFirewallEngine {
             captureGroup = 1,
             minLevel = ProtectionLevel.MEDIUM,
             pattern = Regex(
-                """\b(?:phone|mobile|cell|call|whatsapp|contact|number|tel|ph)\b[^0-9\n]{0,25}((?:\+?\d{1,3}[\s.-]?)?\d{10})\b""",
+                """\b(?:phone|mobile|cell|call|whatsapp|contact|number|tel|fax|ext|ph)\b[^0-9\n]{0,25}((?:\+?\d{1,3}[\s.-]?)?(?:\(\d{2,4}\)[\s.-]?)?\d{3,4}[-.\s]?\d{4}(?:[-.\s]?\d{2,4})?)\b""",
                 RegexOption.IGNORE_CASE,
             ),
+            validator = {
+                if (Regex("""^\d{4}[-.]\d{2}[-.]\d{2}$""").matches(it)) return@RegexRule false
+                val digits = it.count { ch -> ch.isDigit() }
+                digits in 7..15
+            },
         ),
         RegexRule(
             category = "API_KEY",
             detector = DetectorSource.REGEX_FIREWALL,
             captureGroup = 1,
             pattern = Regex(
-                """\b(?:(?:api\s+key|apikey|secret\s+key|access\s+key|auth\s+token|bearer\s+token|private\s+token|client\s+secret)(?:\s+(?:is|was|are))?\s*(?:[:=]|->)?|(?:api_key|password|passcode|passwd)\s+(?:is|was|are|->))\s*([^\s"',;\[\]\u0000]{6,})""",
+                """\b(?:(?:apis?\s*key|apikey|secret\s+key|access\s+key|auth\s+token|bearer\s+token|private\s+token|client\s+secret)(?:\s+(?:is|was|are))?\s*(?:[:=]|->)?|(?:api_key)\s+(?:is|was|are|->))\s*([^\s"',;\[\]\u0000]{6,})""",
                 RegexOption.IGNORE_CASE,
             ),
-            validator = { !it.contains("[REDACTED:") && !it.contains("\u0000") },
+            validator = { !it.contains("[REDACTED:") && !it.contains('\u0000') },
         ),
     )
 
@@ -226,13 +362,37 @@ object LocalFirewallEngine {
             validator = { ADDRESS_INDICATOR_REGEX.containsMatchIn(it) },
         ),
         RegexRule(
-            category = "ADDRESS",
+            category = "POSTAL_CODE",
             detector = DetectorSource.HEURISTIC_GUARD,
             captureGroup = 1,
             minLevel = ProtectionLevel.MEDIUM,
             pattern = Regex(
-                """\b(?:pin\s*code|pincode|zip\s*code|postal\s*code|pin|zip)\s*(?:is|:|=)?\s*([1-9]\d{5}|\d{5}(?:-\d{4})?)\b""",
+                """\b(?:zip|postal|post\s*code|postcode|pin\s*code|pincode)\s*(?:code)?\s*(?:is|[:=])?\s*([A-Z0-9][A-Z0-9\s-]{3,9})\b""",
                 RegexOption.IGNORE_CASE,
+            ),
+            validator = { it.count { ch -> ch.isDigit() } >= 2 },
+        ),
+        RegexRule(
+            category = "POSTAL_CODE",
+            detector = DetectorSource.HEURISTIC_GUARD,
+            minLevel = ProtectionLevel.MEDIUM,
+            pattern = Regex("""\b(?:[A-Z]{2}\s+\d{5}(?:-\d{4})?|\d{5}-\d{4})\b"""),
+        ),
+        RegexRule(
+            category = "ADDRESS",
+            detector = DetectorSource.HEURISTIC_GUARD,
+            minLevel = ProtectionLevel.MEDIUM,
+            pattern = Regex(
+                """\b\d{1,6}\s+(?:[NSEW]\.?\s+)?[A-Za-z0-9.'-]{2,25}(?:\s+[A-Za-z0-9.'-]{2,25}){0,3}\s+(?:Street|St\.?|Avenue|Ave\.?|Road|Rd\.?|Boulevard|Blvd\.?|Drive|Dr\.?|Lane|Ln\.?|Way|Highway|Hwy\.?|Parkway|Pkwy\.?|Court|Ct\.?|Place|Pl\.?|Circle|Cir\.?|Terrace|Ter\.?|Trail|Trl\.?|Square|Sq\.?|Cross|Main|Nagar|Layout|Sector)\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+        ),
+        RegexRule(
+            category = "ADDRESS",
+            detector = DetectorSource.HEURISTIC_GUARD,
+            minLevel = ProtectionLevel.MEDIUM,
+            pattern = Regex(
+                """\b(?:[NSEW]\.?\s+)?[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3}\s+(?:Broadway|Highway|Parkway|Boulevard|Avenue|Turnpike|Expressway)\b""",
             ),
         ),
         RegexRule(
@@ -641,6 +801,7 @@ object LocalFirewallEngine {
                 phrase.contains("[REDACTED:") ||
                 phrase.contains('\u0000') ||
                 !Regex("""[A-Za-z0-9]""").containsMatchIn(phrase) ||
+                NANO_CUE_PHRASE_REGEX.matches(phrase) ||
                 isTechnicalAllowlisted(phrase) ||
                 phrase.lowercase() in NANO_STOPWORDS
             ) {
@@ -656,9 +817,7 @@ object LocalFirewallEngine {
                 """$leading$escaped$trailing"""
             }
             val regex = Regex(pattern, RegexOption.IGNORE_CASE)
-            val category = (item.category.ifBlank { "SEMANTIC_PII" })
-                .uppercase()
-                .replace(Regex("""[^A-Z0-9_]"""), "_")
+            val category = normalizeRedactionCategory(item.category)
 
             for (match in regex.findAll(scanBuffer)) {
                 val start = match.range.first

@@ -138,4 +138,12 @@ describe("Live Browser Paste Shield (firewall-core)", () => {
     expect(phoneRes.sanitizedText).not.toContain("ravi");
     expect(phoneRes.sanitizedText).toContain("Can you help me write a python script?");
   });
+
+  it("fixes P0 redaction-tag leak for malformed Nano types and plural 'apis key' cues", () => {
+    const res = scrubSync("my apis key is 544245453", true, "high");
+    expect(res.sanitizedText).toBe("my apis key is [REDACTED:API_KEY_1]");
+    expect(res.sanitizedText).not.toContain("544245453");
+    expect((globalThis as unknown as { LocalFirstFirewall?: { normalizeRedactionCategory?: (t: string) => string } })
+      .LocalFirstFirewall?.normalizeRedactionCategory?.("544245453")).toBe("SENSITIVE");
+  });
 });

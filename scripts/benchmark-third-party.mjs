@@ -6,7 +6,10 @@ import { pathToFileURL } from "node:url";
 const require = createRequire(import.meta.url);
 const ROOT = process.cwd();
 const CACHE_DIR = path.join(ROOT, "benchmarks", "external-cache");
-const REPORT_PATH = path.join(ROOT, "benchmarks", "third-party-baseline.json");
+const outArg = process.argv.find((a) => a.startsWith("--out="))?.slice("--out=".length);
+const REPORT_PATH = outArg
+  ? path.resolve(ROOT, outArg)
+  : path.join(ROOT, "benchmarks", "third-party-baseline.json");
 const REFRESH = process.argv.includes("--refresh");
 
 fs.mkdirSync(CACHE_DIR, { recursive: true });

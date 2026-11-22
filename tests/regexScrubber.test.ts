@@ -317,4 +317,24 @@ describe("regexScrubber", () => {
     expect(phoneRes.sanitizedText).not.toContain("ravi");
     expect(phoneRes.sanitizedText).toContain("Can you help me write a python script?");
   });
+
+  it("fixes P0 redaction-tag leak for malformed Nano categories and plural 'apis key' cues", async () => {
+    const { buildSemanticSpans, mergeAndRedactSpans, normalizeRedactionCategory } = await import(
+      "../src/firewall/spanMerger"
+    );
+    expect(normalizeRedactionCategory("544245453")).toBe("SENSITIVE");
+    expect(normalizeRedactionCategory("MY_APIS_KEY_IS")).toBe("SENSITIVE");
+
+    const raw = "my apis key is 544245453";
+    const localRes = scanAndRedactLocal(raw, { protectionLevel: "medium", includeHeuristics: true });
+    expect(localRes.sanitizedText).toBe("my apis key is [REDACTED:API_KEY_1]");
+
+    const nanoSpans = buildSemanticSpans(raw, [
+      { category: "MY_APIS_KEY_IS", phrase: "my apis key is" },
+      { category: "544245453", phrase: "544245453" },
+    ]);
+    const nanoMerged = mergeAndRedactSpans(raw, nanoSpans);
+    expect(nanoMerged.sanitizedText).toBe("my apis key is [REDACTED:SENSITIVE_1]");
+    expect(nanoMerged.sanitizedText).not.toContain("544245453");
+  });
 });

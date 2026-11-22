@@ -49,6 +49,81 @@ export function isTechnicalAllowlisted(phrase: string): boolean {
   return false;
 }
 
+const CANONICAL_CATEGORIES = new Set([
+  "API_KEY",
+  "AWS_ACCESS_KEY",
+  "SECRET",
+  "PASSWORD",
+  "BEARER_OR_JWT",
+  "PRIVATE_KEY",
+  "DB_URI",
+  "CREDIT_CARD",
+  "GOV_ID",
+  "PHONE",
+  "EMAIL",
+  "ADDRESS",
+  "PERSON",
+  "ORG_TERM",
+  "PHI",
+  "M_AND_A_SECRET",
+  "HIGH_ENTROPY",
+  "IP_ADDRESS",
+  "IBAN",
+  "ACCOUNT_NUMBER",
+  "POSTAL_CODE",
+  "SENSITIVE",
+]);
+
+const CATEGORY_SYNONYMS: Record<string, string> = {
+  KEY: "API_KEY",
+  TOKEN: "API_KEY",
+  CREDENTIAL: "API_KEY",
+  APIKEY: "API_KEY",
+  NAME: "PERSON",
+  PERSON_PII: "PERSON",
+  FIRSTNAME: "PERSON",
+  LASTNAME: "PERSON",
+  COMPANY: "ORG_TERM",
+  ORG: "ORG_TERM",
+  ORGANIZATION: "ORG_TERM",
+  LOCATION: "ADDRESS",
+  STREET: "ADDRESS",
+  PERSONAL_PII_LOCATION: "ADDRESS",
+  MEDICAL: "PHI",
+  HEALTH: "PHI",
+  CONTEXTUAL_PHI: "PHI",
+  MEDICAL_PHI: "PHI",
+  SSN: "GOV_ID",
+  US_SSN: "GOV_ID",
+  PAN: "GOV_ID",
+  PASSPORT: "GOV_ID",
+  AADHAAR: "GOV_ID",
+  MOBILE: "PHONE",
+  TEL: "PHONE",
+  TELEPHONENUM: "PHONE",
+  PHONENUMBER: "PHONE",
+  IP: "IP_ADDRESS",
+  IPV4: "IP_ADDRESS",
+  IPV6: "IP_ADDRESS",
+  ZIP: "POSTAL_CODE",
+  ZIPCODE: "POSTAL_CODE",
+  PINCODE: "POSTAL_CODE",
+  PEM_PRIVATE_KEY: "PRIVATE_KEY",
+  DB_CONNECTION_URI: "DB_URI",
+  HIGH_ENTROPY_SECRET: "HIGH_ENTROPY",
+  NATURAL_SECRET: "SECRET",
+};
+
+export function normalizeRedactionCategory(rawType: string | undefined | null): string {
+  if (!rawType || typeof rawType !== "string") return "SENSITIVE";
+  const cleaned = rawType.trim().toUpperCase().replace(/[^A-Z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+  if (!cleaned) return "SENSITIVE";
+  if (CANONICAL_CATEGORIES.has(cleaned)) return cleaned;
+  if (CATEGORY_SYNONYMS[cleaned]) return CATEGORY_SYNONYMS[cleaned];
+  if (/\d/.test(cleaned) || cleaned.length > 24) return "SENSITIVE";
+  return "SENSITIVE";
+}
+
 const NANO_STOPWORDS = new Set([
   "the", "and", "for", "with", "this", "that", "from", "have", "will", "can",
   "please", "help", "later", "tomorrow", "progress", "production", "scale",
@@ -56,11 +131,15 @@ const NANO_STOPWORDS = new Set([
   "how", "who", "what", "when", "where", "why",
 ]);
 
+const NANO_CUE_PHRASE_REGEX =
+  /^(?:my\s+)?(?:apis?\s*key|secret\s*key|access\s*key|auth\s*token|password|passcode|passphrase|pin|phone(?:\s+number)?|email|address|full\s+name|name|company)\s*(?:is|was|are|:|=)?$/i;
+
 export function isValidNanoPhrase(phrase: string): boolean {
   const trimmed = phrase.trim();
   if (trimmed.length < 3) return false;
   if (trimmed.includes("[REDACTED:") || trimmed.includes("\u0000")) return false;
   if (!/[A-Za-z0-9]/.test(trimmed)) return false;
+  if (NANO_CUE_PHRASE_REGEX.test(trimmed)) return false;
   if (isTechnicalAllowlisted(trimmed)) return false;
   if (NANO_STOPWORDS.has(trimmed.toLowerCase())) return false;
   return true;
@@ -121,7 +200,7 @@ export function buildSemanticSpans(
         continue;
       }
 
-      const category = (item.category || "SEMANTIC_PII").toUpperCase().replace(/[^A-Z0-9_]/g, "_");
+      const category = normalizeRedactionCategory(item.category);
       spans.push({
         start,
         end,
@@ -237,11 +316,22 @@ export function mergeAndRedactSpans(
 
   const categoryCounts = new Map<string, number>();
   const normalizedSpans = mergedSpans.map((span) => {
-    const next = (categoryCounts.get(span.category) ?? 0) + 1;
-    categoryCounts.set(span.category, next);
+    const safeCategory =
+      span.detector === "NANO_SEMANTIC_FIREWALL"
+        ? normalizeRedactionCategory(span.category)
+        : /^[A-Z0-9_]+$/.test(span.category)
+          ? span.category
+          : normalizeRedactionCategory(span.category);
+    const next = (categoryCounts.get(safeCategory) ?? 0) + 1;
+    categoryCounts.set(safeCategory, next);
+    const candidateTag = `[REDACTED:${safeCategory}_${next}]`;
+    const safeTag = /^\[REDACTED:[A-Z0-9_]+_\d+\]$/.test(candidateTag)
+      ? candidateTag
+      : `[REDACTED:SENSITIVE_${next}]`;
     return {
       ...span,
-      placeholder: `[REDACTED:${span.category}_${next}]`,
+      category: safeCategory,
+      placeholder: safeTag,
     };
   });
 

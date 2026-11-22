@@ -12,7 +12,7 @@ import type {
   SemanticExtractionItem,
   Severity,
 } from "../types/triage";
-import { buildSemanticSpans } from "./spanMerger";
+import { buildSemanticSpans, isValidNanoPhrase, normalizeRedactionCategory } from "./spanMerger";
 
 export interface NanoExtractionResult {
   nanoStatus: NanoStatus;
@@ -168,11 +168,13 @@ export function parseDefensiveSemanticJson(raw: string): ParsedNanoPayload {
     const entities: SemanticExtractionItem[] = rawList
       .filter(
         (item): item is { phrase: string; category?: string } =>
-          Boolean(item && typeof item.phrase === "string" && item.phrase.trim().length >= 3),
+          Boolean(item && typeof item.phrase === "string" && isValidNanoPhrase(item.phrase)),
       )
       .map((item) => ({
         phrase: item.phrase.trim(),
-        category: typeof item.category === "string" ? item.category : "SEMANTIC_PII",
+        category: normalizeRedactionCategory(
+          typeof item.category === "string" ? item.category : "SENSITIVE",
+        ),
       }));
 
     const sev =

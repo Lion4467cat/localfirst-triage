@@ -37,6 +37,61 @@
     return entropy;
   }
 
+  function passesIbanMod97(raw) {
+    const cleaned = raw.replace(/[\s-]/g, "").toUpperCase();
+    if (!/^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/.test(cleaned)) return false;
+    const rearranged = cleaned.slice(4) + cleaned.slice(0, 4);
+    let remainder = 0;
+    for (let i = 0; i < rearranged.length; i++) {
+      const code = rearranged.charCodeAt(i);
+      const digits = code >= 65 && code <= 90 ? String(code - 55) : rearranged[i];
+      for (let j = 0; j < digits.length; j++) {
+        remainder = (remainder * 10 + (digits.charCodeAt(j) - 48)) % 97;
+      }
+    }
+    return remainder === 1;
+  }
+
+  const PASSWORD_STOPWORDS = new Set([
+    "required", "invalid", "reset", "expired", "policy", "manager", "field",
+    "hash", "missing", "incorrect", "protected", "strength", "prompt",
+    "input", "change", "update", "placeholder", "string", "boolean", "hints",
+  ]);
+
+  const CANONICAL_CATEGORIES = new Set([
+    "API_KEY", "AWS_ACCESS_KEY", "SECRET", "PASSWORD", "BEARER_OR_JWT",
+    "PRIVATE_KEY", "DB_URI", "CREDIT_CARD", "GOV_ID", "PHONE", "EMAIL",
+    "ADDRESS", "PERSON", "ORG_TERM", "PHI", "M_AND_A_SECRET", "HIGH_ENTROPY",
+    "IP_ADDRESS", "IBAN", "ACCOUNT_NUMBER", "POSTAL_CODE", "SENSITIVE",
+  ]);
+
+  const CATEGORY_SYNONYMS = {
+    KEY: "API_KEY", TOKEN: "API_KEY", CREDENTIAL: "API_KEY", APIKEY: "API_KEY",
+    NAME: "PERSON", PERSON_PII: "PERSON", FIRSTNAME: "PERSON", LASTNAME: "PERSON",
+    COMPANY: "ORG_TERM", ORG: "ORG_TERM", ORGANIZATION: "ORG_TERM",
+    LOCATION: "ADDRESS", STREET: "ADDRESS", PERSONAL_PII_LOCATION: "ADDRESS",
+    MEDICAL: "PHI", HEALTH: "PHI", CONTEXTUAL_PHI: "PHI", MEDICAL_PHI: "PHI",
+    SSN: "GOV_ID", US_SSN: "GOV_ID", PAN: "GOV_ID", PASSPORT: "GOV_ID", AADHAAR: "GOV_ID",
+    MOBILE: "PHONE", TEL: "PHONE", TELEPHONENUM: "PHONE", PHONENUMBER: "PHONE",
+    IP: "IP_ADDRESS", IPV4: "IP_ADDRESS", IPV6: "IP_ADDRESS",
+    ZIP: "POSTAL_CODE", ZIPCODE: "POSTAL_CODE", PINCODE: "POSTAL_CODE",
+    PEM_PRIVATE_KEY: "PRIVATE_KEY", DB_CONNECTION_URI: "DB_URI",
+    HIGH_ENTROPY_SECRET: "HIGH_ENTROPY", NATURAL_SECRET: "SECRET",
+  };
+
+  function normalizeRedactionCategory(rawType) {
+    if (!rawType || typeof rawType !== "string") return "SENSITIVE";
+    const cleaned = rawType.trim().toUpperCase().replace(/[^A-Z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+    if (!cleaned) return "SENSITIVE";
+    if (CANONICAL_CATEGORIES.has(cleaned)) return cleaned;
+    if (CATEGORY_SYNONYMS[cleaned]) return CATEGORY_SYNONYMS[cleaned];
+    if (/\d/.test(cleaned) || cleaned.length > 24) return "SENSITIVE";
+    return "SENSITIVE";
+  }
+
+  const NANO_CUE_PHRASE_REGEX =
+    /^(?:my\s+)?(?:apis?\s*key|secret\s*key|access\s*key|auth\s*token|password|passcode|passphrase|pin|phone(?:\s+number)?|email|address|full\s+name|name|company)\s*(?:is|was|are|:|=)?$/i;
+
   const REGEX_RULES = [
     {
       category: "PEM_PRIVATE_KEY",
@@ -59,7 +114,7 @@
       category: "API_KEY",
       detector: "REGEX_FIREWALL",
       pattern:
-        /\b(?:AIza[0-9A-Za-z\-_]{20,}|(?:sk|pk|rk)_(?:live|test)_[0-9A-Za-z]{16,}|sk-(?:proj-|ant-)?[0-9A-Za-z\-_]{20,}|(?:ghp|gho|ghu|ghs|ghr)_[0-9A-Za-z]{20,}|github_pat_[0-9A-Za-z_]{22,}|xox[baprs]-[0-9A-Za-z\-]{10,})\b/g,
+        /\b(?:AIza[0-9A-Za-z\-_]{20,}|(?:sk|pk|rk)_(?:live|test)_[0-9A-Za-z]{16,}|sk-(?:proj-|ant-)?[0-9A-Za-z\-_]{20,}|(?:ghp|gho|ghu|ghs|ghr)_[0-9A-Za-z]{20,}|github_pat_[0-9A-Za-z_]{22,}|xox[baprs]-[0-9A-Za-z\-]{10,}|glpat-[A-Za-z0-9_-]{15,}|hf_[A-Za-z0-9]{20,}|SK[0-9a-fA-F]{32}|SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{20,}|npm_[A-Za-z0-9]{20,}|pypi-[A-Za-z0-9_-]{20,}|shp(?:at|ca|pa|ss)_[0-9a-fA-F]{20,}|ddapi_[A-Za-z0-9_-]{16,}|lin_api_[A-Za-z0-9]{20,}|sbp_[0-9a-fA-F]{20,}|glsa_[A-Za-z0-9_-]{20,}|[A-Za-z0-9]{14}\.atlasv1\.[A-Za-z0-9_-]{20,}|PMAK-[0-9a-fA-F]{20,}-[0-9a-fA-F]{20,}|pul-[0-9a-fA-F]{20,}|pplx-[A-Za-z0-9]{20,}|gsk_[A-Za-z0-9]{20,}|dop_v1_[0-9a-fA-F]{32,})\b/g,
     },
     {
       category: "BEARER_OR_JWT",
@@ -103,6 +158,62 @@
       pattern: /\b\d{4}[\s-]\d{4}[\s-]\d{4}\b/g,
     },
     {
+      category: "IBAN",
+      detector: "REGEX_FIREWALL",
+      pattern: /\b[A-Z]{2}\d{2}(?:[\s-]?[A-Z0-9]){11,30}\b/g,
+      validator: (m) => passesIbanMod97(m),
+    },
+    {
+      category: "IBAN",
+      detector: "REGEX_FIREWALL",
+      captureGroup: 1,
+      pattern: /\b(?:iban|bank|account|wire|swift|sepa)\b[^A-Z0-9\n]{0,25}([A-Z]{2}\d{2}(?:[\s-]?[A-Z0-9]){11,30})\b/gi,
+    },
+    {
+      category: "PASSWORD",
+      detector: "REGEX_FIREWALL",
+      captureGroup: 1,
+      pattern:
+        /\b(?:password|passwd|passcode|passphrase|pwd|login\s+pass)\s*(?:is|was|are|[:=]|->)?\s*["']?([^\s"',;\[\]\u0000*]{6,64})["']?/gi,
+      validator: (m) =>
+        !m.includes("[REDACTED:") &&
+        !m.includes("\u0000") &&
+        !PASSWORD_STOPWORDS.has(m.toLowerCase()),
+    },
+    {
+      category: "IP_ADDRESS",
+      detector: "REGEX_FIREWALL",
+      minLevel: "medium",
+      pattern:
+        /(?<![vV\d.])\b(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\b(?![.\d])/g,
+      validator: (m) => m !== "127.0.0.1" && m !== "0.0.0.0" && m !== "255.255.255.255",
+    },
+    {
+      category: "IP_ADDRESS",
+      detector: "REGEX_FIREWALL",
+      minLevel: "medium",
+      pattern:
+        /(?<![:\w])(?:(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,7}:|(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}|(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}|::(?:[0-9a-fA-F]{1,4}:){0,5}[0-9a-fA-F]{1,4})(?![:\w])/g,
+      validator: (m) => m.length >= 6 && (m.match(/:/g)?.length ?? 0) >= 2,
+    },
+    {
+      category: "CREDIT_CARD",
+      detector: "REGEX_FIREWALL",
+      captureGroup: 1,
+      minLevel: "medium",
+      pattern:
+        /\b(?:credit\s*card|debit\s*card|card\s*(?:number|no\.?|#)|cc\s*[:#])\b[^0-9\n]{0,30}(\d(?:[ -]?\d){12,18})\b/gi,
+    },
+    {
+      category: "ACCOUNT_NUMBER",
+      detector: "REGEX_FIREWALL",
+      captureGroup: 1,
+      minLevel: "medium",
+      pattern:
+        /\b(?:account\s*(?:number|no\.?|#)|acct\s*(?:number|no\.?|#)|bank\s*account|routing\s*(?:number|no\.?|#))\b[^A-Za-z0-9\n]{0,25}([A-Z0-9][A-Z0-9-]{5,19})\b/gi,
+      validator: (m) => (m.match(/\d/g)?.length ?? 0) >= 4,
+    },
+    {
       category: "EMAIL",
       detector: "REGEX_FIREWALL",
       minLevel: "medium",
@@ -113,7 +224,12 @@
       detector: "REGEX_FIREWALL",
       minLevel: "medium",
       pattern:
-        /(?:\+?\d{1,3}[\s.-]?)?(?:\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}|\+?\d{1,3}[\s.-]\d{5}[\s.-]\d{5})\b/g,
+        /(?<!\d[.-])(?:\+\d{1,3}[\s.-]?\(?\d{2,4}\)?[\s.-]?\d{3,4}[\s.-]?\d{3,4}|\(\d{3}\)\s*\d{3}[-.\s]\d{4}|\b\d{3}[-.\s]\d{3}[-.\s]\d{4}\b)(?!\s*T\d{2}:)/g,
+      validator: (m) => {
+        if (/^\d{4}[-.]\d{2}[-.]\d{2}$/.test(m)) return false;
+        const d = m.replace(/\D/g, "");
+        return d.length >= 7 && d.length <= 15;
+      },
     },
     {
       category: "PHONE",
@@ -121,14 +237,19 @@
       captureGroup: 1,
       minLevel: "medium",
       pattern:
-        /\b(?:phone|mobile|cell|call|whatsapp|contact|number|tel|ph)\b[^0-9\n]{0,25}((?:\+?\d{1,3}[\s.-]?)?\d{10})\b/gi,
+        /\b(?:phone|mobile|cell|call|whatsapp|contact|number|tel|fax|ext|ph)\b[^0-9\n]{0,25}((?:\+?\d{1,3}[\s.-]?)?(?:\(\d{2,4}\)[\s.-]?)?\d{3,4}[-.\s]?\d{4}(?:[-.\s]?\d{2,4})?)\b/gi,
+      validator: (m) => {
+        if (/^\d{4}[-.]\d{2}[-.]\d{2}$/.test(m)) return false;
+        const d = m.replace(/\D/g, "");
+        return d.length >= 7 && d.length <= 15;
+      },
     },
     {
       category: "API_KEY",
       detector: "REGEX_FIREWALL",
       captureGroup: 1,
       pattern:
-        /\b(?:(?:api\s+key|apikey|secret\s+key|access\s+key|auth\s+token|bearer\s+token|private\s+token|client\s+secret)(?:\s+(?:is|was|are))?\s*(?:[:=]|->)?|(?:api_key|password|passcode|passwd)\s+(?:is|was|are|->))\s*([^\s"',;\[\]\u0000]{6,})/gi,
+        /\b(?:(?:apis?\s*key|apikey|secret\s+key|access\s+key|auth\s+token|bearer\s+token|private\s+token|client\s+secret)(?:\s+(?:is|was|are))?\s*(?:[:=]|->)?|(?:api_key)\s+(?:is|was|are|->))\s*([^\s"',;\[\]\u0000]{6,})/gi,
       validator: (m) => !m.includes("[REDACTED:") && !m.includes("\u0000"),
     },
   ];
@@ -217,12 +338,33 @@
       validator: (m) => ADDRESS_INDICATOR_REGEX.test(m),
     },
     {
-      category: "ADDRESS",
+      category: "POSTAL_CODE",
       detector: "HEURISTIC_GUARD",
       captureGroup: 1,
       minLevel: "medium",
       pattern:
-        /\b(?:pin\s*code|pincode|zip\s*code|postal\s*code|pin|zip)\s*(?:is|:|=)?\s*([1-9]\d{5}|\d{5}(?:-\d{4})?)\b/gi,
+        /\b(?:zip|postal|post\s*code|postcode|pin\s*code|pincode)\s*(?:code)?\s*(?:is|[:=])?\s*([A-Z0-9][A-Z0-9\s-]{3,9})\b/gi,
+      validator: (m) => (m.match(/\d/g)?.length ?? 0) >= 2,
+    },
+    {
+      category: "POSTAL_CODE",
+      detector: "HEURISTIC_GUARD",
+      minLevel: "medium",
+      pattern: /\b(?:[A-Z]{2}\s+\d{5}(?:-\d{4})?|\d{5}-\d{4})\b/g,
+    },
+    {
+      category: "ADDRESS",
+      detector: "HEURISTIC_GUARD",
+      minLevel: "medium",
+      pattern:
+        /\b\d{1,6}\s+(?:[NSEW]\.?\s+)?[A-Za-z0-9.'-]{2,25}(?:\s+[A-Za-z0-9.'-]{2,25}){0,3}\s+(?:Street|St\.?|Avenue|Ave\.?|Road|Rd\.?|Boulevard|Blvd\.?|Drive|Dr\.?|Lane|Ln\.?|Way|Highway|Hwy\.?|Parkway|Pkwy\.?|Court|Ct\.?|Place|Pl\.?|Circle|Cir\.?|Terrace|Ter\.?|Trail|Trl\.?|Square|Sq\.?|Cross|Main|Nagar|Layout|Sector)\b/gi,
+    },
+    {
+      category: "ADDRESS",
+      detector: "HEURISTIC_GUARD",
+      minLevel: "medium",
+      pattern:
+        /\b(?:[NSEW]\.?\s+)?[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3}\s+(?:Broadway|Highway|Parkway|Boulevard|Avenue|Turnpike|Expressway)\b/g,
     },
     {
       category: "CONTEXTUAL_PHI",
@@ -534,6 +676,7 @@
           phrase.includes("[REDACTED:") ||
           phrase.includes("\u0000") ||
           !/[A-Za-z0-9]/.test(phrase) ||
+          NANO_CUE_PHRASE_REGEX.test(phrase) ||
           NANO_STOPWORDS.has(phrase.toLowerCase())
         ) {
           continue;
@@ -552,7 +695,7 @@
           ) {
             continue;
           }
-          const category = String(item.type || "SEMANTIC_PII").toUpperCase().replace(/[^A-Z0-9_]/g, "_");
+          const category = normalizeRedactionCategory(item.type);
           nanoSpans.push({
             start,
             end,
@@ -599,6 +742,7 @@
 
   root.LocalFirstFirewall = {
     TEXT_ONLY_OPTIONS,
+    normalizeRedactionCategory,
     runLocalDeterministicScan,
     mergeSpans,
     computeQuickRiskScore,
