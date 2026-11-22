@@ -7,12 +7,15 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
+import com.localfirst.triage.data.ShieldStore
 import com.localfirst.triage.firewall.LocalFirewallEngine
 import com.localfirst.triage.model.ProtectionLevel
+import com.localfirst.triage.model.RedactionSpan
 
 data class ProcessTextScrubOutcome(
     val sanitizedText: String,
     val blockedCount: Int,
+    val spans: List<RedactionSpan> = emptyList(),
 )
 
 object ProcessTextScrubLogic {
@@ -27,6 +30,7 @@ object ProcessTextScrubLogic {
         return ProcessTextScrubOutcome(
             sanitizedText = sanitizedText,
             blockedCount = spans.size,
+            spans = spans,
         )
     }
 }
@@ -53,6 +57,14 @@ class ProcessTextScrubActivity : Activity() {
         }.getOrDefault(ProtectionLevel.MEDIUM)
 
         val outcome = ProcessTextScrubLogic.scrub(rawText, level)
+        if (outcome.blockedCount > 0) {
+            ShieldStore.recordBlockEvent(
+                context = this,
+                appName = "Text Selection",
+                spans = outcome.spans,
+                engineUsed = "Deterministic Rules",
+            )
+        }
 
         if (!readonly) {
             val resultIntent = Intent().putExtra(Intent.EXTRA_PROCESS_TEXT, outcome.sanitizedText)
