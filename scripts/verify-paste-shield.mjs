@@ -234,6 +234,84 @@ async function main() {
       throw new Error(`Expected full multi-segment address & PIN scrubbed, got '${scrubbedAddr}'`);
     }
 
+    // 4c. Anti-Triple-Popup Stress Test:
+    // Multi-paragraph ProseMirror (<p>line 1</p><p>line 2</p>) + delayed 800ms async Nano 4 + ProseMirror DOM mutation 200ms after scrub
+    await page.waitForTimeout(1600);
+    await page.evaluate(() => {
+      window.__hudMountCountStress = 0;
+      const obs = new MutationObserver((mutations) => {
+        for (const m of mutations) {
+          for (const node of m.addedNodes) {
+            if (node.id === "localfirst-paste-shield-host") {
+              window.__hudMountCountStress++;
+            }
+          }
+        }
+      });
+      obs.observe(document.documentElement, { childList: true });
+      // Mock delayed 800ms Nano 4 LanguageModel
+      window.LanguageModel = {
+        availability: async () => "available",
+        params: async () => ({ defaultTopK: 3, maxTopK: 8 }),
+        create: async () => ({
+          prompt: async () => {
+            await new Promise((r) => setTimeout(r, 800));
+            return JSON.stringify({
+              entities: [{ type: "NATURAL_SECRET", value: "9876543210" }],
+            });
+          },
+          destroy: () => {},
+        }),
+      };
+      const pm = document.querySelector("#sim-prosemirror");
+      pm.innerHTML = "<p>my phone number is 9876543210</p><p>and my api key is 23224324234kjjjkjl</p>";
+      pm.focus();
+      pm.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    });
+
+    await page.waitForTimeout(1350);
+    await page.locator("#localfirst-paste-shield-host").waitFor();
+    const stressMount1 = await page.evaluate(() => window.__hudMountCountStress);
+    if (stressMount1 !== 1) {
+      throw new Error(`Stress test expected hudOpenCount === 1, got ${stressMount1}`);
+    }
+
+    await page.evaluate(() => {
+      document.querySelector("#localfirst-paste-shield-host")?.shadowRoot?.querySelector("#lf-paste-safe")?.click();
+      // Simulate ProseMirror async DOM re-formatting mutation 200ms after scrub
+      setTimeout(() => {
+        const pm = document.querySelector("#sim-prosemirror");
+        const txt = pm.textContent || "";
+        pm.innerHTML = `<p>${txt}</p>`;
+        pm.dispatchEvent(new InputEvent("input", { bubbles: true }));
+      }, 200);
+    });
+
+    await page.waitForTimeout(2000);
+    const stressMountAfter = await page.evaluate(() => window.__hudMountCountStress);
+    if (stressMountAfter !== 1) {
+      throw new Error(`Stress test expected hudOpenCount to stay 1 after scrub + ProseMirror mutation, got ${stressMountAfter}`);
+    }
+    const stressText = await page.locator("#sim-prosemirror").textContent();
+    if (!stressText || stressText.includes("9876543210") || stressText.includes("23224324234kjjjkjl")) {
+      throw new Error(`Stress test expected 0 raw secrets remaining in multi-paragraph ProseMirror, got '${stressText}'`);
+    }
+
+    // Clicking Send after scrubbing succeeds with 0 additional HUD pops
+    await page.evaluate(() => {
+      window.__sendAfterScrubCalls = 0;
+      document.querySelector("#sim-send-btn").addEventListener("click", () => {
+        window.__sendAfterScrubCalls++;
+      });
+    });
+    await page.locator("#sim-send-btn").click();
+    await page.waitForTimeout(150);
+    const sendAfterScrubCalls = await page.evaluate(() => window.__sendAfterScrubCalls);
+    const stressMountAfterSend = await page.evaluate(() => window.__hudMountCountStress);
+    if (sendAfterScrubCalls !== 1 || stressMountAfterSend !== 1) {
+      throw new Error(`Expected Send after scrub to succeed (calls=${sendAfterScrubCalls}, mounts=${stressMountAfterSend})`);
+    }
+
     // 5. Verify chrome.storage.local stats in Side Panel & toggle OFF
     let [sw] = context.serviceWorkers();
     if (!sw) {

@@ -1,10 +1,16 @@
 (function () {
   "use strict";
 
-  if (window.__LOCALFIRST_SHIELD_LOADED__) {
-    return;
+  const INSTANCE_ID =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  document.documentElement.dataset.localfirstInstanceId = INSTANCE_ID;
+  document.documentElement.dataset.localfirstShield = "armed";
+
+  function isActiveInstance() {
+    return document.documentElement.dataset.localfirstInstanceId === INSTANCE_ID;
   }
-  window.__LOCALFIRST_SHIELD_LOADED__ = true;
 
   const HOST_ID = "localfirst-paste-shield-host";
   const STORAGE_KEY_ENABLED = "shieldEnabled";
@@ -45,7 +51,13 @@
     if (!target) return null;
     let st = editorStates.get(target);
     if (!st) {
-      st = { lastScrubbedText: null, lastDismissedText: null, bypassedText: null };
+      st = {
+        epoch: 0,
+        cooldownUntil: 0,
+        lastScrubbedText: null,
+        lastDismissedText: null,
+        bypassedText: null,
+      };
       editorStates.set(target, st);
     }
     return st;
@@ -172,14 +184,23 @@
     isInjectingSafePaste = true;
     const st = getEditorState(target);
     if (st) {
-      st.lastScrubbedText = normalizeForDedup(expectedSanitizedText ?? getTargetText(target));
+      st.epoch++;
+      st.cooldownUntil = Date.now() + 1500;
+      st.lastScrubbedText = normalizeForDedup(getTargetText(target) || expectedSanitizedText);
     }
+    setTimeout(() => {
+      if (!isActiveInstance()) return;
+      if (st) {
+        st.lastScrubbedText = normalizeForDedup(getTargetText(target));
+      }
+    }, 250);
     cooldownTimer = setTimeout(() => {
+      if (!isActiveInstance()) return;
       if (st) {
         st.lastScrubbedText = normalizeForDedup(getTargetText(target));
       }
       isInjectingSafePaste = false;
-    }, 600);
+    }, 1500);
   }
 
   function insertSafeText(target, savedSel, text) {
@@ -252,7 +273,7 @@
     }
   }
 
-  function replaceTargetText(target, nextText) {
+  function replaceTargetText(target, nextText, maskedSpans = []) {
     if (!target) return;
     isInjectingSafePaste = true;
     try {
@@ -292,7 +313,11 @@
         } catch {
           replaced = false;
         }
-        if (!replaced) {
+        const postNorm = normalizeForDedup(getTargetText(target));
+        const leakedSecret = maskedSpans.some(
+          (s) => s.matchedText && postNorm.includes(normalizeForDedup(s.matchedText)),
+        );
+        if (!replaced || leakedSecret || !postNorm) {
           target.textContent = nextText;
           target.dispatchEvent(
             new InputEvent("input", {
@@ -339,18 +364,28 @@
     activeHud = null;
   }
 
-  function showShieldHud({ target, savedSel, rawText, initialScan, mode = "paste" }) {
-    // Singleton guard: if already mounted for exact same (target, rawText, mode), update in place
-    if (
-      activeHud &&
-      document.getElementById(HOST_ID) &&
-      activeHud.target === target &&
-      activeHud.rawText === rawText &&
-      activeHud.mode === mode
-    ) {
-      activeHud.updateScan(initialScan);
-      return;
+  function showShieldHud({ target, savedSel, rawText, initialScan, mode = "paste", trigger = mode }) {
+    if (!isActiveInstance()) return;
+    const hudVisible = Boolean(activeHud && document.getElementById(HOST_ID));
+    // Hard re-entry gate: never spawn a second HUD or re-animate while visible unless upgrading to SEND_BLOCKED
+    if (hudVisible) {
+      if (trigger === "SEND_BLOCKED" && activeHud.mode !== "send") {
+        destroyHud();
+      } else {
+        if (activeHud.target === target && activeHud.rawText === rawText) {
+          activeHud.updateScan(initialScan);
+        }
+        return;
+      }
     }
+
+    const st = getEditorState(target);
+    console.debug("[LocalFirst]", {
+      trigger,
+      epoch: st?.epoch ?? 0,
+      masks: initialScan?.mergedSpans?.length ?? 0,
+      preview: (rawText || "").slice(0, 40),
+    });
 
     destroyHud();
 
@@ -496,23 +531,14 @@
     const handlePasteSafe = () => {
       clearTimeout(typingDebounceTimer);
       const st = getEditorState(target);
+      if (st) st.epoch++;
       if (mode === "draft" || mode === "send") {
-        replaceTargetText(target, currentScan.sanitizedText);
-        if (st) st.lastScrubbedText = normalizeForDedup(currentScan.sanitizedText);
+        replaceTargetText(target, currentScan.sanitizedText, currentScan.mergedSpans);
         recordAggregateTelemetry(currentScan.mergedSpans.length);
       } else {
         insertSafeText(target, savedSel, currentScan.sanitizedText);
-        if (st) st.lastScrubbedText = normalizeForDedup(getTargetText(target));
       }
-      card.innerHTML = `
-        <div class="lf-toast">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5">
-            <path d="M20 6 9 17l-5-5"/>
-          </svg>
-          <span>${mode === "paste" ? "Safe text pasted · 0 leaked" : "Safe draft scrubbed · 0 leaked"}</span>
-        </div>
-      `;
-      setTimeout(destroyHud, 1200);
+      destroyHud();
     };
 
     const handleOpenWorkbench = () => {
@@ -529,8 +555,11 @@
 
     const handleCancel = () => {
       const st = getEditorState(target);
-      if (st && (mode === "draft" || mode === "send")) {
-        st.lastDismissedText = normalizeForDedup(rawText);
+      if (st) {
+        st.epoch++;
+        if (mode === "draft" || mode === "send") {
+          st.lastDismissedText = normalizeForDedup(rawText);
+        }
       }
       destroyHud();
     };
@@ -542,6 +571,7 @@
         return;
       }
       const st = getEditorState(target);
+      if (st) st.epoch++;
       if (mode === "draft" || mode === "send") {
         if (st) st.bypassedText = normalizeForDedup(rawText);
       } else {
@@ -580,9 +610,11 @@
 
     // Optional non-blocking Nano 4 live refinement on paste
     const fw = globalThis.LocalFirstFirewall;
+    const pasteEpoch = st?.epoch ?? 0;
     if (mode === "paste" && fw?.runExtensionNanoScan && typeof globalThis.LanguageModel !== "undefined") {
       void fw.runExtensionNanoScan(rawText, { timeoutMs: 3500 }).then((nanoRes) => {
-        if (!document.getElementById(HOST_ID)) return;
+        if (!isActiveInstance() || !document.getElementById(HOST_ID)) return;
+        if (st && (st.epoch !== pasteEpoch || Date.now() < st.cooldownUntil)) return;
         if (nanoRes.nanoActive && nanoRes.mergedSpans.length > currentScan.mergedSpans.length) {
           const extra = nanoRes.mergedSpans.length - currentScan.mergedSpans.length;
           currentScan = nanoRes;
@@ -597,7 +629,7 @@
   }
 
   function onPaste(event) {
-    if (!shieldEnabled || isInjectingSafePaste) return;
+    if (!isActiveInstance() || !shieldEnabled || isInjectingSafePaste) return;
     const fw = globalThis.LocalFirstFirewall;
     if (!fw?.scrubSync) return;
 
@@ -607,6 +639,9 @@
     const rawText = event.clipboardData?.getData("text/plain") || "";
     if (!rawText) return;
 
+    const st = getEditorState(target);
+    if (st) st.epoch++;
+
     const scan = fw.scrubSync(rawText, true, protectionLevel);
     if (scan.mergedSpans.length === 0) {
       return; // Benign paste: 0ms friction
@@ -615,13 +650,15 @@
     // Intercept immediately BEFORE React/ProseMirror/Quill/Lexical sees a single byte
     event.preventDefault();
     event.stopImmediatePropagation();
+    clearTimeout(typingDebounceTimer);
 
     const savedSel = captureSelection(target);
     recordAggregateTelemetry(scan.mergedSpans.length);
-    showShieldHud({ target, savedSel, rawText, initialScan: scan, mode: "paste" });
+    showShieldHud({ target, savedSel, rawText, initialScan: scan, mode: "paste", trigger: "PASTE_BLOCKED" });
   }
 
   function evaluateDraftTarget(target, mode = "draft") {
+    if (!isActiveInstance() || isInjectingSafePaste) return false;
     const fw = globalThis.LocalFirstFirewall;
     if (!fw?.scrubSync || !target) return false;
     const text = getTargetText(target);
@@ -630,6 +667,7 @@
 
     const st = getEditorState(target);
     if (st) {
+      if (Date.now() < st.cooldownUntil) return false;
       if (normText === st.lastScrubbedText) return false;
       if (normText === st.bypassedText) return false;
       if (mode === "draft" && normText === st.lastDismissedText) return false;
@@ -643,6 +681,7 @@
         rawText: text,
         initialScan: scan,
         mode,
+        trigger: mode === "send" ? "SEND_BLOCKED" : "TYPING_PAUSE",
       });
       return true;
     }
@@ -652,23 +691,33 @@
     }
 
     // In HIGH protection mode, run always-on Nano 4 semantic PII sweep on drafts >= 20 chars
+    // Never run Nano 4 on text that already contains [REDACTED: unless new unscrubbed chars were typed after scrubbing
+    const hasUnscrubbedDelta =
+      !text.includes("[REDACTED:") || Boolean(st?.lastScrubbedText && normText !== st.lastScrubbedText);
     if (
       mode === "draft" &&
       protectionLevel === "high" &&
+      hasUnscrubbedDelta &&
       text.length >= 20 &&
       normText !== lastNanoSweptText &&
       typeof globalThis.LanguageModel !== "undefined" &&
       fw.runExtensionNanoScan
     ) {
       lastNanoSweptText = normText;
+      const myEpoch = st ? st.epoch : 0;
       void fw.runExtensionNanoScan(text, { timeoutMs: 4000 }).then((nanoRes) => {
-        if (nanoRes?.mergedSpans?.length >= 1 && normalizeForDedup(getTargetText(target)) === normText) {
+        if (!isActiveInstance() || isInjectingSafePaste) return;
+        if (st && (myEpoch !== st.epoch || Date.now() < st.cooldownUntil)) return;
+        if (st && (normText === st.lastScrubbedText || normText === st.lastDismissedText || normText === st.bypassedText)) return;
+        if (normalizeForDedup(getTargetText(target)) !== normText) return;
+        if (nanoRes?.mergedSpans?.length >= 1) {
           showShieldHud({
             target,
             savedSel: null,
             rawText: text,
             initialScan: nanoRes,
             mode: "draft",
+            trigger: "NANO_ASYNC_SWEEP",
           });
         }
       });
@@ -677,17 +726,23 @@
   }
 
   function onInput(event) {
-    if (!shieldEnabled || isInjectingSafePaste || protectionLevel === "low") return;
+    if (!isActiveInstance() || !shieldEnabled || isInjectingSafePaste || protectionLevel === "low") return;
     const target = resolveEditableTarget(event);
     if (!target) return;
+    const st = getEditorState(target);
+    if (st) {
+      if (Date.now() < st.cooldownUntil) return;
+      st.epoch++;
+    }
     clearTimeout(typingDebounceTimer);
     typingDebounceTimer = setTimeout(() => {
+      if (!isActiveInstance()) return;
       evaluateDraftTarget(target, "draft");
     }, 1100);
   }
 
   function onSubmitKeyDown(event) {
-    if (!shieldEnabled || isInjectingSafePaste || protectionLevel === "low") return;
+    if (!isActiveInstance() || !shieldEnabled || isInjectingSafePaste || protectionLevel === "low") return;
     if (event.key !== "Enter" || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) {
       return;
     }
@@ -700,7 +755,7 @@
     const normText = normalizeForDedup(text);
     if (!normText) return;
     const st = getEditorState(target);
-    if (st && (normText === st.lastScrubbedText || normText === st.bypassedText)) return;
+    if (st && (Date.now() < st.cooldownUntil || normText === st.lastScrubbedText || normText === st.bypassedText)) return;
     const scan = fw.scrubSync(text, true, protectionLevel);
     if (scan.mergedSpans.length >= 1) {
       event.preventDefault();
@@ -712,12 +767,13 @@
         rawText: text,
         initialScan: scan,
         mode: "send",
+        trigger: "SEND_BLOCKED",
       });
     }
   }
 
   function onSendButtonAttempt(event) {
-    if (!shieldEnabled || isInjectingSafePaste || protectionLevel === "low") return;
+    if (!isActiveInstance() || !shieldEnabled || isInjectingSafePaste || protectionLevel === "low") return;
     const el = event.target?.nodeType === 3 ? event.target.parentElement : event.target;
     if (!el || typeof el.closest !== "function") return;
     if (el.closest(`#${HOST_ID}`)) return;
@@ -733,7 +789,7 @@
     const normText = normalizeForDedup(text);
     if (!normText) return;
     const st = getEditorState(target);
-    if (st && (normText === st.lastScrubbedText || normText === st.bypassedText)) return;
+    if (st && (Date.now() < st.cooldownUntil || normText === st.lastScrubbedText || normText === st.bypassedText)) return;
 
     const fw = globalThis.LocalFirstFirewall;
     if (!fw?.scrubSync) return;
@@ -748,6 +804,7 @@
         rawText: text,
         initialScan: scan,
         mode: "send",
+        trigger: "SEND_BLOCKED",
       });
     }
   }
