@@ -68,6 +68,8 @@ class LocalFirewallEngineTest {
         assertFalse(sanitized.contains("mQINBFtestKeyData"))
 
         val pathological = "4" + "-1".repeat(2500) + "X"
+        // Warm up the JIT/regex engine so the budget measures steady-state cost, not class loading.
+        LocalFirewallEngine.detectRegexSpans(pathological)
         val start = System.currentTimeMillis()
         val cc = LocalFirewallEngine.detectRegexSpans(pathological)
         val elapsed = System.currentTimeMillis() - start

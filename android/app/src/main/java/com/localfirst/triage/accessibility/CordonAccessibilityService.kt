@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -13,10 +14,12 @@ import android.text.InputType
 import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -25,6 +28,8 @@ import com.localfirst.triage.firewall.LocalFirewallEngine
 import com.localfirst.triage.model.ProtectionLevel
 import com.localfirst.triage.model.RedactionSpan
 import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 
 /**
  * Pure burst/secret-trigger detector retained for compatibility.
@@ -66,24 +71,67 @@ object ActiveTextExtractor {
 }
 
 /**
- * Pure heuristic matcher for Send / Submit / Post / Reply / Ask / Generate / Run controls
- * in guarded AI & chat apps, plus nearest-to-editable fallback.
+ * Pure, token-based matcher for Send / Submit / Post / Reply / Ask / Generate / Run controls in
+ * guarded AI and chat apps.
+ *
+ * Labels are tokenised (split on non-alphanumerics and camelCase) and compared as whole tokens, so
+ * "Task", "Mask" or "Deposit" never match "ask" / "post" the way a substring regex would.
  */
 object SendButtonMatcher {
-    private val SEND_TOKEN_REGEX = Regex(
-        """(?:^|[\s_:/.-])(?:send|submit|post|dispatch|reply|ask|generate|run)(?:$|[\s_:/.-])""",
-        RegexOption.IGNORE_CASE,
+    /** Exact, unambiguous send labels (short labels only - multi-word phrases use token matching). */
+    private val EXACT_SEND_LABELS = setOf(
+        "send", "submit", "send message", "send messages",
     )
+    private val PRIMARY_TOKENS = setOf("send", "submit")
+    private val SECONDARY_TOKENS = setOf("post", "dispatch", "reply", "ask", "generate", "run")
 
-    private val SEND_ID_SUFFIX_REGEX = Regex(
-        """(?:send|submit|post|dispatch|reply|ask|generate|run)(?:_?(?:btn|button|msg|message|prompt|action|icon))?|(?:btn|button|composer|action|chat)_(?:send|submit|ask|reply|generate|run)""",
-        RegexOption.IGNORE_CASE,
+    private val NON_SEND_TOKENS = setOf(
+        "back", "close", "cancel", "dismiss", "menu", "settings", "attach", "attachment", "upload",
+        "camera", "photo", "gallery", "mic", "microphone", "voice", "speech", "dictate", "record",
+        "copy", "paste", "clear", "delete", "emoji", "sticker", "search", "drawer", "incognito",
+        "add", "plus", "more", "options", "share", "history", "profile", "stop",
     )
+    private val NON_SEND_PHRASE_REGEX = Regex("""new[_\s]?chat|add\s+files""", RegexOption.IGNORE_CASE)
+    private val CAMEL_BOUNDARY_REGEX = Regex("([a-z0-9])([A-Z])")
+    private val SPLIT_REGEX = Regex("[^A-Za-z0-9]+")
 
-    private val NON_SEND_CONTROL_REGEX = Regex(
-        """(?:back|close|cancel|dismiss|menu|settings|attach|upload|camera|photo|gallery|mic|voice|record|copy|paste|clear|delete|emoji|sticker|search|new_chat|drawer)""",
-        RegexOption.IGNORE_CASE,
-    )
+    /** Visible labels longer than this are prose (e.g. a chat bubble), not a button label. */
+    private const val MAX_LABEL_TOKENS = 4
+
+    private fun tokenize(raw: String): List<String> =
+        raw.replace(CAMEL_BOUNDARY_REGEX, "$1 $2")
+            .split(SPLIT_REGEX)
+            .map { it.lowercase() }
+            .filter { it.isNotEmpty() }
+
+    /**
+     * 3 = exact send label, 2 = send/submit token, 1 = post/reply/ask/generate/run token, 0 = none.
+     */
+    fun labelStrength(
+        text: String?,
+        contentDescription: String?,
+        viewIdResourceName: String?,
+    ): Int {
+        var best = 0
+        val labelled = listOf(text, contentDescription).map { it to true } +
+            listOf(viewIdResourceName to false)
+        for ((raw, isVisibleLabel) in labelled) {
+            val value = raw?.trim().orEmpty()
+            if (value.isEmpty()) continue
+            val tokens = tokenize(value)
+            if (tokens.isEmpty()) continue
+            if (isVisibleLabel && tokens.size > MAX_LABEL_TOKENS) continue
+            val normalised = tokens.joinToString(" ")
+            val strength = when {
+                isVisibleLabel && normalised in EXACT_SEND_LABELS -> 3
+                tokens.any { it in PRIMARY_TOKENS } -> 2
+                tokens.any { it in SECONDARY_TOKENS } -> 1
+                else -> 0
+            }
+            if (strength > best) best = strength
+        }
+        return best
+    }
 
     fun isLikelySendControl(
         text: String?,
@@ -93,14 +141,7 @@ object SendButtonMatcher {
         isEditable: Boolean,
     ): Boolean {
         if (isEditable) return false
-        val candidates = listOfNotNull(text, contentDescription, viewIdResourceName)
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-        if (candidates.isEmpty()) return false
-        return candidates.any { candidate ->
-            SEND_TOKEN_REGEX.containsMatchIn(candidate) ||
-                (isClickable && SEND_ID_SUFFIX_REGEX.containsMatchIn(candidate))
-        }
+        return labelStrength(text, contentDescription, viewIdResourceName) >= 1
     }
 
     fun isNonSendControl(
@@ -111,7 +152,9 @@ object SendButtonMatcher {
         val combined = listOfNotNull(text, contentDescription, viewIdResourceName)
             .joinToString(" ")
             .trim()
-        return combined.isNotEmpty() && NON_SEND_CONTROL_REGEX.containsMatchIn(combined)
+        if (combined.isEmpty()) return false
+        if (NON_SEND_PHRASE_REGEX.containsMatchIn(combined)) return true
+        return tokenize(combined).any { it in NON_SEND_TOKENS }
     }
 
     fun isLikelyNearEditableSendClick(
@@ -131,8 +174,8 @@ object SendButtonMatcher {
 }
 
 /**
- * Pure geometry helper to pick the send button candidate from screen bounds when
- * regex matching does not find an explicit send label.
+ * Pure geometry helper to pick the send button candidate from screen bounds, combining label
+ * strength with proximity to the composer.
  */
 data class ClickableBoundsCandidate(
     val index: Int,
@@ -142,39 +185,143 @@ data class ClickableBoundsCandidate(
     val bottom: Int,
     val isRegexMatch: Boolean,
     val isNonSend: Boolean,
+    val strengthOverride: Int? = null,
 ) {
     val width: Int get() = right - left
     val height: Int get() = bottom - top
     val centerX: Int get() = (left + right) / 2
     val centerY: Int get() = (top + bottom) / 2
+
+    /** 0..3, see [SendButtonMatcher.labelStrength]. Falls back to the legacy boolean flag. */
+    val labelStrength: Int get() = strengthOverride ?: if (isRegexMatch) 2 else 0
 }
 
 object SendBoundsSelector {
+    private const val STRONG_LABEL = 3
+
     fun pickBestCandidate(
         candidates: List<ClickableBoundsCandidate>,
         editableLeft: Int,
         editableTop: Int,
         editableRight: Int,
         editableBottom: Int,
+        minLabelStrength: Int = 0,
+        screenWidth: Int = 0,
+        screenHeight: Int = 0,
     ): ClickableBoundsCandidate? {
-        val valid = candidates.filter { it.width > 4 && it.height > 4 }
-        if (valid.isEmpty()) return null
-
-        val regexMatch = valid.firstOrNull { it.isRegexMatch }
-        if (regexMatch != null) return regexMatch
-
+        val hasEditable = editableRight > editableLeft && editableBottom > editableTop
+        val editableWidth = (editableRight - editableLeft).coerceAtLeast(100)
+        val editableHeight = (editableBottom - editableTop).coerceAtLeast(60)
+        val editableMidX = (editableLeft + editableRight) / 2
         val editableCenterY = (editableTop + editableBottom) / 2
-        val fallbackPool = valid.filter { !it.isNonSend }
-        return fallbackPool.minByOrNull { c ->
-            val dx = if (c.centerX >= editableRight - 24) {
-                abs(c.left - editableRight)
+
+        // Screen-size thresholds for filtering oversized containers
+        val maxContainerWidth = if (screenWidth > 0) (screenWidth * 0.4).toInt() else Int.MAX_VALUE
+        val maxContainerHeight = if (screenHeight > 0) (screenHeight * 0.25).toInt() else Int.MAX_VALUE
+
+        val scored = candidates.mapNotNull { c ->
+            if (c.width <= 4 || c.height <= 4) return@mapNotNull null
+            if (c.labelStrength < minLabelStrength) return@mapNotNull null
+            if (c.isNonSend && c.labelStrength < STRONG_LABEL) return@mapNotNull null
+
+            // Filter out oversized containers that are likely full-screen wrappers (e.g., Gemini's wrapper)
+            if (c.width > maxContainerWidth || c.height > maxContainerHeight) return@mapNotNull null
+
+            var score = c.labelStrength * 10_000
+            if (hasEditable) {
+                // Exclude large container/backdrop nodes that enclose the editable field
+                val enclosesEditable = c.left <= editableLeft && c.right >= editableRight &&
+                    c.top <= editableTop && c.bottom >= editableBottom
+                val isHugeContainer = c.width > (editableWidth * 0.85) && c.height > (editableHeight * 1.8)
+                if (enclosesEditable || isHugeContainer) return@mapNotNull null
+
+                if (c.labelStrength == 0) {
+                    // Unlabelled: must sit right of the field's midpoint and next to the composer.
+                    val plausible = c.centerX >= editableMidX &&
+                        c.top >= editableTop - 40 &&
+                        c.top <= editableBottom + 240
+                    if (!plausible) return@mapNotNull null
+                } else {
+                    val nearComposer = c.centerY >= editableTop - 160 && c.centerY <= editableBottom + 320
+                    // A labelled control far from the composer (feed "Post", header chip...) only
+                    // qualifies when its label is unambiguous.
+                    if (!nearComposer && c.labelStrength < STRONG_LABEL) return@mapNotNull null
+                    if (!nearComposer) score -= 6_000
+                }
+                val distFromRight = abs(editableRight - c.right)
+                val dy = abs(c.centerY - editableCenterY)
+                score += 5_000 - (distFromRight + dy).coerceAtMost(4_999)
+                if (c.centerX >= editableMidX) score += 500
             } else {
-                // Penalize controls to the left of the editable field's right edge
-                abs(c.centerX - editableRight) + 500
+                // No editable bounds known: prefer labelled controls, then bottom-right-most.
+                score += c.centerY / 10 + c.centerX / 10
             }
-            val dy = abs(c.centerY - editableCenterY) * 2
-            dx + dy
+            c to score
         }
+        return scored.maxByOrNull { it.second }?.first
+    }
+}
+
+/**
+ * Pure geometry for the touch shield: expand the send rect by a touch padding, clamp to the
+ * screen, then clip every edge back out of the editable input box so the shield NEVER overlaps
+ * the composer. Only the padding is allowed to intrude into the editable, so each edge is pulled
+ * back only when the editable's own edge cuts into the padding zone (not the send rect itself).
+ */
+object ShieldGeometry {
+    /** Pure-JVM rect so the geometry is unit-testable without Android framework stubs. */
+    data class ShieldRect(val left: Int, val top: Int, val right: Int, val bottom: Int) {
+        val width: Int get() = right - left
+        val height: Int get() = bottom - top
+        val centerX: Int get() = (left + right) / 2
+        val centerY: Int get() = (top + bottom) / 2
+
+        fun intersects(other: ShieldRect): Boolean =
+            left < other.right && right > other.left && top < other.bottom && bottom > other.top
+
+        fun toRect(): Rect = Rect(left, top, right, bottom)
+    }
+
+    fun expandAndClip(
+        send: ShieldRect,
+        editable: ShieldRect?,
+        screen: ShieldRect,
+        paddingPx: Int,
+        minWidthPx: Int,
+        minHeightPx: Int,
+    ): ShieldRect {
+        var out = ShieldRect(
+            max(screen.left, send.left - paddingPx),
+            max(screen.top, send.top - paddingPx),
+            min(screen.right, send.right + paddingPx),
+            min(screen.bottom, send.bottom + paddingPx),
+        )
+        if (editable != null && editable.intersects(out)) {
+            var l = out.left
+            var t = out.top
+            var r = out.right
+            var b = out.bottom
+            if (editable.bottom > t && editable.bottom <= send.top) t = editable.bottom
+            if (editable.top < b && editable.top >= send.bottom) b = editable.top
+            if (editable.right > l && editable.right <= send.left) l = editable.right
+            if (editable.left < r && editable.left >= send.right) r = editable.left
+            out = ShieldRect(l, t, r, b)
+        }
+        // Guarantee a reliable touch target without overlapping the editable: grow around the
+        // centre, clamped to the screen.
+        if (out.width < minWidthPx) {
+            var l = (out.centerX - minWidthPx / 2).coerceAtLeast(screen.left)
+            var r = (l + minWidthPx).coerceAtMost(screen.right)
+            l = (r - minWidthPx).coerceAtLeast(screen.left)
+            out = ShieldRect(l, out.top, r, out.bottom)
+        }
+        if (out.height < minHeightPx) {
+            var t = (out.centerY - minHeightPx / 2).coerceAtLeast(screen.top)
+            var b = (t + minHeightPx).coerceAtMost(screen.bottom)
+            t = (b - minHeightPx).coerceAtLeast(screen.top)
+            out = ShieldRect(out.left, t, out.right, b)
+        }
+        return out
     }
 }
 
@@ -195,7 +342,10 @@ data class PendingSendPromptState(
  * Pure state machine enforcing:
  * - Zero popups while typing or pasting
  * - Touch shield armed over Send button only while unredacted secrets/PII exist
+ * - Shield stays armed while the prompt is visible (a second tap can never leak the secret)
  * - Single-prompt override memory so "Reject & Send Anyway" never loops on the same text
+ * - A short-lived memory of the last risky state so one transient blank/unreadable observation
+ *   (apps like ChatGPT emit dozens of content-changed events per second) cannot open a gap
  */
 class SendPromptStateMachine {
     var trackedState: PendingSendPromptState? = null
@@ -205,11 +355,15 @@ class SendPromptStateMachine {
     var overriddenTextHash: Int? = null
         private set
 
+    private var recentState: PendingSendPromptState? = null
+    private var recentAtMs: Long = 0L
+
     fun onFieldTextObserved(
         pkg: String,
         appName: String,
         rawText: String,
         protectionLevel: ProtectionLevel,
+        nowMs: Long = System.currentTimeMillis(),
     ) {
         if (rawText.isBlank()) {
             trackedState = null
@@ -227,7 +381,7 @@ class SendPromptStateMachine {
             return
         }
 
-        trackedState = PendingSendPromptState(
+        val state = PendingSendPromptState(
             packageName = pkg,
             appName = appName,
             rawText = rawText,
@@ -235,11 +389,20 @@ class SendPromptStateMachine {
             spans = activeSpans,
             summaryText = formatCategoryCountsSummary(activeSpans),
         )
+        trackedState = state
+        recentState = state
+        recentAtMs = nowMs
     }
 
+    /** Legacy gate: shield is armed only while no prompt is showing. */
     fun shouldArmTouchShield(pkg: String): Boolean {
-        val state = trackedState ?: return false
         if (isPromptVisible) return false
+        return shouldHoldShield(pkg)
+    }
+
+    /** True while the shield must stay over Send, including while the prompt is visible. */
+    fun shouldHoldShield(pkg: String): Boolean {
+        val state = trackedState ?: return false
         if (state.packageName != pkg) return false
         return state.rawText.hashCode() != overriddenTextHash
     }
@@ -252,9 +415,29 @@ class SendPromptStateMachine {
         return state
     }
 
+    /**
+     * Used only when the composer text could not be re-read at tap time: fail safe by trusting a
+     * risky state seen within [RECENT_STATE_TTL_MS].
+     */
+    fun onSendClickedRecent(pkg: String, nowMs: Long = System.currentTimeMillis()): PendingSendPromptState? {
+        onSendClicked(pkg)?.let { return it }
+        val recent = recentState ?: return null
+        if (recent.packageName != pkg) return null
+        if (nowMs - recentAtMs > RECENT_STATE_TTL_MS) return null
+        if (recent.rawText.hashCode() == overriddenTextHash) return null
+        trackedState = recent
+        isPromptVisible = true
+        return recent
+    }
+
+    fun dismissPrompt() {
+        isPromptVisible = false
+    }
+
     fun acceptScrub(): PendingSendPromptState? {
         val state = trackedState
         trackedState = null
+        recentState = null
         isPromptVisible = false
         overriddenTextHash = null
         return state
@@ -266,16 +449,20 @@ class SendPromptStateMachine {
             overriddenTextHash = state.rawText.hashCode()
         }
         trackedState = null
+        recentState = null
         isPromptVisible = false
         return state
     }
 
     fun reset() {
         trackedState = null
+        recentState = null
         isPromptVisible = false
     }
 
     companion object {
+        const val RECENT_STATE_TTL_MS = 1_500L
+
         fun formatCategoryCountsSummary(spans: List<RedactionSpan>): String {
             val counts = LinkedHashMap<String, Int>()
             for (span in spans) {
@@ -292,7 +479,14 @@ class SendPromptStateMachine {
 class CordonAccessibilityService : AccessibilityService() {
     companion object {
         private const val TAG = "CordonA11y"
-        private const val MAX_TREE_SCAN_NODES = 120
+        private const val MAX_TREE_SCAN_NODES = 800
+        private const val MAX_COMPOSER_SCAN_NODES = 160
+        private const val MAX_COMPOSER_ANCESTOR_HOPS = 4
+        private const val EDITABLE_SEARCH_BUDGET = 1500
+        private const val REFRESH_COALESCE_MS = 100L
+        private const val SHIELD_REMOVE_GRACE_MS = 450L
+        private const val SHIELD_TOUCH_PADDING_DP = 6
+        private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -306,6 +500,20 @@ class CordonAccessibilityService : AccessibilityService() {
     private var armedSendNode: AccessibilityNodeInfo? = null
     private var activePackage: String? = null
 
+    private var refreshPending = false
+    private var shieldRemovalPending = false
+    private var pendingRemovalReason = "unspecified"
+    private var lastLoggedArmed = false
+    private var consecutiveBlankObservations = 0
+
+    private val delayedShieldRemoval = Runnable {
+        shieldRemovalPending = false
+        if (touchShieldView != null) {
+            Log.d(TAG, "shieldRemoved reason=$pendingRemovalReason pkg=$activePackage")
+        }
+        removeTouchShieldInternal()
+    }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         windowManager = getSystemService(Context.WINDOW_SERVICE) as? WindowManager
@@ -317,9 +525,7 @@ class CordonAccessibilityService : AccessibilityService() {
         val pkg = event.packageName?.toString()
 
         if (pkg == null || pkg == packageName || ShieldStore.isShieldPaused(this) || !ShieldStore.isPackageGuarded(this, pkg)) {
-            if (pkg != null && pkg != activePackage && !stateMachine.isPromptVisible) {
-                clearAllStateAndOverlays()
-            }
+            handleForeignEvent(event)
             return
         }
 
@@ -328,20 +534,70 @@ class CordonAccessibilityService : AccessibilityService() {
         }
         activePackage = pkg
 
-        val eventType = event.eventType
-        val source = event.source
-
-        when (eventType) {
+        when (event.eventType) {
             AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED,
             AccessibilityEvent.TYPE_VIEW_FOCUSED,
+            -> {
+                // Typing / focus changes are rare enough to evaluate immediately.
+                refreshAndSync(pkg, event.source, event, event.eventType)
+            }
+
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
             AccessibilityEvent.TYPE_WINDOWS_CHANGED,
             AccessibilityEvent.TYPE_VIEW_SCROLLED,
-            -> {
-                refreshTrackedFromActiveWindow(pkg, source, event, eventType)
-                syncTouchShieldWithActiveWindow(pkg)
-            }
+            -> scheduleCoalescedRefresh(pkg)
         }
+    }
+
+    /** Events from other apps / our own UI / paused shield: only manage overlay lifecycle. */
+    private fun handleForeignEvent(event: AccessibilityEvent) {
+        val hasOverlays = activePackage != null || touchShieldView != null || promptOverlayView != null
+        if (!hasOverlays) return
+
+        if (ShieldStore.isShieldPaused(this)) {
+            clearAllStateAndOverlays()
+            return
+        }
+
+        val activeRootPkg = rootInActiveWindow?.packageName?.toString()
+        val current = activePackage
+        if (activeRootPkg != null && current != null && activeRootPkg == current) {
+            // Same guarded app is still in front (e.g. keyboard opened/closed): keep shield aligned.
+            if (event.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
+                scheduleCoalescedRefresh(current)
+            }
+            return
+        }
+
+        if (
+            activeRootPkg != null &&
+            activeRootPkg != SYSTEM_UI_PACKAGE &&
+            !ShieldStore.isPackageGuarded(this, activeRootPkg)
+        ) {
+            Log.d(TAG, "clearOnPackageSwitch activeRootPkg=$activeRootPkg prev=$current")
+            clearAllStateAndOverlays()
+        }
+    }
+
+    private fun scheduleCoalescedRefresh(pkg: String) {
+        if (refreshPending) return
+        refreshPending = true
+        mainHandler.postDelayed({
+            refreshPending = false
+            if (activePackage == pkg && !ShieldStore.isShieldPaused(this)) {
+                refreshAndSync(pkg, null, null, AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED)
+            }
+        }, REFRESH_COALESCE_MS)
+    }
+
+    private fun refreshAndSync(
+        pkg: String,
+        source: AccessibilityNodeInfo?,
+        event: AccessibilityEvent?,
+        eventType: Int,
+    ) {
+        refreshTrackedFromActiveWindow(pkg, source, event, eventType)
+        syncTouchShieldWithActiveWindow(pkg)
     }
 
     private fun refreshTrackedFromActiveWindow(
@@ -350,20 +606,24 @@ class CordonAccessibilityService : AccessibilityService() {
         event: AccessibilityEvent?,
         eventType: Int,
     ) {
-        if (stateMachine.isPromptVisible) return
+        // While the prompt is up, only an explicit user edit may change the tracked state.
+        if (stateMachine.isPromptVisible && eventType != AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED) return
+        // Never read password fields.
+        if (source != null && isPasswordNode(source)) return
 
-        val editableFromSource = if (source != null && source.isEditable && !isPasswordNode(source)) source else null
-        val editableFromTree = editableFromSource ?: findActiveEditableNode(rootInActiveWindow)
+        val root = guardedRoot(pkg)
+        val editableFromSource = if (source != null && source.isEditable) source else null
+        val editable = editableFromSource ?: findActiveEditableNode(root)
 
-        val nodeText = editableFromTree?.text?.toString()
+        val nodeText = editable?.text?.toString()
         val eventText = if (eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED || editableFromSource != null) {
             event?.text?.joinToString("")
         } else {
             null
         }
         val treeText = if (nodeText.isNullOrBlank() && eventText.isNullOrBlank()) {
-            findFirstEditableWithText(rootInActiveWindow)?.let { node ->
-                if (editableFromTree == null) heldInputNode = node
+            findFirstEditableWithText(root)?.let { node ->
+                if (editable == null) heldInputNode = node
                 node.text?.toString()
             }
         } else {
@@ -377,12 +637,22 @@ class CordonAccessibilityService : AccessibilityService() {
             preferEventText = (eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED),
         )
 
-        if (editableFromTree != null) {
-            heldInputNode = editableFromTree
+        if (editable != null && (editable.isFocused || !nodeText.isNullOrBlank() || heldInputNode == null)) {
+            heldInputNode = editable
         }
 
-        if (resolvedText.isBlank() && editableFromTree == null) {
-            return
+        if (resolvedText.isBlank()) {
+            // Unreadable node: keep the armed state, debounce handles the miss.
+            if (editable == null) return
+            // A single blank reading can be a recomposition flap. Only treat it as a
+            // confirmed clear (immediate teardown) on a real text-changed event or a
+            // second consecutive blank observation; otherwise hold the shield.
+            consecutiveBlankObservations++
+            val confirmedClear = eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED ||
+                consecutiveBlankObservations >= 2
+            if (!confirmedClear) return
+        } else {
+            consecutiveBlankObservations = 0
         }
 
         stateMachine.onFieldTextObserved(
@@ -391,88 +661,167 @@ class CordonAccessibilityService : AccessibilityService() {
             rawText = resolvedText,
             protectionLevel = ShieldStore.getProtectionLevel(this),
         )
-    }
 
-    private fun syncTouchShieldWithActiveWindow(pkg: String) {
-        if (stateMachine.isPromptVisible) return
-
-        if (!stateMachine.shouldArmTouchShield(pkg)) {
-            removeTouchShield()
-            return
-        }
-
-        val root = rootInActiveWindow
-        if (root == null) {
-            removeTouchShield()
-            return
-        }
-
-        val editableNode = heldInputNode ?: findActiveEditableNode(root)
-        val editableBounds = Rect()
-        if (editableNode != null) {
-            editableNode.getBoundsInScreen(editableBounds)
-        }
-
-        val clickableNodes = collectClickableNodes(root)
-        val candidates = clickableNodes.mapIndexed { index, node ->
-            val rect = Rect()
-            node.getBoundsInScreen(rect)
-            val childDesc = (0 until node.childCount.coerceAtMost(4))
-                .mapNotNull { idx -> node.getChild(idx)?.contentDescription?.toString() ?: node.getChild(idx)?.text?.toString() }
-                .firstOrNull { it.isNotBlank() }
-            val text = node.text?.toString()
-            val desc = node.contentDescription?.toString() ?: childDesc
-            val viewId = node.viewIdResourceName
-            ClickableBoundsCandidate(
-                index = index,
-                left = rect.left,
-                top = rect.top,
-                right = rect.right,
-                bottom = rect.bottom,
-                isRegexMatch = SendButtonMatcher.isLikelySendControl(
-                    text = text,
-                    contentDescription = desc,
-                    viewIdResourceName = viewId,
-                    isClickable = node.isClickable,
-                    isEditable = node.isEditable,
-                ),
-                isNonSend = SendButtonMatcher.isNonSendControl(text, desc, viewId),
+        val armed = stateMachine.shouldHoldShield(pkg)
+        if (armed != lastLoggedArmed) {
+            lastLoggedArmed = armed
+            Log.d(
+                TAG,
+                "textObserved pkg=$pkg type=${AccessibilityEvent.eventTypeToString(eventType)} len=${resolvedText.length} armed=$armed",
             )
         }
 
-        val chosen = SendBoundsSelector.pickBestCandidate(
-            candidates = candidates,
-            editableLeft = editableBounds.left,
-            editableTop = editableBounds.top,
-            editableRight = editableBounds.right,
-            editableBottom = editableBounds.bottom,
-        )
-
-        if (chosen == null) {
-            removeTouchShield()
-            return
+        // User edited the secret away while the prompt was open: nothing left to protect.
+        if (stateMachine.isPromptVisible && stateMachine.trackedState == null) {
+            Log.d(TAG, "promptDismissed reason=textNoLongerRisky pkg=$pkg")
+            stateMachine.dismissPrompt()
+            dismissPromptOverlayInternal()
         }
-
-        val sendNode = clickableNodes[chosen.index]
-        val shieldRect = Rect(chosen.left, chosen.top, chosen.right, chosen.bottom)
-        if (shieldRect.isEmpty) {
-            removeTouchShield()
-            return
-        }
-
-        armedSendNode = sendNode
-        showOrRepositionTouchShield(pkg, shieldRect, chosen.isRegexMatch)
     }
 
-    private fun collectClickableNodes(root: AccessibilityNodeInfo): List<AccessibilityNodeInfo> {
+    /** Real screen bounds (status bar / cutout included) matching getBoundsInScreen space. */
+    private fun screenBounds(): Rect {
+        val wm = windowManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && wm != null) {
+            return Rect(wm.currentWindowMetrics.bounds)
+        }
+        @Suppress("DEPRECATION")
+        return Rect(0, 0, resources.displayMetrics.widthPixels, resources.displayMetrics.heightPixels)
+    }
+
+    private fun syncTouchShieldWithActiveWindow(pkg: String) {
+        if (!stateMachine.shouldHoldShield(pkg)) {
+            // Confirmed clean / empty / overridden text: tear down IMMEDIATELY so the next
+            // normal tap reaches Send. Only transient node misses get the debounced path below.
+            if (touchShieldView != null) {
+                Log.d(TAG, "shieldRemoved reason=hold=false pkg=$pkg")
+            }
+            removeTouchShieldInternal()
+            return
+        }
+
+        val root = guardedRoot(pkg)
+        if (root == null) {
+            scheduleShieldRemoval("rootNull")
+            return
+        }
+
+        val editable = heldInputNode?.takeIf { runCatching { it.refresh() }.getOrDefault(false) }
+            ?: findActiveEditableNode(root)
+        val target = locateSendTarget(root, editable)
+        if (target == null) {
+            Log.d(TAG, "shieldNoTarget pkg=$pkg")
+            // Debounced removal: don't remove immediately if we still have a valid target
+            scheduleShieldRemoval("noTarget")
+            return
+        }
+
+        val c = target.candidate
+        val shieldRect = Rect(c.left, c.top, c.right, c.bottom)
+        if (shieldRect.isEmpty) {
+            scheduleShieldRemoval("rectEmpty")
+            return
+        }
+
+        armedSendNode = target.node
+        showOrRepositionTouchShield(pkg, shieldRect, c.labelStrength)
+    }
+
+    private class SendTarget(val node: AccessibilityNodeInfo, val candidate: ClickableBoundsCandidate)
+
+    private class ScanLevel(
+        val nodes: List<AccessibilityNodeInfo>,
+        val candidates: List<ClickableBoundsCandidate>,
+    )
+
+    private fun scanLevel(scope: AccessibilityNodeInfo, budget: Int): ScanLevel {
+        val nodes = collectClickableNodes(scope, budget)
+        return ScanLevel(nodes, nodes.mapIndexed { index, node -> toCandidate(index, node) })
+    }
+
+    /**
+     * Finds the Send control. Searches the composer's nearest containers first, scores label
+     * strength + proximity to the editable (so a "Task" chip can never beat a real Send button),
+     * and only then widens to the whole window.
+     */
+    private fun locateSendTarget(root: AccessibilityNodeInfo, editable: AccessibilityNodeInfo?): SendTarget? {
+        val eb = Rect()
+        editable?.getBoundsInScreen(eb)
+
+        val screen = screenBounds()
+        val screenWidth = screen.width()
+        val screenHeight = screen.height()
+
+        val levels = ArrayList<ScanLevel>()
+        if (editable != null) {
+            var ancestor: AccessibilityNodeInfo? = editable.parent
+            var hops = 0
+            while (ancestor != null && hops < MAX_COMPOSER_ANCESTOR_HOPS) {
+                levels += scanLevel(ancestor, MAX_COMPOSER_SCAN_NODES)
+                ancestor = ancestor.parent
+                hops++
+            }
+        }
+        val rootLevel by lazy(LazyThreadSafetyMode.NONE) { scanLevel(root, MAX_TREE_SCAN_NODES) }
+
+        fun pick(scanLevels: List<ScanLevel>, minStrength: Int): SendTarget? {
+            for (level in scanLevels) {
+                val c = SendBoundsSelector.pickBestCandidate(
+                    level.candidates, eb.left, eb.top, eb.right, eb.bottom, minStrength,
+                    screenWidth, screenHeight,
+                )
+                if (c != null) return SendTarget(level.nodes[c.index], c)
+            }
+            return null
+        }
+
+        return pick(levels, 1)
+            ?: pick(listOf(rootLevel), 1)
+            ?: pick(levels, 0)
+            ?: pick(listOf(rootLevel), 0)
+    }
+
+    private fun toCandidate(index: Int, node: AccessibilityNodeInfo): ClickableBoundsCandidate {
+        val rect = Rect()
+        node.getBoundsInScreen(rect)
+        val text = node.text?.toString()
+        val desc = node.contentDescription?.toString()?.ifBlank { null } ?: findDescendantLabel(node, maxDepth = 3)
+        val viewId = node.viewIdResourceName
+        val strength = SendButtonMatcher.labelStrength(text, desc, viewId)
+        return ClickableBoundsCandidate(
+            index = index,
+            left = rect.left,
+            top = rect.top,
+            right = rect.right,
+            bottom = rect.bottom,
+            isRegexMatch = !node.isEditable && strength >= 1,
+            isNonSend = SendButtonMatcher.isNonSendControl(text, desc, viewId),
+            strengthOverride = if (node.isEditable) 0 else strength,
+        )
+    }
+
+    private fun findDescendantLabel(node: AccessibilityNodeInfo, maxDepth: Int): String? {
+        if (maxDepth <= 0) return null
+        for (i in 0 until node.childCount.coerceAtMost(6)) {
+            val child = node.getChild(i) ?: continue
+            val direct = child.contentDescription?.toString()?.ifBlank { null }
+                ?: child.text?.toString()?.ifBlank { null }
+            if (direct != null) return direct
+            val nested = findDescendantLabel(child, maxDepth - 1)
+            if (nested != null) return nested
+        }
+        return null
+    }
+
+    private fun collectClickableNodes(scope: AccessibilityNodeInfo, budget: Int): List<AccessibilityNodeInfo> {
         val result = ArrayList<AccessibilityNodeInfo>()
         val queue = ArrayDeque<AccessibilityNodeInfo>()
-        queue.add(root)
+        queue.add(scope)
         var visited = 0
-        while (queue.isNotEmpty() && visited < MAX_TREE_SCAN_NODES) {
+        while (queue.isNotEmpty() && visited < budget) {
             val current = queue.removeFirst()
             visited++
-            if (current.isClickable && !current.isEditable && current.isVisibleToUser) {
+            if (!current.isEditable && current.isVisibleToUser && isEffectivelyClickable(current)) {
                 result.add(current)
             }
             for (i in 0 until current.childCount) {
@@ -480,6 +829,25 @@ class CordonAccessibilityService : AccessibilityService() {
             }
         }
         return result
+    }
+
+    private fun isEffectivelyClickable(node: AccessibilityNodeInfo): Boolean {
+        if (node.isClickable) return true
+        // Some toolkits (Compose / WebView) expose ACTION_CLICK without the clickable flag.
+        val labelled = !node.contentDescription.isNullOrBlank() || !node.text.isNullOrBlank() ||
+            !node.viewIdResourceName.isNullOrBlank()
+        return labelled && node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_CLICK }
+    }
+
+    /** Root of the guarded app's window, even if the active window is momentarily something else. */
+    private fun guardedRoot(pkg: String): AccessibilityNodeInfo? {
+        val active = rootInActiveWindow
+        if (active != null && active.packageName?.toString() == pkg) return active
+        val fromWindows = windows
+            ?.filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
+            ?.mapNotNull { it.root }
+            ?.firstOrNull { it.packageName?.toString() == pkg }
+        return fromWindows ?: active
     }
 
     private fun findActiveEditableNode(root: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
@@ -509,7 +877,7 @@ class CordonAccessibilityService : AccessibilityService() {
         val queue = ArrayDeque<AccessibilityNodeInfo>()
         queue.add(root)
         var visited = 0
-        while (queue.isNotEmpty() && visited < MAX_TREE_SCAN_NODES) {
+        while (queue.isNotEmpty() && visited < EDITABLE_SEARCH_BUDGET) {
             val current = queue.removeFirst()
             visited++
             if (predicate(current)) return current
@@ -530,195 +898,345 @@ class CordonAccessibilityService : AccessibilityService() {
             variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD
     }
 
+    /** Current composer text, or null when it cannot be read (caller then fails safe). */
+    private fun readFreshComposerText(pkg: String): String? {
+        val held = heldInputNode
+        if (held != null && runCatching { held.refresh() }.getOrDefault(false) && held.isEditable && !isPasswordNode(held)) {
+            return held.text?.toString().orEmpty()
+        }
+        val node = findActiveEditableNode(guardedRoot(pkg)) ?: return null
+        heldInputNode = node
+        return node.text?.toString().orEmpty()
+    }
+
+    /** Click the real Send control; if the cached node went stale, locate a fresh one. */
+    private fun performSend(cached: AccessibilityNodeInfo?, pkg: String) {
+        val clicked = cached?.let {
+            runCatching { it.refresh() }
+                .onFailure { err -> Log.e(TAG, "performSend nodeRefreshFailed pkg=$pkg err=${err.message}") }
+            it.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        } ?: false
+        if (clicked) return
+        val root = guardedRoot(pkg)
+        if (root == null) {
+            Log.e(TAG, "performSend rootNull pkg=$pkg")
+            return
+        }
+        val editable = findActiveEditableNode(root)
+        val fresh = locateSendTarget(root, editable)?.node
+        Log.d(TAG, "performSend staleRetry=${fresh != null} pkg=$pkg")
+        val retryOk = fresh?.performAction(AccessibilityNodeInfo.ACTION_CLICK) ?: false
+        if (!retryOk) Log.e(TAG, "performSend clickFailed pkg=$pkg")
+    }
+
     private fun dp(value: Int): Int = TypedValue.applyDimension(
         TypedValue.COMPLEX_UNIT_DIP,
         value.toFloat(),
         resources.displayMetrics,
     ).toInt()
 
-    private fun showOrRepositionTouchShield(pkg: String, rect: Rect, isRegexMatch: Boolean) {
-        mainHandler.post {
-            val wm = windowManager ?: return@post
-            val existing = touchShieldView
-            val params = WindowManager.LayoutParams(
-                rect.width().coerceAtLeast(dp(36)),
-                rect.height().coerceAtLeast(dp(36)),
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                // FLAG_NOT_FOCUSABLE ONLY (NO FLAG_NOT_TOUCHABLE) so it intercepts and consumes the tap
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-                PixelFormat.TRANSLUCENT,
-            ).apply {
-                gravity = Gravity.TOP or Gravity.START
-                x = rect.left
-                y = rect.top
-            }
+    private fun showOrRepositionTouchShield(pkg: String, rect: Rect, labelStrength: Int) {
+        if (!stateMachine.shouldHoldShield(pkg)) return
+        val wm = windowManager ?: return
+        cancelShieldRemoval()
+        val existing = touchShieldView
 
-            if (existing != null) {
-                if (touchShieldBounds != rect) {
-                    touchShieldBounds = Rect(rect)
-                    runCatching { wm.updateViewLayout(existing, params) }
-                }
-                return@post
-            }
+        // Touch padding around the send button, clamped to screen and clipped so the shield
+        // NEVER overlaps the active editable input box.
+        val editable = heldInputNode?.takeIf { runCatching { it.refresh() }.getOrDefault(false) }
+            ?: findActiveEditableNode(guardedRoot(pkg))
+        val editableRect = editable?.let {
+            val r = Rect()
+            it.getBoundsInScreen(r)
+            if (r.isEmpty) null else ShieldGeometry.ShieldRect(r.left, r.top, r.right, r.bottom)
+        }
+        val screen = screenBounds()
+        val expandedRect = ShieldGeometry.expandAndClip(
+            send = ShieldGeometry.ShieldRect(rect.left, rect.top, rect.right, rect.bottom),
+            editable = editableRect,
+            screen = ShieldGeometry.ShieldRect(screen.left, screen.top, screen.right, screen.bottom),
+            paddingPx = dp(SHIELD_TOUCH_PADDING_DP),
+            minWidthPx = dp(36),
+            minHeightPx = dp(36),
+        ).toRect()
 
-            val shield = View(this).apply {
-                contentDescription = "Cordon Send Shield"
-                background = GradientDrawable().apply {
-                    setColor(Color.argb(18, 245, 158, 11))
-                    setStroke(dp(1), Color.argb(180, 245, 158, 11))
-                    cornerRadius = dp(18).toFloat()
-                }
-                setOnClickListener {
-                    val promptState = stateMachine.onSendClicked(pkg)
-                    Log.d(
-                        TAG,
-                        "shieldTapped pkg=$pkg armed=${promptState != null} regexMatch=$isRegexMatch",
-                    )
-                    if (promptState != null) {
-                        removeTouchShieldInternal()
-                        showSendPromptOverlay(promptState)
+        val params = WindowManager.LayoutParams(
+            expandedRect.width(),
+            expandedRect.height(),
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            // Intercept touches reliably: NOT_FOCUSABLE | NOT_TOUCH_MODAL | LAYOUT_IN_SCREEN | LAYOUT_NO_LIMITS
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT,
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = expandedRect.left
+            y = expandedRect.top
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                layoutInDisplayCutoutMode =
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
                     } else {
-                        removeTouchShieldInternal()
+                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
                     }
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                fitInsetsTypes = 0
+            }
+        }
+
+        if (existing != null) {
+            if (touchShieldBounds != expandedRect) {
+                touchShieldBounds = Rect(expandedRect)
+                runCatching { wm.updateViewLayout(existing, params) }
+                    .onFailure { err ->
+                        Log.e(TAG, "shieldUpdateFailed pkg=$pkg err=${err.message}")
+                    }
+                    .onSuccess { _ ->
+                        verifyShieldPlacement(existing, expandedRect, pkg, "shieldMoved")
+                    }
+            }
+            return
+        }
+
+        val shield = View(this).apply {
+            contentDescription = "Cordon Send Shield"
+            // Transparent but touchable background - critical for OEM touch reliability
+            background = GradientDrawable().apply {
+                setColor(Color.argb(18, 245, 158, 11))
+                setStroke(dp(1), Color.argb(180, 245, 158, 11))
+                cornerRadius = dp(18).toFloat()
+            }
+            setOnTouchListener { _, event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> true // claim the gesture so nothing leaks below
+                    MotionEvent.ACTION_UP -> {
+                        onShieldTapped(pkg)
+                        true
+                    }
+                    // Consume MOVE/CANCEL too: a shifted thumb must never leak to Send.
+                    else -> true
                 }
             }
+        }
 
-            runCatching {
-                wm.addView(shield, params)
-                touchShieldView = shield
-                touchShieldBounds = Rect(rect)
-                Log.d(
-                    TAG,
-                    "shieldArmed pkg=$pkg bounds=[${rect.left},${rect.top},${rect.right},${rect.bottom}] regexMatch=$isRegexMatch",
-                )
-            }
+        runCatching {
+            wm.addView(shield, params)
+            touchShieldView = shield
+            touchShieldBounds = Rect(expandedRect)
+            verifyShieldPlacement(
+                shield, expandedRect, pkg, "shieldArmed",
+                "labelStrength=$labelStrength findingsCount=${stateMachine.trackedState?.spans?.size ?: 0}",
+            )
+        }.onFailure { err ->
+            Log.e(TAG, "shieldAddViewFailed pkg=$pkg err=${err.message}")
+        }
+    }
+
+    private fun verifyShieldPlacement(view: View, target: Rect, pkg: String, event: String, extra: String = "") {
+        view.post {
+            val loc = IntArray(2)
+            view.getLocationOnScreen(loc)
+            val actual = Rect(loc[0], loc[1], loc[0] + view.width, loc[1] + view.height)
+            val dx = abs(actual.centerX() - target.centerX())
+            val dy = abs(actual.centerY() - target.centerY())
+            Log.d(
+                TAG,
+                "$event pkg=$pkg target=[${target.left},${target.top},${target.right},${target.bottom}] actual=[${actual.left},${actual.top},${actual.right},${actual.bottom}] drift=($dx,$dy)px $extra".trim(),
+            )
+        }
+    }
+
+    private fun onShieldTapped(pkg: String) {
+        // Re-read the composer at tap time so we judge the text that is about to be sent.
+        val fresh = readFreshComposerText(pkg)
+        if (fresh != null) {
+            stateMachine.onFieldTextObserved(
+                pkg = pkg,
+                appName = ShieldStore.appDisplayNameForPackage(pkg),
+                rawText = fresh,
+                protectionLevel = ShieldStore.getProtectionLevel(this),
+            )
+        }
+        val promptState = if (fresh != null) {
+            stateMachine.onSendClicked(pkg)
+        } else {
+            stateMachine.onSendClickedRecent(pkg)
+        }
+        Log.d(TAG, "shieldTapped pkg=$pkg armed=${promptState != null} freshLen=${fresh?.length ?: -1}")
+        if (promptState != null) {
+            // The shield deliberately stays in place so a second tap can never leak the secret.
+            showSendPromptOverlay(promptState)
+        } else {
+            // Nothing risky is left in the field: let the user's tap through to the real button.
+            removeTouchShieldInternal()
+            val target = armedSendNode
+            mainHandler.postDelayed({ performSend(target, pkg) }, 40L)
         }
     }
 
     private fun showSendPromptOverlay(promptState: PendingSendPromptState) {
-        mainHandler.post {
-            dismissPromptOverlayInternal()
-            val wm = windowManager ?: return@post
+        dismissPromptOverlayInternal()
+        val wm = windowManager ?: return
 
-            val container = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(16), dp(14), dp(16), dp(14))
-                background = GradientDrawable().apply {
-                    setColor(Color.parseColor("#11141B"))
-                    setStroke(dp(2), Color.parseColor("#F59E0B"))
-                    cornerRadius = dp(16).toFloat()
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#11141B"))
+                setStroke(dp(2), Color.parseColor("#F59E0B"))
+                cornerRadius = dp(16).toFloat()
+            }
+            elevation = dp(12).toFloat()
+        }
+
+        val title = TextView(this).apply {
+            text = "Are you sure? Use the scrub instead"
+            setTextColor(Color.parseColor("#FBBF24"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        }
+
+        val subtitle = TextView(this).apply {
+            text = "${promptState.summaryText} found in ${promptState.appName}"
+            setTextColor(Color.parseColor("#E2E8F0"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setPadding(0, dp(4), 0, dp(12))
+        }
+
+        val actionsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+        }
+
+        val rejectBtn = Button(this).apply {
+            text = "Reject & Send Anyway"
+            setTextColor(Color.parseColor("#FDA4AF"))
+            setBackgroundColor(Color.TRANSPARENT)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+            setOnClickListener {
+                val rejected = stateMachine.rejectAndSendAnyway()
+                dismissPromptOverlayInternal()
+                removeTouchShieldInternal()
+                if (rejected != null) {
+                    ShieldStore.recordOverrideEvent(
+                        context = this@CordonAccessibilityService,
+                        appName = rejected.appName,
+                        spans = rejected.spans,
+                        engineUsed = "Deterministic Rules",
+                    )
+                    // ALWAYS re-query fresh nodes after the dialog: pre-dialog references are stale.
+                    val root = guardedRoot(rejected.packageName)
+                    val sendTarget = root?.let { locateSendTarget(it, findActiveEditableNode(it))?.node }
+                    val sendClickOk = sendTarget?.performAction(AccessibilityNodeInfo.ACTION_CLICK) ?: false
+                    Log.d(TAG, "promptAction action=reject setTextOk=n/a sendClickOk=$sendClickOk pkg=${rejected.packageName}")
+                    if (!sendClickOk) {
+                        // Programmatic click unsupported: the shield is gone, so the user's next
+                        // normal tap passes cleanly to the real Send button.
+                        Log.w(TAG, "sendClickFailed pkg=${rejected.packageName} raw text left in composer for manual tap")
+                    }
                 }
-                elevation = dp(12).toFloat()
+                armedSendNode = null
             }
+        }
 
-            val title = TextView(this).apply {
-                text = "Are you sure? Use the scrub instead"
-                setTextColor(Color.parseColor("#FBBF24"))
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-                setTypeface(typeface, android.graphics.Typeface.BOLD)
+        val acceptBtn = Button(this).apply {
+            text = "Use Scrub & Send"
+            setTextColor(Color.parseColor("#07090D"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(dp(14), dp(6), dp(14), dp(6))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#00E5A3"))
+                cornerRadius = dp(10).toFloat()
             }
-
-            val subtitle = TextView(this).apply {
-                text = "${promptState.summaryText} found in ${promptState.appName}"
-                setTextColor(Color.parseColor("#E2E8F0"))
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-                setPadding(0, dp(4), 0, dp(12))
-            }
-
-            val actionsRow = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.END
-            }
-
-            val rejectBtn = Button(this).apply {
-                text = "Reject & Send Anyway"
-                setTextColor(Color.parseColor("#FDA4AF"))
-                setBackgroundColor(Color.TRANSPARENT)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
-                setOnClickListener {
-                    val rejected = stateMachine.rejectAndSendAnyway()
-                    dismissPromptOverlayInternal()
-                    removeTouchShieldInternal()
-                    if (rejected != null) {
-                        ShieldStore.recordOverrideEvent(
+            setOnClickListener {
+                val accepted = stateMachine.acceptScrub()
+                dismissPromptOverlayInternal()
+                removeTouchShieldInternal()
+                if (accepted != null) {
+                    // ALWAYS re-query fresh nodes after the dialog: pre-dialog references are stale.
+                    val root = guardedRoot(accepted.packageName)
+                    val targetNode = findActiveEditableNode(root)
+                    val sendTarget = root?.let { locateSendTarget(it, targetNode)?.node }
+                    val scrubArgs = Bundle().apply {
+                        putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, accepted.sanitizedText)
+                    }
+                    val setTextOk = targetNode?.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, scrubArgs) ?: false
+                    if (!setTextOk) {
+                        Log.e(TAG, "setTextFailed pkg=${accepted.packageName}")
+                    }
+                    // Single programmatic click (never twice); if unsupported, the scrubbed text
+                    // stays cleanly in the box so one normal tap sends it.
+                    val sendClickOk = setTextOk &&
+                        (sendTarget?.performAction(AccessibilityNodeInfo.ACTION_CLICK) ?: false)
+                    Log.d(TAG, "promptAction action=scrub setTextOk=$setTextOk sendClickOk=$sendClickOk pkg=${accepted.packageName}")
+                    if (setTextOk) {
+                        ShieldStore.recordBlockEvent(
                             context = this@CordonAccessibilityService,
-                            appName = rejected.appName,
-                            spans = rejected.spans,
+                            appName = accepted.appName,
+                            spans = accepted.spans,
                             engineUsed = "Deterministic Rules",
                         )
-                        val sendTarget = armedSendNode
-                        Log.d(TAG, "rejectAndSendAnyway pkg=${rejected.packageName} hasSendTarget=${sendTarget != null}")
-                        mainHandler.postDelayed({
-                            sendTarget?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                        }, 40L)
-                    }
-                    armedSendNode = null
-                }
-            }
-
-            val acceptBtn = Button(this).apply {
-                text = "Use Scrub & Send"
-                setTextColor(Color.parseColor("#07090D"))
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-                setTypeface(typeface, android.graphics.Typeface.BOLD)
-                setPadding(dp(14), dp(6), dp(14), dp(6))
-                background = GradientDrawable().apply {
-                    setColor(Color.parseColor("#00E5A3"))
-                    cornerRadius = dp(10).toFloat()
-                }
-                setOnClickListener {
-                    val accepted = stateMachine.acceptScrub()
-                    dismissPromptOverlayInternal()
-                    removeTouchShieldInternal()
-                    if (accepted != null) {
-                        val targetNode = heldInputNode ?: findActiveEditableNode(rootInActiveWindow)
-                        val scrubArgs = Bundle().apply {
-                            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, accepted.sanitizedText)
-                        }
-                        val replaced = targetNode?.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, scrubArgs) ?: false
-                        val sendTarget = armedSendNode
-                        Log.d(
-                            TAG,
-                            "useScrubAndSend pkg=${accepted.packageName} replaced=$replaced hasSendTarget=${sendTarget != null}",
-                        )
-                        if (replaced) {
-                            ShieldStore.recordBlockEvent(
-                                context = this@CordonAccessibilityService,
-                                appName = accepted.appName,
-                                spans = accepted.spans,
-                                engineUsed = "Deterministic Rules",
-                            )
-                            mainHandler.postDelayed({
-                                sendTarget?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                            }, 60L)
+                        if (!sendClickOk) {
+                            Log.w(TAG, "sendClickFailed pkg=${accepted.packageName} scrubbed text left in composer for manual tap")
                         }
                     }
-                    heldInputNode = null
-                    armedSendNode = null
                 }
+                heldInputNode = null
+                armedSendNode = null
             }
+        }
 
-            actionsRow.addView(rejectBtn)
-            actionsRow.addView(acceptBtn)
-            container.addView(title)
-            container.addView(subtitle)
-            container.addView(actionsRow)
+        actionsRow.addView(rejectBtn)
+        actionsRow.addView(acceptBtn)
+        container.addView(title)
+        container.addView(subtitle)
+        container.addView(actionsRow)
 
-            val params = WindowManager.LayoutParams(
-                WindowManager.LayoutParams.WRAP_CONTENT,
-                WindowManager.LayoutParams.WRAP_CONTENT,
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-                PixelFormat.TRANSLUCENT,
-            ).apply {
-                gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
-                y = dp(72)
+        // Tap outside the card dismisses the prompt; the shield stays held so nothing can leak.
+        container.setOnTouchListener { _, event ->
+            if (event.actionMasked == MotionEvent.ACTION_OUTSIDE) {
+                Log.d(TAG, "promptDismissed reason=outsideTap pkg=${promptState.packageName}")
+                stateMachine.dismissPrompt()
+                dismissPromptOverlayInternal()
+                true
+            } else {
+                false
             }
+        }
 
-            runCatching {
-                wm.addView(container, params)
-                promptOverlayView = container
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT,
+        ).apply {
+            gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
+            y = dp(72)
+        }
+
+        runCatching {
+            wm.addView(container, params)
+            promptOverlayView = container
+            Log.d(TAG, "promptShown pkg=${promptState.packageName} summary=${promptState.summaryText}")
+            container.post {
+                val acceptLoc = IntArray(2)
+                val rejectLoc = IntArray(2)
+                acceptBtn.getLocationOnScreen(acceptLoc)
+                rejectBtn.getLocationOnScreen(rejectLoc)
+                Log.d(
+                    TAG,
+                    "promptButtons accept=[${acceptLoc[0]},${acceptLoc[1]},${acceptLoc[0] + acceptBtn.width},${acceptLoc[1] + acceptBtn.height}] reject=[${rejectLoc[0]},${rejectLoc[1]},${rejectLoc[0] + rejectBtn.width},${rejectLoc[1] + rejectBtn.height}]",
+                )
             }
+        }.onFailure { err ->
+            // Never leave the state machine believing a prompt is up when it is not.
+            Log.e(TAG, "promptAddViewFailed err=${err.message}")
+            stateMachine.dismissPrompt()
         }
     }
 
@@ -727,25 +1245,42 @@ class CordonAccessibilityService : AccessibilityService() {
         heldInputNode = null
         armedSendNode = null
         activePackage = null
-        removeTouchShield()
-        mainHandler.post { dismissPromptOverlayInternal() }
+        lastLoggedArmed = false
+        consecutiveBlankObservations = 0
+        cancelShieldRemoval()
+        if (touchShieldView != null) Log.d(TAG, "shieldRemoved reason=clearAll")
+        removeTouchShieldInternal()
+        dismissPromptOverlayInternal()
     }
 
-    private fun removeTouchShield() {
-        mainHandler.post { removeTouchShieldInternal() }
+    /** Debounced removal: one transient blank / unreadable observation must not open a gap. */
+    private fun scheduleShieldRemoval(reason: String) {
+        if (touchShieldView == null || shieldRemovalPending) return
+        shieldRemovalPending = true
+        pendingRemovalReason = reason
+        mainHandler.postDelayed(delayedShieldRemoval, SHIELD_REMOVE_GRACE_MS)
+    }
+
+    private fun cancelShieldRemoval() {
+        if (!shieldRemovalPending) return
+        shieldRemovalPending = false
+        mainHandler.removeCallbacks(delayedShieldRemoval)
     }
 
     private fun removeTouchShieldInternal() {
+        cancelShieldRemoval()
         val current = touchShieldView ?: return
         touchShieldView = null
         touchShieldBounds = null
         runCatching { windowManager?.removeView(current) }
+            .onFailure { err -> Log.e(TAG, "shieldRemoveViewFailed err=${err.message}") }
     }
 
     private fun dismissPromptOverlayInternal() {
         val current = promptOverlayView ?: return
         promptOverlayView = null
         runCatching { windowManager?.removeView(current) }
+            .onFailure { err -> Log.e(TAG, "promptRemoveViewFailed err=${err.message}") }
     }
 
     override fun onInterrupt() {

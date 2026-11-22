@@ -155,7 +155,9 @@ object LocalFirewallEngine {
         RegexRule(
             category = "CREDIT_CARD",
             detector = DetectorSource.REGEX_FIREWALL,
-            pattern = Regex("""\b\d(?:[ -]?\d){12,18}\b"""),
+            // (?<![\d-]) rejects match starts inside a longer digit/separator run, so a
+            // pathological "4-1-1-…" string costs one attempt instead of one per digit (ReDoS guard).
+            pattern = Regex("""(?<![\d-])\b\d(?:[ -]?\d){12,18}\b"""),
             validator = { matched ->
                 val digits = matched.replace(Regex("""\D"""), "")
                 digits.length in 13..19 &&
