@@ -72,6 +72,15 @@ export function PointerField() {
       }
     };
 
+    const clearEdgeEl = () => {
+      if (hoveredEdgeEl) {
+        hoveredEdgeEl.removeAttribute("data-edge-active");
+        hoveredEdgeEl.style.removeProperty("--local-x");
+        hoveredEdgeEl.style.removeProperty("--local-y");
+        hoveredEdgeEl = null;
+      }
+    };
+
     const onPointerMove = (ev: PointerEvent) => {
       if (ev.pointerType === "touch") return;
       targetX = ev.clientX;
@@ -84,11 +93,14 @@ export function PointerField() {
       const targetEl = ev.target as Element | null;
       const nextEdgeEl = (targetEl?.closest(EDGE_GLOW_SELECTOR) as HTMLElement | null) ?? null;
       if (hoveredEdgeEl && hoveredEdgeEl !== nextEdgeEl) {
-        hoveredEdgeEl.removeAttribute("data-edge-active");
+        clearEdgeEl();
       }
       hoveredEdgeEl = nextEdgeEl;
       if (hoveredEdgeEl) {
         hoveredEdgeEl.setAttribute("data-edge-active", "true");
+        const rect = hoveredEdgeEl.getBoundingClientRect();
+        hoveredEdgeEl.style.setProperty("--local-x", `${(targetX - rect.left).toFixed(1)}px`);
+        hoveredEdgeEl.style.setProperty("--local-y", `${(targetY - rect.top).toFixed(1)}px`);
       }
 
       scheduleLoop();
@@ -97,19 +109,20 @@ export function PointerField() {
     const onPointerLeave = () => {
       isVisible = false;
       setVisibility(false);
-      if (hoveredEdgeEl) {
-        hoveredEdgeEl.removeAttribute("data-edge-active");
-        hoveredEdgeEl = null;
-      }
+      clearEdgeEl();
     };
 
     window.addEventListener("pointermove", onPointerMove, { passive: true });
+    window.addEventListener("blur", onPointerLeave, { passive: true });
+    window.addEventListener("scroll", clearEdgeEl, { passive: true });
     document.addEventListener("mouseleave", onPointerLeave, { passive: true });
 
     return () => {
       if (rafId !== null) cancelAnimationFrame(rafId);
-      if (hoveredEdgeEl) hoveredEdgeEl.removeAttribute("data-edge-active");
+      clearEdgeEl();
       window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("blur", onPointerLeave);
+      window.removeEventListener("scroll", clearEdgeEl);
       document.removeEventListener("mouseleave", onPointerLeave);
     };
   }, []);

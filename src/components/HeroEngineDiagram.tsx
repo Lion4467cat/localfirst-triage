@@ -63,7 +63,7 @@ const MOMENTS = [
   {
     id: "03",
     title: "03 · Android + Web Hybrid Proof",
-    desc: "OS-wide Android Scrub with Cordon, ECDSA P-256 zero-leak receipts, and Zero-PII Firestore sync via firebase-ai.",
+    desc: "OS-wide Android Scrub with Cordon, ECDSA P-256 zero-leak receipts, and Zero-PII Firestore sync via Firebase AI Logic.",
   },
 ] as const;
 
@@ -247,6 +247,12 @@ export function HeroEngineDiagram({
         <div
           ref={playgroundCardRef}
           onPointerMove={handleCardPointerMove}
+          onPointerLeave={() => {
+            if (playgroundCardRef.current) {
+              playgroundCardRef.current.style.removeProperty("--mx");
+              playgroundCardRef.current.style.removeProperty("--my");
+            }
+          }}
           className="lf-spotlight-card overflow-hidden rounded-2xl border p-4 sm:p-5"
           style={{ borderColor: "var(--border-strong)" }}
         >
@@ -526,29 +532,47 @@ export function HeroEngineDiagram({
                 transition={{ duration: 0.22, ease: [0.23, 1, 0.32, 1] }}
                 className="space-y-3.5"
               >
-                <div className="flex items-center justify-between font-mono text-[11px]" style={{ color: "var(--text-muted)" }}>
+                <div className="flex flex-wrap items-center justify-between gap-2 font-mono text-[11px]" style={{ color: "var(--text-muted)" }}>
                   <span>BEFORE → AFTER THIRD-PARTY BENCHMARKS</span>
-                  <span>node scripts/benchmark-third-party.mjs</span>
+                  <span>External Suite · Gitleaks &amp; ai4privacy</span>
                 </div>
                 {[
                   { label: "Gitleaks Credentials (42)", before: baseMed.suiteB.recallPct, after: optMed.suiteB.recallPct, color: "var(--safe-solid)" },
                   { label: "ai4privacy Global PII Floor", before: baseMed.suiteA1.recallPct, after: optMed.suiteA1.recallPct, color: "var(--nano-solid)" },
                   { label: "Benign Dev Clean Pass Rate", before: 100 - baseMed.suiteC.fprPct, after: 100 - optMed.suiteC.fprPct, color: "var(--safe-solid)" },
                 ].map((bar) => (
-                  <div key={bar.label} className="space-y-1">
+                  <div key={bar.label} className="space-y-1.5">
                     <div className="flex justify-between font-mono text-[11px] tabular-nums">
                       <span style={{ color: "var(--text-primary)" }}>{bar.label}</span>
                       <span style={{ color: "var(--safe-text)" }}>
-                        {bar.before}% → <strong>{bar.after}%</strong>
+                        <span style={{ color: "var(--text-muted)" }}>{bar.before}%</span> → <strong>{bar.after}%</strong>
                       </span>
                     </div>
-                    <div className="h-2 w-full overflow-hidden rounded-full" style={{ backgroundColor: "var(--bg-subtle)" }}>
+                    <div
+                      className="relative h-2.5 w-full overflow-hidden rounded-full border"
+                      style={{
+                        backgroundColor: "var(--bg-elevated)",
+                        borderColor: "var(--border-strong)",
+                      }}
+                    >
+                      {/* After Fill Bar */}
                       <motion.div
                         initial={{ width: `${bar.before}%` }}
                         animate={{ width: `${bar.after}%` }}
                         transition={{ duration: 0.45, ease: [0.23, 1, 0.32, 1] }}
                         className="h-full rounded-full"
                         style={{ backgroundColor: bar.color }}
+                      />
+                      {/* Before Baseline Marker */}
+                      <div
+                        aria-hidden="true"
+                        title={`Baseline: ${bar.before}%`}
+                        className="absolute bottom-0 top-0 w-0.5"
+                        style={{
+                          left: `calc(${bar.before}% - 1px)`,
+                          backgroundColor: "var(--text-primary)",
+                          opacity: 0.55,
+                        }}
                       />
                     </div>
                   </div>
@@ -576,7 +600,7 @@ export function HeroEngineDiagram({
                       <span>Scrub with Cordon</span>
                     </div>
                     <p className="mt-1 text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                      ACTION_PROCESS_TEXT + Share Sheet + Kotlin firebase-ai hybrid inference.
+                      On-device text menu, OS Share Sheet &amp; Firebase AI Logic hybrid inference.
                     </p>
                   </div>
                   <div className="rounded-lg border p-3" style={{ backgroundColor: "var(--bg-subtle)", borderColor: "var(--border-subtle)" }}>

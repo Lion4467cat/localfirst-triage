@@ -336,7 +336,7 @@
   );
 }
 
-.dark .cordon-pointer-aura {
+:root[data-theme="dark"] .cordon-pointer-aura {
   background: radial-gradient(
     460px circle at var(--px, 50%) var(--py, 30%),
     rgba(0, 229, 163, 0.13),
@@ -367,7 +367,7 @@
   );
 }
 
-.dark .cordon-crosshair-x {
+:root[data-theme="dark"] .cordon-crosshair-x {
   background: linear-gradient(
     90deg,
     transparent 0%,
@@ -378,7 +378,7 @@
   );
 }
 
-.dark .cordon-crosshair-y {
+:root[data-theme="dark"] .cordon-crosshair-y {
   background: linear-gradient(
     180deg,
     transparent 0%,
