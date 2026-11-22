@@ -2,6 +2,8 @@ package com.localfirst.triage.data
 
 import com.localfirst.triage.accessibility.AccessibilityBurstDetector
 import com.localfirst.triage.accessibility.ActiveTextExtractor
+import com.localfirst.triage.accessibility.ClickableBoundsCandidate
+import com.localfirst.triage.accessibility.SendBoundsSelector
 import com.localfirst.triage.accessibility.SendButtonMatcher
 import com.localfirst.triage.accessibility.SendPromptStateMachine
 import com.localfirst.triage.model.ProtectionLevel
@@ -143,27 +145,31 @@ class ShieldStoreAndBurstTest {
         val sm = SendPromptStateMachine()
         val rawSecretText = "Use key AKIAIOSFODNN7EXAMPLE and call +1-415-555-0199"
 
-        // Typing/pasting tracks state silently without arming visible prompt
+        // Typing/pasting tracks state silently and arms touch shield without visible prompt
         sm.onFieldTextObserved("com.openai.chatgpt", "ChatGPT", rawSecretText, ProtectionLevel.MEDIUM)
         assertFalse(sm.isPromptVisible)
         assertNotNull(sm.trackedState)
+        assertTrue(sm.shouldArmTouchShield("com.openai.chatgpt"))
 
-        // Clicking Send opens the prompt
+        // Tapping the touch shield opens the prompt
         val prompt = sm.onSendClicked("com.openai.chatgpt")
         assertNotNull(prompt)
         assertTrue(sm.isPromptVisible)
+        assertFalse(sm.shouldArmTouchShield("com.openai.chatgpt"))
         assertTrue(prompt!!.sanitizedText.contains("[REDACTED:"))
 
-        // Self-triggered empty text event while holding prompt must NOT wipe tracked state
-        sm.onFieldTextObserved("com.openai.chatgpt", "ChatGPT", "", ProtectionLevel.MEDIUM)
-        assertNotNull(sm.trackedState)
-
-        // Reject & Send Anyway restores raw text and suppresses re-prompting for the exact same text
+        // Reject & Send Anyway restores/keeps raw text and suppresses re-prompting for the exact same text
         val rejected = sm.rejectAndSendAnyway()
         assertEquals(rawSecretText, rejected?.rawText)
         assertFalse(sm.isPromptVisible)
         sm.onFieldTextObserved("com.openai.chatgpt", "ChatGPT", rawSecretText, ProtectionLevel.MEDIUM)
+        assertFalse(sm.shouldArmTouchShield("com.openai.chatgpt"))
         assertNull(sm.onSendClicked("com.openai.chatgpt"))
+
+        // Clearing the field disarms the touch shield
+        sm.onFieldTextObserved("com.openai.chatgpt", "ChatGPT", "", ProtectionLevel.MEDIUM)
+        assertNull(sm.trackedState)
+        assertFalse(sm.shouldArmTouchShield("com.openai.chatgpt"))
 
         // Editing to a new secret arms the prompt again, and Accept Scrub clears state
         val newSecretText = "New key AKIAIOSFODNN7EXAMPLE"
@@ -226,5 +232,54 @@ class ShieldStoreAndBurstTest {
                 treeFallbackText = "pasted AKIAIOSFODNN7EXAMPLE",
             ),
         )
+        assertEquals(
+            "event AKIAIOSFODNN7EXAMPLE",
+            ActiveTextExtractor.pickBestText(
+                nodeText = "old",
+                eventText = "event AKIAIOSFODNN7EXAMPLE",
+                treeFallbackText = null,
+                preferEventText = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `send bounds selector prefers regex match and falls back to clickable nearest right of editable`() {
+        val attachLeft = ClickableBoundsCandidate(
+            index = 0,
+            left = 20,
+            top = 1800,
+            right = 120,
+            bottom = 1900,
+            isRegexMatch = false,
+            isNonSend = true,
+        )
+        val sendRight = ClickableBoundsCandidate(
+            index = 1,
+            left = 920,
+            top = 1800,
+            right = 1040,
+            bottom = 1900,
+            isRegexMatch = false,
+            isNonSend = false,
+        )
+        val chosenFallback = SendBoundsSelector.pickBestCandidate(
+            candidates = listOf(attachLeft, sendRight),
+            editableLeft = 140,
+            editableTop = 1790,
+            editableRight = 900,
+            editableBottom = 1910,
+        )
+        assertEquals(1, chosenFallback?.index)
+
+        val explicitMatch = sendRight.copy(index = 2, isRegexMatch = true)
+        val chosenRegex = SendBoundsSelector.pickBestCandidate(
+            candidates = listOf(attachLeft, sendRight, explicitMatch),
+            editableLeft = 140,
+            editableTop = 1790,
+            editableRight = 900,
+            editableBottom = 1910,
+        )
+        assertEquals(2, chosenRegex?.index)
     }
 }
