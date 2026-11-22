@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.text.InputType
+import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -25,7 +26,7 @@ import com.localfirst.triage.model.RedactionSpan
 
 /**
  * Pure burst/secret-trigger detector retained for compatibility.
- * Note: CordonAccessibilityService now operates in Send-Only Prompt mode (0 popups while typing/pasting).
+ * Note: CordonAccessibilityService operates in Send-Only Prompt mode (0 popups while typing/pasting).
  */
 object AccessibilityBurstDetector {
     private const val PASTE_BURST_CHAR_DELTA = 8
@@ -43,16 +44,41 @@ object AccessibilityBurstDetector {
 }
 
 /**
- * Pure heuristic matcher for Send / Submit / Post buttons in guarded AI & chat apps.
+ * Pure selector for picking the best available editable text from node, event, or tree fallback.
+ */
+object ActiveTextExtractor {
+    fun pickBestText(
+        nodeText: String?,
+        eventText: String?,
+        treeFallbackText: String?,
+    ): String {
+        val n = nodeText?.trimEnd().orEmpty()
+        if (n.isNotBlank()) return nodeText.orEmpty()
+        val e = eventText?.trimEnd().orEmpty()
+        if (e.isNotBlank()) return eventText.orEmpty()
+        val t = treeFallbackText?.trimEnd().orEmpty()
+        if (t.isNotBlank()) return treeFallbackText.orEmpty()
+        return ""
+    }
+}
+
+/**
+ * Pure heuristic matcher for Send / Submit / Post / Reply / Ask / Generate / Run controls
+ * in guarded AI & chat apps, plus safe sibling-to-editable fallback.
  */
 object SendButtonMatcher {
     private val SEND_TOKEN_REGEX = Regex(
-        """(?:^|[\s_:/.-])(?:send|submit|post|dispatch)(?:$|[\s_:/.-])""",
+        """(?:^|[\s_:/.-])(?:send|submit|post|dispatch|reply|ask|generate|run)(?:$|[\s_:/.-])""",
         RegexOption.IGNORE_CASE,
     )
 
     private val SEND_ID_SUFFIX_REGEX = Regex(
-        """(?:send_button|btn_send|composer_send|submit_button|action_send|send_msg|send_message|chat_send)""",
+        """(?:send|submit|post|dispatch|reply|ask|generate|run)(?:_?(?:btn|button|msg|message|prompt|action|icon))?|(?:btn|button|composer|action|chat)_(?:send|submit|ask|reply|generate|run)""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private val NON_SEND_CONTROL_REGEX = Regex(
+        """(?:back|close|cancel|dismiss|menu|settings|attach|upload|camera|photo|gallery|mic|voice|record|copy|paste|clear|delete|emoji|sticker|search|new_chat|drawer)""",
         RegexOption.IGNORE_CASE,
     )
 
@@ -72,6 +98,27 @@ object SendButtonMatcher {
             SEND_TOKEN_REGEX.containsMatchIn(candidate) ||
                 (isClickable && SEND_ID_SUFFIX_REGEX.containsMatchIn(candidate))
         }
+    }
+
+    fun isLikelyNearEditableSendClick(
+        isClickable: Boolean,
+        isEditable: Boolean,
+        hasTrackedSecret: Boolean,
+        text: String?,
+        contentDescription: String?,
+        viewIdResourceName: String?,
+        sharesContainerWithEditable: Boolean,
+    ): Boolean {
+        if (!hasTrackedSecret || !isClickable || isEditable || !sharesContainerWithEditable) {
+            return false
+        }
+        val combined = listOfNotNull(text, contentDescription, viewIdResourceName)
+            .joinToString(" ")
+            .trim()
+        if (combined.isNotEmpty() && NON_SEND_CONTROL_REGEX.containsMatchIn(combined)) {
+            return false
+        }
+        return true
     }
 }
 
@@ -118,11 +165,8 @@ class SendPromptStateMachine {
             return
         }
 
-        if (rawText.hashCode() != overriddenTextHash && trackedState?.rawText != rawText) {
-            // User edited the text into something different; previous override no longer applies if they changed it.
-            if (overriddenTextHash != null && rawText.hashCode() != overriddenTextHash) {
-                overriddenTextHash = null
-            }
+        if (overriddenTextHash != null && rawText.hashCode() != overriddenTextHash) {
+            overriddenTextHash = null
         }
 
         val (sanitizedText, spans) = LocalFirewallEngine.scrub(rawText, protectionLevel)
@@ -188,6 +232,11 @@ class SendPromptStateMachine {
 }
 
 class CordonAccessibilityService : AccessibilityService() {
+    companion object {
+        private const val TAG = "CordonA11y"
+        private const val MAX_TREE_SCAN_NODES = 80
+    }
+
     private val mainHandler = Handler(Looper.getMainLooper())
     private var windowManager: WindowManager? = null
     private var overlayView: View? = null
@@ -199,6 +248,7 @@ class CordonAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         windowManager = getSystemService(Context.WINDOW_SERVICE) as? WindowManager
+        Log.d(TAG, "serviceConnected=true")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -214,24 +264,32 @@ class CordonAccessibilityService : AccessibilityService() {
         val source = event.source
 
         // 1. Send-Only Trigger: intercept likely Send/Submit clicks
-        if (eventType == AccessibilityEvent.TYPE_VIEW_CLICKED && source != null && isSendClickEvent(source, event)) {
-            // Refresh from active input focus if available in case last text event was coalesced
-            refreshTrackedFromFocusedInput(pkg)
+        if (eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
+            refreshTrackedFromActiveWindow(pkg, source, event)
 
-            val promptState = stateMachine.onSendClicked(pkg)
-            if (promptState != null) {
-                lastSendNode = source
-                val targetInput = heldInputNode ?: rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-                if (targetInput != null && targetInput.isEditable && !isPasswordNode(targetInput)) {
-                    heldInputNode = targetInput
-                    // Temporarily clear the field so unredacted secret isn't dispatched while prompt is open
-                    val clearArgs = Bundle().apply {
-                        putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "")
+            val hasSecret = stateMachine.trackedState?.packageName == pkg
+            val isSend = source != null && isSendClickEvent(source, event, hasSecret)
+            Log.d(
+                TAG,
+                "click pkg=$pkg isSend=$isSend hasSecret=$hasSecret clickable=${source?.isClickable} editable=${source?.isEditable} viewId=${source?.viewIdResourceName}",
+            )
+
+            if (isSend) {
+                val promptState = stateMachine.onSendClicked(pkg)
+                if (promptState != null) {
+                    lastSendNode = source
+                    val targetInput = heldInputNode ?: findActiveEditableNode(rootInActiveWindow)
+                    if (targetInput != null && targetInput.isEditable && !isPasswordNode(targetInput)) {
+                        heldInputNode = targetInput
+                        // Temporarily clear the field so unredacted secret isn't dispatched while prompt is open
+                        val clearArgs = Bundle().apply {
+                            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "")
+                        }
+                        targetInput.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, clearArgs)
+                        targetInput.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
                     }
-                    targetInput.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, clearArgs)
-                    targetInput.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+                    showSendPromptOverlay(promptState)
                 }
-                showSendPromptOverlay(promptState)
             }
             return
         }
@@ -245,48 +303,115 @@ class CordonAccessibilityService : AccessibilityService() {
             return
         }
 
-        val targetNode = when {
-            source != null && source.isEditable && !isPasswordNode(source) -> source
-            eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
-                val focused = rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-                if (focused != null && focused.isEditable && !isPasswordNode(focused)) focused else null
-            }
-            else -> null
-        } ?: return
+        refreshTrackedFromActiveWindow(pkg, source, event)
+        Log.d(
+            TAG,
+            "observe pkg=$pkg type=${AccessibilityEvent.eventTypeToString(eventType)} hasSecret=${stateMachine.trackedState?.packageName == pkg}",
+        )
+    }
 
-        val currentText = targetNode.text?.toString().orEmpty()
-        heldInputNode = targetNode
+    private fun refreshTrackedFromActiveWindow(
+        pkg: String,
+        source: AccessibilityNodeInfo?,
+        event: AccessibilityEvent?,
+    ) {
+        if (stateMachine.isPromptVisible) return
+
+        val editableFromSource = if (source != null && source.isEditable && !isPasswordNode(source)) source else null
+        val editableFromTree = editableFromSource ?: findActiveEditableNode(rootInActiveWindow)
+
+        val nodeText = editableFromTree?.text?.toString()
+        val eventText = if (editableFromSource != null || source == null) {
+            event?.text?.joinToString("")
+        } else {
+            null
+        }
+        val treeText = if (nodeText.isNullOrBlank() && eventText.isNullOrBlank()) {
+            findFirstEditableWithText(rootInActiveWindow)?.let { node ->
+                if (editableFromTree == null) heldInputNode = node
+                node.text?.toString()
+            }
+        } else {
+            null
+        }
+
+        val resolvedText = ActiveTextExtractor.pickBestText(
+            nodeText = nodeText,
+            eventText = eventText,
+            treeFallbackText = treeText,
+        )
+
+        if (editableFromTree != null) {
+            heldInputNode = editableFromTree
+        }
+
+        if (resolvedText.isBlank() && editableFromTree == null && event?.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
+            // Do not wipe tracked state on a Send click if the node text wasn't re-readable from the click event itself
+            return
+        }
+
         stateMachine.onFieldTextObserved(
             pkg = pkg,
             appName = ShieldStore.appDisplayNameForPackage(pkg),
-            rawText = currentText,
+            rawText = resolvedText,
             protectionLevel = ShieldStore.getProtectionLevel(this),
         )
     }
 
-    private fun refreshTrackedFromFocusedInput(pkg: String) {
-        if (stateMachine.isPromptVisible) return
-        val focused = rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return
-        if (focused.isEditable && !isPasswordNode(focused)) {
-            val latest = focused.text?.toString().orEmpty()
-            if (latest.isNotBlank()) {
-                heldInputNode = focused
-                stateMachine.onFieldTextObserved(
-                    pkg = pkg,
-                    appName = ShieldStore.appDisplayNameForPackage(pkg),
-                    rawText = latest,
-                    protectionLevel = ShieldStore.getProtectionLevel(this),
-                )
-            }
+    private fun findActiveEditableNode(root: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+        if (root == null) return null
+        val focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+        if (focused != null && focused.isEditable && !isPasswordNode(focused)) {
+            return focused
         }
+        return findFirstEditableWithText(root) ?: findFirstEditable(root)
     }
 
-    private fun isSendClickEvent(node: AccessibilityNodeInfo, event: AccessibilityEvent): Boolean {
+    private fun findFirstEditableWithText(root: AccessibilityNodeInfo?): AccessibilityNodeInfo? =
+        bfsFindNode(root) { node ->
+            node.isEditable && !isPasswordNode(node) && !node.text.isNullOrBlank()
+        }
+
+    private fun findFirstEditable(root: AccessibilityNodeInfo?): AccessibilityNodeInfo? =
+        bfsFindNode(root) { node ->
+            node.isEditable && !isPasswordNode(node)
+        }
+
+    private fun bfsFindNode(
+        root: AccessibilityNodeInfo?,
+        predicate: (AccessibilityNodeInfo) -> Boolean,
+    ): AccessibilityNodeInfo? {
+        if (root == null) return null
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(root)
+        var visited = 0
+        while (queue.isNotEmpty() && visited < MAX_TREE_SCAN_NODES) {
+            val current = queue.removeFirst()
+            visited++
+            if (predicate(current)) return current
+            for (i in 0 until current.childCount) {
+                current.getChild(i)?.let { queue.add(it) }
+            }
+        }
+        return null
+    }
+
+    private fun isSendClickEvent(
+        node: AccessibilityNodeInfo,
+        event: AccessibilityEvent,
+        hasTrackedSecret: Boolean,
+    ): Boolean {
         val eventText = event.text.joinToString(" ").ifBlank { null }
         val eventDesc = event.contentDescription?.toString()
+
+        // Check clicked node + child labels (for icon wrappers)
+        val childDesc = (0 until node.childCount.coerceAtMost(4))
+            .mapNotNull { idx -> node.getChild(idx)?.contentDescription?.toString() ?: node.getChild(idx)?.text?.toString() }
+            .firstOrNull { it.isNotBlank() }
+
         if (SendButtonMatcher.isLikelySendControl(
                 text = node.text?.toString() ?: eventText,
-                contentDescription = node.contentDescription?.toString() ?: eventDesc,
+                contentDescription = node.contentDescription?.toString() ?: eventDesc ?: childDesc,
                 viewIdResourceName = node.viewIdResourceName,
                 isClickable = node.isClickable,
                 isEditable = node.isEditable,
@@ -294,13 +419,40 @@ class CordonAccessibilityService : AccessibilityService() {
         ) {
             return true
         }
-        val parent = node.parent ?: return false
-        return SendButtonMatcher.isLikelySendControl(
-            text = parent.text?.toString(),
-            contentDescription = parent.contentDescription?.toString(),
-            viewIdResourceName = parent.viewIdResourceName,
-            isClickable = parent.isClickable,
-            isEditable = parent.isEditable,
+
+        // Check up to 2 ancestor levels (e.g., ImageView inside clickable FrameLayout/Compose Box)
+        var ancestor: AccessibilityNodeInfo? = node.parent
+        var depth = 0
+        while (ancestor != null && depth < 2) {
+            if (SendButtonMatcher.isLikelySendControl(
+                    text = ancestor.text?.toString(),
+                    contentDescription = ancestor.contentDescription?.toString(),
+                    viewIdResourceName = ancestor.viewIdResourceName,
+                    isClickable = ancestor.isClickable,
+                    isEditable = ancestor.isEditable,
+                )
+            ) {
+                return true
+            }
+            ancestor = ancestor.parent
+            depth++
+        }
+
+        // Sibling / near-editable fallback when holding a secret
+        val parentContainer = node.parent
+        val grandparentContainer = parentContainer?.parent
+        val sharesContainerWithEditable = (parentContainer != null && findFirstEditable(parentContainer) != null) ||
+            (grandparentContainer != null && findFirstEditable(grandparentContainer) != null)
+
+        val clickableTarget = if (node.isClickable) node else node.parent
+        return SendButtonMatcher.isLikelyNearEditableSendClick(
+            isClickable = clickableTarget?.isClickable ?: false,
+            isEditable = node.isEditable,
+            hasTrackedSecret = hasTrackedSecret,
+            text = node.text?.toString() ?: eventText,
+            contentDescription = node.contentDescription?.toString() ?: eventDesc ?: childDesc,
+            viewIdResourceName = clickableTarget?.viewIdResourceName ?: node.viewIdResourceName,
+            sharesContainerWithEditable = sharesContainerWithEditable,
         )
     }
 
@@ -364,7 +516,7 @@ class CordonAccessibilityService : AccessibilityService() {
                     val rejected = stateMachine.rejectAndSendAnyway()
                     dismissOverlay()
                     if (rejected != null) {
-                        val targetNode = heldInputNode ?: rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+                        val targetNode = heldInputNode ?: findActiveEditableNode(rootInActiveWindow)
                         val restoreArgs = Bundle().apply {
                             putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, rejected.rawText)
                         }
@@ -395,7 +547,7 @@ class CordonAccessibilityService : AccessibilityService() {
                     val accepted = stateMachine.acceptScrub()
                     dismissOverlay()
                     if (accepted != null) {
-                        val targetNode = heldInputNode ?: rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+                        val targetNode = heldInputNode ?: findActiveEditableNode(rootInActiveWindow)
                         val scrubArgs = Bundle().apply {
                             putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, accepted.sanitizedText)
                         }

@@ -1,6 +1,7 @@
 package com.localfirst.triage.data
 
 import com.localfirst.triage.accessibility.AccessibilityBurstDetector
+import com.localfirst.triage.accessibility.ActiveTextExtractor
 import com.localfirst.triage.accessibility.SendButtonMatcher
 import com.localfirst.triage.accessibility.SendPromptStateMachine
 import com.localfirst.triage.model.ProtectionLevel
@@ -172,5 +173,58 @@ class ShieldStoreAndBurstTest {
         assertNotNull(accepted)
         assertFalse(sm.isPromptVisible)
         assertNull(sm.trackedState)
+    }
+
+    @Test
+    fun `broader send button matcher and active text extractor handle real app controls`() {
+        assertTrue(
+            SendButtonMatcher.isLikelySendControl(
+                text = null,
+                contentDescription = "Ask Gemini",
+                viewIdResourceName = null,
+                isClickable = true,
+                isEditable = false,
+            ),
+        )
+        assertTrue(
+            SendButtonMatcher.isLikelySendControl(
+                text = "Reply",
+                contentDescription = null,
+                viewIdResourceName = "com.Slack:id/send_btn",
+                isClickable = true,
+                isEditable = false,
+            ),
+        )
+        assertTrue(
+            SendButtonMatcher.isLikelyNearEditableSendClick(
+                isClickable = true,
+                isEditable = false,
+                hasTrackedSecret = true,
+                text = null,
+                contentDescription = null,
+                viewIdResourceName = null,
+                sharesContainerWithEditable = true,
+            ),
+        )
+        assertFalse(
+            SendButtonMatcher.isLikelyNearEditableSendClick(
+                isClickable = true,
+                isEditable = false,
+                hasTrackedSecret = true,
+                text = null,
+                contentDescription = "Attach file",
+                viewIdResourceName = "btn_attach",
+                sharesContainerWithEditable = true,
+            ),
+        )
+
+        assertEquals(
+            "pasted AKIAIOSFODNN7EXAMPLE",
+            ActiveTextExtractor.pickBestText(
+                nodeText = "",
+                eventText = null,
+                treeFallbackText = "pasted AKIAIOSFODNN7EXAMPLE",
+            ),
+        )
     }
 }

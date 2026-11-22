@@ -111,8 +111,19 @@ object ShieldStore {
 
     fun isPackageGuarded(context: Context, packageName: String?): Boolean {
         if (packageName.isNullOrBlank()) return false
-        val spec = DEFAULT_GUARDED_APPS.firstOrNull { it.packageName == packageName } ?: return false
-        return prefs(context).getBoolean("$KEY_GUARDED_PREFIX${spec.packageName}", spec.defaultEnabled)
+        val p = prefs(context)
+        val exact = DEFAULT_GUARDED_APPS.firstOrNull { it.packageName == packageName }
+        if (exact != null) {
+            return p.getBoolean("$KEY_GUARDED_PREFIX${exact.packageName}", exact.defaultEnabled)
+        }
+        // Match closely related variants when their corresponding Guarded App toggle is enabled
+        val aliasTarget = when {
+            packageName.startsWith("com.chrome.") -> "com.android.chrome"
+            packageName == "com.google.android.googlequicksearchbox" -> "com.google.android.apps.bard"
+            else -> null
+        } ?: return false
+        val spec = DEFAULT_GUARDED_APPS.firstOrNull { it.packageName == aliasTarget } ?: return false
+        return p.getBoolean("$KEY_GUARDED_PREFIX${spec.packageName}", spec.defaultEnabled)
     }
 
     fun appDisplayNameForPackage(packageName: String?): String =
