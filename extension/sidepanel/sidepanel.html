@@ -90,6 +90,9 @@
           </div>
           <button id="btn-arm-tab" type="button" class="btn-arm" hidden>Arm Tab</button>
         </div>
+        <div class="model-status-row">
+          <span id="active-model-badge" class="model-pill">Model: Deterministic Rules Only</span>
+        </div>
         <p id="tab-status-hint" class="tab-hint" hidden>
           Auto-guard covers ChatGPT, Claude, Gemini, GitHub &amp; Slack.
         </p>
@@ -153,6 +156,23 @@
           <p>Local rules only — lower accuracy on unstructured PII/medical context.</p>
           <button id="btn-setup-confirm-det" type="button" class="btn warn-confirm">
             Continue Anyway
+          </button>
+        </div>
+
+        <!-- Optional: Use Gemma 4 -->
+        <div class="setup-gemma-box">
+          <div class="setup-gemma-title">Optional: Use Gemma 4</div>
+          <p class="setup-step-desc">
+            Chrome uses Gemini Nano by default. To use Gemma 4 instead, enable the flag below and relaunch Chrome.
+          </p>
+          <div class="setup-option-row">
+            <button type="button" class="setup-open-btn" data-open-url="chrome://flags/#gemma4-for-built-in-ai">
+              Open Gemma 4 Flag ↗
+            </button>
+            <span class="setup-option-hint">Set to <strong>Enabled</strong> → click Relaunch</span>
+          </div>
+          <button id="btn-gemma4-confirm" type="button" class="btn secondary setup-gemma-btn" aria-pressed="false">
+            I enabled Gemma 4
           </button>
         </div>
       </section>

@@ -8,6 +8,7 @@ const CAPTURE_STORAGE_KEY = "pendingCapture";
 const THEME_STORAGE_KEY = "localfirst-theme";
 const SFX_STORAGE_KEY = "cordon_sfx_enabled";
 const SETUP_STATE_KEY = "cordon_ext_setup_state";
+const GEMMA4_ENABLED_KEY = "cordon_gemma4_enabled";
 const SHIELD_ENABLED_KEY = "shieldEnabled";
 const SHIELD_STATS_KEY = "shieldStats";
 const PROTECTION_LEVEL_KEY = "protectionLevel";
@@ -49,6 +50,8 @@ const SIDEPANEL_LM_OPTIONS = {
 };
 
 const nanoBadge = document.getElementById("nano-badge");
+const activeModelBadge = document.getElementById("active-model-badge");
+const gemma4ConfirmBtn = document.getElementById("btn-gemma4-confirm");
 const headerThemeBtn = document.getElementById("btn-header-theme");
 const headerWorkbenchBtn = document.getElementById("btn-header-workbench");
 const setupGate = document.getElementById("setup-gate");
@@ -230,13 +233,38 @@ function setupThemeSwitcher() {
   });
 }
 
+let lastAvailability = "unavailable";
+let gemma4Enabled = false;
+let currentSetupState = null;
+
+function renderActiveModelBadge() {
+  if (!activeModelBadge) return;
+  const aiReady = lastAvailability === "readily" || lastAvailability === "available";
+  if (gemma4Enabled) {
+    activeModelBadge.textContent = "Model: Gemma 4 (Chosen)";
+    activeModelBadge.classList.toggle("is-ai", true);
+  } else if (currentSetupState === "deterministic" || !aiReady) {
+    activeModelBadge.textContent = "Model: Deterministic Rules Only";
+    activeModelBadge.classList.toggle("is-ai", false);
+  } else {
+    activeModelBadge.textContent = "Model: Gemini Nano (Default)";
+    activeModelBadge.classList.toggle("is-ai", true);
+  }
+  if (gemma4ConfirmBtn) {
+    gemma4ConfirmBtn.setAttribute("aria-pressed", String(gemma4Enabled));
+    gemma4ConfirmBtn.textContent = gemma4Enabled ? "Gemma 4 Chosen ✓" : "I enabled Gemma 4";
+  }
+}
+
 function syncSetupModeView(avail) {
+  lastAvailability = avail;
   const ready = avail === "readily" || avail === "available";
   const downloadable =
     avail === "downloadable" || avail === "after-download" || avail === "downloading";
   if (setupReadyView) setupReadyView.hidden = !ready;
   if (setupDownloadView) setupDownloadView.hidden = !downloadable;
   if (setupUnavailableView) setupUnavailableView.hidden = ready || downloadable;
+  renderActiveModelBadge();
 }
 
 async function refreshNanoStatus() {
@@ -270,30 +298,50 @@ async function refreshNanoStatus() {
 
 async function initSetupGate() {
   let state = null;
+  let gemma = false;
   try {
     state = window.localStorage.getItem(SETUP_STATE_KEY);
+    gemma = window.localStorage.getItem(GEMMA4_ENABLED_KEY) === "true";
   } catch { /* ignore */ }
-  if (!state && typeof chrome !== "undefined" && chrome.storage?.local) {
+  if (typeof chrome !== "undefined" && chrome.storage?.local) {
     try {
-      const res = await chrome.storage.local.get([SETUP_STATE_KEY]);
-      state = res?.[SETUP_STATE_KEY] || null;
+      const res = await chrome.storage.local.get([SETUP_STATE_KEY, GEMMA4_ENABLED_KEY]);
+      if (!state) state = res?.[SETUP_STATE_KEY] || null;
+      if (typeof res?.[GEMMA4_ENABLED_KEY] === "boolean") gemma = res[GEMMA4_ENABLED_KEY];
     } catch { /* ignore */ }
   }
+  currentSetupState = state;
+  gemma4Enabled = gemma;
+  renderActiveModelBadge();
   if (setupGate) {
     setupGate.hidden = Boolean(state);
   }
 }
 
 async function persistSetupState(nextState) {
+  currentSetupState = nextState;
   try { window.localStorage.setItem(SETUP_STATE_KEY, nextState); } catch { /* ignore */ }
   try {
     if (typeof chrome !== "undefined" && chrome.storage?.local) {
       await chrome.storage.local.set({ [SETUP_STATE_KEY]: nextState });
     }
   } catch { /* ignore */ }
+  renderActiveModelBadge();
   if (setupGate) setupGate.hidden = true;
   if (setupDetWarning) setupDetWarning.hidden = true;
 }
+
+gemma4ConfirmBtn?.addEventListener("click", async () => {
+  gemma4Enabled = !gemma4Enabled;
+  try { window.localStorage.setItem(GEMMA4_ENABLED_KEY, String(gemma4Enabled)); } catch { /* ignore */ }
+  try {
+    if (typeof chrome !== "undefined" && chrome.storage?.local) {
+      await chrome.storage.local.set({ [GEMMA4_ENABLED_KEY]: gemma4Enabled });
+    }
+  } catch { /* ignore */ }
+  renderActiveModelBadge();
+  await refreshNanoStatus();
+});
 
 openSetupBtn?.addEventListener("click", () => {
   if (!setupGate) return;

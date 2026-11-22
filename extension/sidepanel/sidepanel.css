@@ -333,6 +333,32 @@ h1 {
   font-weight: 700;
 }
 
+.setup-gemma-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.setup-gemma-title {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--cyan);
+}
+
+.setup-gemma-btn {
+  align-self: flex-start;
+  font-size: 10.5px;
+  padding: 5px 10px;
+}
+
+.setup-gemma-btn[aria-pressed="true"] {
+  border-color: var(--mint-border);
+  background: var(--mint-bg);
+  color: var(--mint);
+}
+
 button {
   transition: transform 0.12s ease, background-color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
 }
@@ -395,6 +421,31 @@ button:not(:disabled):active {
   justify-content: space-between;
   gap: 8px;
   min-width: 0;
+}
+
+.model-status-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.model-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+}
+
+.model-pill.is-ai {
+  border-color: var(--mint-border);
+  background: var(--mint-bg);
+  color: var(--mint);
 }
 
 .tab-pill {

@@ -251,6 +251,12 @@ async function main() {
     if (!(await spPage.locator("#setup-gate").isVisible())) {
       throw new Error("Expected #btn-open-setup to re-open #setup-gate");
     }
+    await spPage.locator("#btn-gemma4-confirm").click();
+    await spPage.waitForTimeout(100);
+    const modelBadgeText = await spPage.locator("#active-model-badge").textContent();
+    if (!modelBadgeText?.includes("Gemma 4 (Chosen)")) {
+      throw new Error(`Expected #active-model-badge to show 'Gemma 4 (Chosen)', got '${modelBadgeText}'`);
+    }
     await spPage.locator("#btn-setup-skip-unavail").click();
     await spPage.locator("#btn-setup-confirm-det").click();
     await spPage.waitForTimeout(100);
