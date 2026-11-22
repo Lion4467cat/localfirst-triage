@@ -7,6 +7,7 @@ import {
 const CAPTURE_STORAGE_KEY = "pendingCapture";
 const THEME_STORAGE_KEY = "localfirst-theme";
 const SFX_STORAGE_KEY = "cordon_sfx_enabled";
+const SETUP_STATE_KEY = "cordon_ext_setup_state";
 const SHIELD_ENABLED_KEY = "shieldEnabled";
 const SHIELD_STATS_KEY = "shieldStats";
 const PROTECTION_LEVEL_KEY = "protectionLevel";
@@ -43,6 +44,14 @@ const LEVEL_CAPABILITIES = {
 };
 
 const nanoBadge = document.getElementById("nano-badge");
+const setupGate = document.getElementById("setup-gate");
+const setupModelStatus = document.getElementById("setup-model-status");
+const setupCheckModelBtn = document.getElementById("btn-setup-check-model");
+const setupCompleteBtn = document.getElementById("btn-setup-complete");
+const setupSkipBtn = document.getElementById("btn-setup-skip");
+const setupDetWarning = document.getElementById("setup-deterministic-warning");
+const setupConfirmDetBtn = document.getElementById("btn-setup-confirm-det");
+const openSetupBtn = document.getElementById("btn-open-setup");
 const sfxToggleBtn = document.getElementById("btn-sfx-toggle");
 const sfxToggleLabel = document.getElementById("sfx-toggle-label");
 const shieldToggleBtn = document.getElementById("btn-shield-toggle");
@@ -196,21 +205,88 @@ function setupThemeSwitcher() {
 async function refreshNanoStatus() {
   if (!globalThis.LanguageModel?.availability) {
     nanoBadge.textContent = "Deterministic Mode";
-    return;
+    if (setupModelStatus) setupModelStatus.textContent = "Unavailable (Deterministic Floor)";
+    return "unavailable";
   }
   try {
     const avail = await globalThis.LanguageModel.availability(TEXT_ONLY_OPTIONS);
     if (avail === "readily" || avail === "available") {
       nanoBadge.textContent = "Nano 4 Ready";
+      if (setupModelStatus) setupModelStatus.textContent = "Ready (Nano 4)";
     } else if (avail === "downloadable" || avail === "downloading" || avail === "after-download") {
       nanoBadge.textContent = "Nano 4 Downloadable";
+      if (setupModelStatus) setupModelStatus.textContent = "Downloadable";
     } else {
       nanoBadge.textContent = "Deterministic Mode";
+      if (setupModelStatus) setupModelStatus.textContent = "Unavailable (Deterministic Floor)";
     }
+    return avail;
   } catch {
     nanoBadge.textContent = "Deterministic Mode";
+    if (setupModelStatus) setupModelStatus.textContent = "Unavailable (Deterministic Floor)";
+    return "unavailable";
   }
 }
+
+async function initSetupGate() {
+  let state = null;
+  try {
+    state = window.localStorage.getItem(SETUP_STATE_KEY);
+  } catch { /* ignore */ }
+  if (!state && typeof chrome !== "undefined" && chrome.storage?.local) {
+    try {
+      const res = await chrome.storage.local.get([SETUP_STATE_KEY]);
+      state = res?.[SETUP_STATE_KEY] || null;
+    } catch { /* ignore */ }
+  }
+  if (setupGate) {
+    setupGate.hidden = Boolean(state);
+  }
+}
+
+async function persistSetupState(nextState) {
+  try { window.localStorage.setItem(SETUP_STATE_KEY, nextState); } catch { /* ignore */ }
+  try {
+    if (typeof chrome !== "undefined" && chrome.storage?.local) {
+      await chrome.storage.local.set({ [SETUP_STATE_KEY]: nextState });
+    }
+  } catch { /* ignore */ }
+  if (setupGate) setupGate.hidden = true;
+  if (setupDetWarning) setupDetWarning.hidden = true;
+}
+
+openSetupBtn?.addEventListener("click", () => {
+  if (!setupGate) return;
+  setupGate.hidden = !setupGate.hidden;
+  if (!setupGate.hidden && setupDetWarning) setupDetWarning.hidden = true;
+});
+
+setupCheckModelBtn?.addEventListener("click", async () => {
+  const avail = await refreshNanoStatus();
+  if ((avail === "downloadable" || avail === "after-download") && globalThis.LanguageModel?.create) {
+    if (setupModelStatus) setupModelStatus.textContent = "Downloading…";
+    try {
+      const session = await globalThis.LanguageModel.create(TEXT_ONLY_OPTIONS);
+      session?.destroy?.();
+      await refreshNanoStatus();
+    } catch {
+      await refreshNanoStatus();
+    }
+  }
+});
+
+setupCompleteBtn?.addEventListener("click", async () => {
+  playPanelLock();
+  await persistSetupState("completed");
+});
+
+setupSkipBtn?.addEventListener("click", () => {
+  if (setupDetWarning) setupDetWarning.hidden = false;
+});
+
+setupConfirmDetBtn?.addEventListener("click", async () => {
+  await persistSetupState("deterministic");
+});
 
 function setTabPillState(kind, label, showArm = false, showHint = false) {
   tabStatusPill.className = `tab-pill ${kind}`;
@@ -439,6 +515,7 @@ sfxToggleBtn?.addEventListener("click", async () => {
 });
 
 setupThemeSwitcher();
+void initSetupGate();
 void initPasteShieldControls();
 void refreshActiveTabStatus();
 void refreshNanoStatus();

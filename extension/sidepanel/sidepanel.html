@@ -33,6 +33,14 @@
 
           <div class="header-actions">
             <button
+              id="btn-open-setup"
+              type="button"
+              class="setup-mini-btn"
+              title="Open First-Run Setup & Usage Guide"
+            >
+              Setup Guide
+            </button>
+            <button
               id="btn-sfx-toggle"
               type="button"
               aria-label="Toggle UI sound effects"
@@ -66,6 +74,51 @@
           Auto-guard covers ChatGPT, Claude, Gemini, GitHub &amp; Slack.
         </p>
       </header>
+
+      <!-- First-Run Setup & Usage Gate -->
+      <section id="setup-gate" class="card setup-card" aria-label="Cordon First-Run Setup" hidden>
+        <div class="section-head">
+          <span class="section-label">First-Run Setup</span>
+          <span id="setup-model-status" class="mode-tag">Checking Model…</span>
+        </div>
+
+        <div class="setup-step">
+          <div class="setup-step-title">Step 1 · On-Device Model Setup</div>
+          <p class="setup-step-desc">
+            Enable Chrome built-in AI flags (<code>chrome://flags/#prompt-api-for-gemini-nano-multimodal-input</code> &amp; <code>#optimization-guide-on-device-model</code>) for higher contextual accuracy on unstructured PII.
+          </p>
+          <button id="btn-setup-check-model" type="button" class="btn secondary setup-check-btn">
+            Check / Download On-Device Model
+          </button>
+        </div>
+
+        <div class="setup-step">
+          <div class="setup-step-title">Step 2 · Quick How-to-Use Guide</div>
+          <ol class="setup-guide-list">
+            <li><strong>Auto-Guard:</strong> Paste or press Send on ChatGPT, Claude, Gemini, GitHub &amp; Slack (0 popups while typing).</li>
+            <li><strong>Dial &amp; Controls:</strong> Switch <code>Low</code> / <code>Medium</code> / <code>High</code> or toggle the shield anytime below.</li>
+            <li><strong>Live Workbench:</strong> Scrub selections manually or hand off to the Live Workbench for receipts &amp; briefs.</li>
+          </ol>
+        </div>
+
+        <div class="setup-actions">
+          <button id="btn-setup-complete" type="button" class="btn primary">
+            Complete Setup &amp; Start
+          </button>
+          <button id="btn-setup-skip" type="button" class="btn secondary">
+            Skip Model — Use Deterministic Only
+          </button>
+        </div>
+
+        <div id="setup-deterministic-warning" class="setup-warning" hidden>
+          <p>
+            <strong>Deterministic-Only Warning:</strong> Without the on-device model, Cordon falls back to deterministic rules only (lower contextual/unstructured coverage; instant local rules remain active).
+          </p>
+          <button id="btn-setup-confirm-det" type="button" class="btn warn-confirm">
+            Confirm Deterministic Mode
+          </button>
+        </div>
+      </section>
 
       <!-- 2. 3-Level Protection Dial + Live Capability List -->
       <section class="card dial-card" aria-label="Protection Level">

@@ -47,6 +47,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.localfirst.triage.model.ProtectionLevel
 import com.localfirst.triage.ui.TriageViewModel
 import com.localfirst.triage.ui.screens.DiffEscalateScreen
+import com.localfirst.triage.ui.screens.FirstRunSetupScreen
 import com.localfirst.triage.ui.screens.SyncedFeedScreen
 import com.localfirst.triage.ui.screens.TriageScreen
 import com.localfirst.triage.ui.theme.AppThemeMode
@@ -92,6 +93,9 @@ class MainActivity : ComponentActivity() {
                 val vm: TriageViewModel = viewModel()
                 val state by vm.uiState.collectAsStateWithLifecycle()
                 var activeTab by remember { mutableIntStateOf(0) }
+                var showSetupScreen by remember {
+                    mutableStateOf(!prefs.getBoolean("cordon_setup_done", false))
+                }
                 val sharedPayload by pendingSharedText
 
                 LaunchedEffect(Unit) {
@@ -103,6 +107,7 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(sharedPayload) {
                     val payload = sharedPayload ?: return@LaunchedEffect
                     vm.ingestSharedText(payload.first, payload.second)
+                    showSetupScreen = false
                     activeTab = 1
                     pendingSharedText.value = null
                 }
@@ -140,6 +145,15 @@ class MainActivity : ComponentActivity() {
                             },
                             actions = {
                                 TextButton(
+                                    onClick = { showSetupScreen = !showSetupScreen },
+                                ) {
+                                    Text(
+                                        text = if (showSetupScreen) "Close" else "Setup",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                }
+                                TextButton(
                                     onClick = {
                                         val nextMode = themeMode.next()
                                         themeMode = nextMode
@@ -169,34 +183,58 @@ class MainActivity : ComponentActivity() {
                         )
                     },
                     bottomBar = {
-                        NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                            NavigationBarItem(
-                                selected = activeTab == 0,
-                                onClick = { activeTab = 0 },
-                                icon = { Icon(Icons.Default.Security, contentDescription = null) },
-                                label = { Text("Triage", fontSize = 11.sp) },
-                            )
-                            NavigationBarItem(
-                                selected = activeTab == 1,
-                                onClick = { activeTab = 1 },
-                                icon = {
-                                    Icon(
-                                        Icons.AutoMirrored.Filled.CompareArrows,
-                                        contentDescription = null,
-                                    )
-                                },
-                                label = { Text("Diff & Proof", fontSize = 11.sp) },
-                            )
-                            NavigationBarItem(
-                                selected = activeTab == 2,
-                                onClick = { activeTab = 2 },
-                                icon = { Icon(Icons.Default.Sync, contentDescription = null) },
-                                label = { Text("Synced Feed", fontSize = 11.sp) },
-                            )
+                        if (!showSetupScreen) {
+                            NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+                                NavigationBarItem(
+                                    selected = activeTab == 0,
+                                    onClick = { activeTab = 0 },
+                                    icon = { Icon(Icons.Default.Security, contentDescription = null) },
+                                    label = { Text("Triage", fontSize = 11.sp) },
+                                )
+                                NavigationBarItem(
+                                    selected = activeTab == 1,
+                                    onClick = { activeTab = 1 },
+                                    icon = {
+                                        Icon(
+                                            Icons.AutoMirrored.Filled.CompareArrows,
+                                            contentDescription = null,
+                                        )
+                                    },
+                                    label = { Text("Diff & Proof", fontSize = 11.sp) },
+                                )
+                                NavigationBarItem(
+                                    selected = activeTab == 2,
+                                    onClick = { activeTab = 2 },
+                                    icon = { Icon(Icons.Default.Sync, contentDescription = null) },
+                                    label = { Text("Synced Feed", fontSize = 11.sp) },
+                                )
+                            }
                         }
                     },
                 ) { innerPadding ->
-                    Crossfade(
+                    if (showSetupScreen) {
+                        FirstRunSetupScreen(
+                            state = state,
+                            onRecheckNano = vm::refreshNanoStatus,
+                            onWarmupNano = vm::downloadAndWarmUpNano,
+                            onCompleteSetup = {
+                                prefs.edit()
+                                    .putBoolean("cordon_setup_done", true)
+                                    .putBoolean("cordon_deterministic_only", false)
+                                    .apply()
+                                showSetupScreen = false
+                            },
+                            onConfirmDeterministicOnly = {
+                                prefs.edit()
+                                    .putBoolean("cordon_setup_done", true)
+                                    .putBoolean("cordon_deterministic_only", true)
+                                    .apply()
+                                showSetupScreen = false
+                            },
+                            modifier = Modifier.padding(innerPadding),
+                        )
+                    } else {
+                        Crossfade(
                         targetState = activeTab,
                         animationSpec = tween(durationMillis = 180),
                         label = "cordon-tab-crossfade",
@@ -244,6 +282,7 @@ class MainActivity : ComponentActivity() {
                                 modifier = Modifier.padding(innerPadding),
                             )
                         }
+                    }
                     }
                 }
             }
