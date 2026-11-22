@@ -45,7 +45,6 @@ import {
 import { AirgapSpine } from "./components/AirgapSpine";
 import { HeroEngineDiagram } from "./components/HeroEngineDiagram";
 import { LivePipelineRail } from "./components/LivePipelineRail";
-import { ProcessTimelineSection } from "./components/ProcessTimelineSection";
 import { RightWorkbenchPane } from "./components/RightWorkbenchPane";
 import { TelemetryHud, type WorkspaceView } from "./components/TelemetryHud";
 import { TriageInbox } from "./components/TriageInbox";
@@ -833,14 +832,8 @@ export function App() {
 
       {activeView === "triage" && (
         <>
-          {/* ACT 1: Clockwork Hero + Scroll-Synced Process Stage */}
-          <HeroEngineDiagram
-            onJumpToWorkbench={jumpToWorkbench}
-            onJumpToProcess={() => {
-              document.getElementById("process-stage")?.scrollIntoView({ behavior: "smooth" });
-            }}
-          />
-          <ProcessTimelineSection onJumpToWorkbench={jumpToWorkbench} />
+          {/* ACT 1: Clockwork Hero */}
+          <HeroEngineDiagram onJumpToWorkbench={jumpToWorkbench} />
 
           {/* ACT 2: Live 100dvh Airgap Workbench */}
           <main

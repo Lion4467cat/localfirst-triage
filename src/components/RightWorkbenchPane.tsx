@@ -812,7 +812,12 @@ export function RightWorkbenchPane({
                 <button
                   type="button"
                   onClick={onRunLiveDemo}
-                  className="lf-btn-primary inline-flex min-h-[38px] items-center gap-1.5 rounded-xl px-5 text-xs font-semibold"
+                  className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border px-5 text-xs font-semibold"
+                  style={{
+                    backgroundColor: "var(--bg-surface)",
+                    borderColor: "var(--border-strong)",
+                    color: "var(--text-primary)",
+                  }}
                 >
                   <span>Run Live P0 Demo</span>
                   <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />

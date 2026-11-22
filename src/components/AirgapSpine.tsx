@@ -1,8 +1,6 @@
-import { useEffect, useRef, useState } from "react";
-import { createTimeline, stagger, svg } from "animejs";
+import { useEffect, useState } from "react";
 import { Lock, Shield, ShieldAlert, ShieldCheck, WifiOff } from "lucide-react";
 import type { TriageResult } from "../types/triage";
-import { createSafeScope } from "../utils/animeScope";
 
 interface AirgapSpineProps {
   currentResult: TriageResult | null;
@@ -34,7 +32,6 @@ export function AirgapSpine({
   isRunning,
   offlineMode,
 }: AirgapSpineProps) {
-  const rootRef = useRef<HTMLElement>(null);
   const phase = resolveSpinePhase(currentResult, isRunning, offlineMode);
   const blockedCount =
     currentResult?.spans.filter((s) => s.masked !== false).length ?? 0;
@@ -56,67 +53,6 @@ export function AirgapSpine({
     }, 30);
     return () => clearInterval(timer);
   }, [currentResult?.id, blockedCount]);
-
-  useEffect(() => {
-    const root = rootRef.current;
-    if (!root) return;
-
-    const scope = createSafeScope(root, (reduced) => {
-      if (reduced) return;
-
-      const deflectMotion = svg.createMotionPath("#spine-deflect-track");
-      const safeMotion = svg.createMotionPath("#spine-safe-track");
-      const drawable = svg.createDrawable(".spine-trace");
-
-      const tl = createTimeline({
-        loop: phase === "idle" || phase === "scanning",
-        defaults: { ease: "outQuad" },
-      });
-
-      if (drawable.length > 0) {
-        tl.add(drawable, {
-          draw: ["0 0", "0 1"],
-          duration: 550,
-        });
-      }
-
-      if (phase === "scanning" || phase === "intercepted") {
-        tl.add(
-          ".spine-threat-dot",
-          {
-            ...deflectMotion,
-            opacity: [0, 1, 1, 0],
-            duration: 950,
-            delay: stagger(220),
-          },
-          100,
-        ).add(
-          ".spine-ripple",
-          {
-            scale: [0.9, 1.55],
-            opacity: [0.75, 0],
-            duration: 750,
-          },
-          400,
-        );
-      }
-
-      if (phase === "verified" || phase === "idle") {
-        tl.add(
-          ".spine-safe-dot",
-          {
-            ...safeMotion,
-            opacity: [0, 1, 0],
-            duration: 1200,
-            delay: stagger(320),
-          },
-          150,
-        );
-      }
-    });
-
-    return () => scope.revert();
-  }, [phase, currentResult?.id]);
 
   const badgeColor =
     phase === "offline"
@@ -145,7 +81,6 @@ export function AirgapSpine({
 
   return (
     <aside
-      ref={rootRef}
       aria-label="Airgap Firewall Status"
       className="hidden select-none lg:flex lg:h-full lg:w-[76px] lg:flex-col lg:items-center lg:justify-between lg:py-3"
     >
@@ -172,50 +107,6 @@ export function AirgapSpine({
                     : "var(--border-subtle)",
             borderStyle: phase === "offline" ? "solid" : "dashed",
           }}
-        />
-
-        {/* Centered fixed-aspect SVG circuit around the shield */}
-        <svg
-          aria-hidden="true"
-          viewBox="0 0 76 120"
-          className="pointer-events-none absolute left-1/2 top-1/2 h-[120px] w-[76px] -translate-x-1/2 -translate-y-1/2"
-        >
-          {/* Deflection track (only active during scanning/intercepted) */}
-          <path
-            id="spine-deflect-track"
-            className={phase === "scanning" || phase === "intercepted" ? "spine-trace" : ""}
-            d="M 6 60 L 32 60 L 12 32"
-            fill="none"
-            stroke="var(--mask-solid)"
-            strokeWidth="1.25"
-            strokeOpacity={phase === "scanning" || phase === "intercepted" ? "0.45" : "0"}
-          />
-
-          {/* Safe output trace (shield -> right pane) */}
-          <path
-            id="spine-safe-track"
-            className="spine-trace"
-            d="M 40 60 L 70 60"
-            fill="none"
-            stroke="var(--safe-solid)"
-            strokeWidth="1.5"
-            strokeOpacity={phase === "verified" || phase === "idle" ? "0.55" : "0.18"}
-          />
-
-          {/* Vermilion Deflecting Threat Particles */}
-          <circle className="spine-threat-dot" cx="0" cy="0" r="2.8" fill="var(--mask-solid)" opacity="0" />
-          <circle className="spine-threat-dot" cx="0" cy="0" r="2.2" fill="var(--warn-text)" opacity="0" />
-
-          {/* Mint Safe Packets */}
-          <circle className="spine-safe-dot" cx="0" cy="0" r="2.6" fill="var(--safe-solid)" opacity="0" />
-          <circle className="spine-safe-dot" cx="0" cy="0" r="2" fill="var(--nano-solid)" opacity="0" />
-        </svg>
-
-        {/* Shockwave Ripple Ring */}
-        <span
-          aria-hidden="true"
-          className="spine-ripple pointer-events-none absolute h-10 w-10 rounded-xl border"
-          style={{ borderColor: "var(--mask-solid)", opacity: 0 }}
         />
 
         {/* Center Shield Emblem */}

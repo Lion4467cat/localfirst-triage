@@ -235,11 +235,11 @@ export function TriageInbox({
               type="button"
               title={scenario.title}
               onClick={() => onSelectScenario(scenario)}
-              className="rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors"
+              className="rounded-md border px-2.5 py-1 text-[11px] font-semibold transition-colors"
               style={{
-                backgroundColor: selected ? "var(--accent-primary)" : "var(--bg-surface)",
-                borderColor: selected ? "var(--accent-primary)" : "var(--border-subtle)",
-                color: selected ? "var(--accent-on-primary)" : "var(--text-secondary)",
+                backgroundColor: selected ? "var(--text-primary)" : "var(--bg-surface)",
+                borderColor: selected ? "var(--text-primary)" : "var(--border-subtle)",
+                color: selected ? "var(--bg-canvas)" : "var(--text-secondary)",
               }}
             >
               {shortLabel}
