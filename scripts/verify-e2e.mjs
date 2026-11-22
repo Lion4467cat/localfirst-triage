@@ -66,19 +66,9 @@ async function main() {
     await page.goto(BASE_URL, { waitUntil: "domcontentloaded" });
     await page.waitForSelector("text=NEVER IN CLOUD.");
 
-    // 0. Verify live Anime.js v4 Hero SVG animation across two frames 350ms apart
-    const frameA = await page.evaluate(() => {
-      const pkt = document.querySelector(".hero-safe-packet");
-      return pkt ? getComputedStyle(pkt).transform : "";
-    });
-    await page.waitForTimeout(350);
-    const frameB = await page.evaluate(() => {
-      const pkt = document.querySelector(".hero-safe-packet");
-      return pkt ? getComputedStyle(pkt).transform : "";
-    });
-    if (!frameA || frameA === frameB) {
-      throw new Error(`Expected HeroEngineDiagram SVG packet transform to animate (A=${frameA}, B=${frameB})`);
-    }
+    // 0. Verify Live 60fps Interactive Airgap Playground in Hero
+    await page.getByRole("button", { name: "API Typo" }).click();
+    await page.waitForSelector("text=[REDACTED:API_KEY_1]");
 
     // Verify System / Dark / Light theme switcher + Act 1 Hero -> Open Live Workbench jump
     await page.setViewportSize({ width: 1280, height: 720 });

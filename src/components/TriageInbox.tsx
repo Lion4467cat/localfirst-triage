@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
 import { animate } from "animejs";
-import { FileUp, Loader2, ShieldCheck, Trash2, WifiOff } from "lucide-react";
+import { motion } from "motion/react";
+import { FileUp, Loader2, ShieldCheck, Trash2, WifiOff, Zap } from "lucide-react";
+import { scanAndRedactLocal } from "../firewall/regexScrubber";
 import type { DemoScenario, ProtectionLevel, TriageResult } from "../types/triage";
 import { createSafeScope } from "../utils/animeScope";
 
@@ -47,6 +49,21 @@ export function TriageInbox({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const editorWrapRef = useRef<HTMLDivElement>(null);
   const [laserActive, setLaserActive] = useState(false);
+
+  const liveDraftPreview = useMemo(() => {
+    if (!rawText.trim()) return { count: 0, latencyMs: 0 };
+    const t0 = typeof performance !== "undefined" ? performance.now() : Date.now();
+    const res = scanAndRedactLocal(rawText, {
+      protectionLevel,
+      includeHeuristics: true,
+      enableEntropyScanner: true,
+    });
+    const t1 = typeof performance !== "undefined" ? performance.now() : Date.now();
+    return {
+      count: res.mergedSpans.length,
+      latencyMs: Math.max(0.01, Number((t1 - t0).toFixed(2))),
+    };
+  }, [rawText, protectionLevel]);
 
   useEffect(() => {
     if (!isRunning && !laserActive) return;
@@ -171,15 +188,8 @@ export function TriageInbox({
                   title={opt.tip}
                   aria-pressed={active}
                   onClick={() => onProtectionLevelChange(opt.id)}
-                  className="rounded px-2 py-0.5 font-mono text-[10px] font-semibold transition-colors"
+                  className="relative rounded px-2 py-0.5 font-mono text-[10px] font-semibold transition-colors"
                   style={{
-                    backgroundColor: active
-                      ? opt.id === "high"
-                        ? "var(--mask-bg)"
-                        : opt.id === "medium"
-                          ? "var(--safe-bg)"
-                          : "var(--bg-surface)"
-                      : "transparent",
                     color: active
                       ? opt.id === "high"
                         ? "var(--mask-text)"
@@ -189,7 +199,22 @@ export function TriageInbox({
                       : "var(--text-muted)",
                   }}
                 >
-                  {opt.label}
+                  {active && (
+                    <motion.span
+                      layoutId="protection-level-pill"
+                      transition={{ type: "spring", stiffness: 420, damping: 28 }}
+                      className="absolute inset-0 rounded"
+                      style={{
+                        backgroundColor:
+                          opt.id === "high"
+                            ? "var(--mask-bg)"
+                            : opt.id === "medium"
+                              ? "var(--safe-bg)"
+                              : "var(--bg-surface)",
+                      }}
+                    />
+                  )}
+                  <span className="relative z-10">{opt.label}</span>
                 </button>
               );
             })}
@@ -287,6 +312,24 @@ export function TriageInbox({
             className="h-full min-h-[220px] w-full flex-1 resize-none bg-transparent p-3 font-mono text-xs leading-relaxed focus:outline-none"
             style={{ color: "var(--text-primary)" }}
           />
+          {rawText.trim() && (
+            <div
+              className="flex items-center justify-between border-t px-3 py-1 font-mono text-[10.5px] tabular-nums"
+              style={{
+                backgroundColor: "var(--bg-subtle)",
+                borderColor: "var(--border-subtle)",
+                color: liveDraftPreview.count > 0 ? "var(--safe-text)" : "var(--text-muted)",
+              }}
+            >
+              <span className="inline-flex items-center gap-1">
+                <Zap className="h-3 w-3" aria-hidden="true" />
+                {liveDraftPreview.count > 0
+                  ? `${liveDraftPreview.count} secret${liveDraftPreview.count === 1 ? "" : "s"} spotted locally · ${liveDraftPreview.latencyMs}ms · Ready to Airgap`
+                  : `0 secrets spotted · ${liveDraftPreview.latencyMs}ms`}
+              </span>
+              <span style={{ color: "var(--text-muted)" }}>{protectionLevel.toUpperCase()}</span>
+            </div>
+          )}
         </div>
 
         {queuedTickets.length > 0 && (

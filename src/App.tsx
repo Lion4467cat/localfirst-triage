@@ -832,8 +832,16 @@ export function App() {
 
       {activeView === "triage" && (
         <>
-          {/* ACT 1: Clockwork Hero */}
-          <HeroEngineDiagram onJumpToWorkbench={jumpToWorkbench} />
+          {/* ACT 1: Live Interactive Airgap Playground & Moments */}
+          <HeroEngineDiagram
+            onJumpToWorkbench={jumpToWorkbench}
+            onSendToWorkbench={(text) => {
+              setTitle("Interactive Playground Capture");
+              setRawText(text);
+              setCurrentResult(null);
+              jumpToWorkbench();
+            }}
+          />
 
           {/* ACT 2: Live 100dvh Airgap Workbench */}
           <main
