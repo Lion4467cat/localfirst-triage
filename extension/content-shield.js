@@ -272,7 +272,7 @@
           setHud({ mode: "MODAL", trigger: "SEND", target: ed, savedSel: null, rawText: text, scan: nanoRes, bypassArmed: false });
         } else {
           lastBypassedNorm = norm;
-          sendBtn?.click();
+          (sendBtn || document.querySelector(SEND_SEL))?.click();
         }
       });
     }
@@ -296,6 +296,13 @@
   }
 
   loadSettings();
+  if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
+    chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+      if (!isAlive() || msg?.type !== "LOCALFIRST_PING") return false;
+      sendResponse({ armed: true, host: location.hostname, protectionLevel, shieldEnabled });
+      return false;
+    });
+  }
   document.addEventListener("paste", onPaste, true);
   document.addEventListener("input", onInput, true);
   document.addEventListener("keydown", onKeyDown, true);

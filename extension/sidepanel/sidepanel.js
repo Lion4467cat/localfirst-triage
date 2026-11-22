@@ -15,14 +15,47 @@ const WORKBENCH_URLS = {
   local: "http://localhost:4173/",
 };
 
+const PROTECTED_HOSTS = new Set([
+  "chatgpt.com",
+  "chat.openai.com",
+  "claude.ai",
+  "gemini.google.com",
+  "github.com",
+  "app.slack.com",
+  "localhost",
+  "127.0.0.1",
+]);
+
+const LEVEL_CAPABILITIES = {
+  low: {
+    tag: "Secrets Only",
+    text: "API Keys · JWTs · Private Keys · DB URIs · Gov IDs · Credit Cards · Strict Entropy (>= 3.8) · Paste Guard Only",
+  },
+  medium: {
+    tag: "Balanced · Default",
+    text: "+ Phones · Emails · Multi-Segment Addresses/PINs · Names · Employers · Labeled Secrets (>= 3.25) · Paste + Send-Button/Enter Guard",
+  },
+  high: {
+    tag: "Strict Zero-Trust",
+    text: "+ On-Device Gemini Nano 4 Semantic Check on Send (unstructured medical, family, M&A PII) · Tight Entropy (>= 2.9) · Strict Lockdown",
+  },
+};
+
 const nanoBadge = document.getElementById("nano-badge");
 const shieldToggleBtn = document.getElementById("btn-shield-toggle");
 const shieldToggleLabel = document.getElementById("shield-toggle-label");
+const tabStatusPill = document.getElementById("tab-status-pill");
+const tabStatusText = document.getElementById("tab-status-text");
+const tabStatusHint = document.getElementById("tab-status-hint");
+const armTabBtn = document.getElementById("btn-arm-tab");
 const statBlockedPastes = document.getElementById("stat-blocked-pastes");
 const statSecretsBlocked = document.getElementById("stat-secrets-blocked");
+const resetStatsBtn = document.getElementById("btn-reset-stats");
 const workbenchTargetSelect = document.getElementById("workbench-target");
 const levelButtons = Array.from(document.querySelectorAll("[data-level-choice]"));
-let activeProtectionLevel = "medium";
+const levelModeTag = document.getElementById("level-mode-tag");
+const levelCapabilityText = document.getElementById("level-capability-text");
+const manualDrawer = document.getElementById("manual-drawer");
 const titleInput = document.getElementById("ticket-title");
 const rawInput = document.getElementById("raw-input");
 const scanStats = document.getElementById("scan-stats");
@@ -33,6 +66,8 @@ const copyBtn = document.getElementById("btn-copy");
 const handoffBtn = document.getElementById("btn-handoff");
 const themeButtons = Array.from(document.querySelectorAll("[data-theme-choice]"));
 
+let activeProtectionLevel = "medium";
+let activeTabId = null;
 let lastSanitizedText = "";
 
 function readThemePreference() {
@@ -48,9 +83,7 @@ function readThemePreference() {
 function resolveTheme(pref) {
   if (pref === "light" || pref === "dark") return pref;
   try {
-    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
-      ? "dark"
-      : "light";
+    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   } catch {
     return "light";
   }
@@ -65,75 +98,110 @@ function applyTheme(pref, persist = true) {
   root.classList.toggle("dark", resolved === "dark");
 
   for (const btn of themeButtons) {
-    const choice = btn.getAttribute("data-theme-choice");
-    btn.setAttribute("aria-pressed", String(choice === pref));
+    btn.setAttribute("aria-pressed", String(btn.getAttribute("data-theme-choice") === pref));
   }
 
   if (persist) {
     try {
-      if (pref === "system") {
-        window.localStorage.removeItem(THEME_STORAGE_KEY);
-      } else {
-        window.localStorage.setItem(THEME_STORAGE_KEY, pref);
-      }
-    } catch {
-      // Ignore storage access errors
-    }
+      if (pref === "system") window.localStorage.removeItem(THEME_STORAGE_KEY);
+      else window.localStorage.setItem(THEME_STORAGE_KEY, pref);
+    } catch { /* ignore */ }
   }
 }
 
 function setupThemeSwitcher() {
   applyTheme(readThemePreference(), false);
-
   for (const btn of themeButtons) {
-    btn.addEventListener("click", () => {
-      const choice = btn.getAttribute("data-theme-choice") || "system";
-      applyTheme(choice, true);
-    });
+    btn.addEventListener("click", () => applyTheme(btn.getAttribute("data-theme-choice") || "system", true));
   }
-
-  if (typeof window.matchMedia === "function") {
-    const mql = window.matchMedia("(prefers-color-scheme: dark)");
-    mql.addEventListener?.("change", () => {
-      if (readThemePreference() === "system") {
-        applyTheme("system", false);
-      }
-    });
-  }
+  window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener?.("change", () => {
+    if (readThemePreference() === "system") applyTheme("system", false);
+  });
 }
 
 async function refreshNanoStatus() {
   if (!globalThis.LanguageModel?.availability) {
-    nanoBadge.textContent = "Local Privacy Guard Active";
+    nanoBadge.textContent = "Deterministic Mode";
     return;
   }
   try {
     const avail = await globalThis.LanguageModel.availability(TEXT_ONLY_OPTIONS);
     if (avail === "readily" || avail === "available") {
-      nanoBadge.textContent = "On-Device Nano 4 Ready";
+      nanoBadge.textContent = "Nano 4 Ready";
     } else if (avail === "downloadable" || avail === "downloading" || avail === "after-download") {
-      nanoBadge.textContent = "Nano 4 Downloadable (Local Guard Active)";
+      nanoBadge.textContent = "Nano 4 Downloadable";
     } else {
-      nanoBadge.textContent = "Local Privacy Guard Active";
+      nanoBadge.textContent = "Deterministic Mode";
     }
   } catch {
-    nanoBadge.textContent = "Local Privacy Guard Active";
+    nanoBadge.textContent = "Deterministic Mode";
   }
 }
+
+function setTabPillState(kind, label, showArm = false, showHint = false) {
+  tabStatusPill.className = `tab-pill ${kind}`;
+  tabStatusText.textContent = label;
+  armTabBtn.hidden = !showArm;
+  tabStatusHint.hidden = !showHint;
+}
+
+async function refreshActiveTabStatus() {
+  if (typeof chrome === "undefined" || !chrome.tabs?.query) {
+    setTabPillState("is-manual", "Manual Mode · preview", false, true);
+    return;
+  }
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    activeTabId = tab?.id ?? null;
+    let host = "browser";
+    try {
+      if (tab?.url) host = new URL(tab.url).hostname || "browser";
+    } catch { /* ignore */ }
+
+    if (tab?.id !== undefined) {
+      try {
+        const res = await chrome.tabs.sendMessage(tab.id, { type: "LOCALFIRST_PING" });
+        if (res?.armed) {
+          setTabPillState("is-armed", `Protected · ${res.host || host}`, false, false);
+          return;
+        }
+      } catch { /* tab not armed yet */ }
+    }
+
+    if (PROTECTED_HOSTS.has(host)) {
+      setTabPillState("is-standby", `Standby · ${host}`, true, false);
+    } else {
+      setTabPillState("is-manual", `Manual Mode · ${host}`, false, true);
+    }
+  } catch {
+    setTabPillState("is-manual", "Manual Mode · browser", false, true);
+  }
+}
+
+armTabBtn?.addEventListener("click", async () => {
+  if (activeTabId === null || typeof chrome === "undefined" || !chrome.scripting?.executeScript) return;
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: activeTabId },
+      files: ["firewall-core.js", "content-shield.js"],
+    });
+    await refreshActiveTabStatus();
+  } catch { /* ignore restricted pages */ }
+});
 
 async function runFirewall() {
   const raw = rawInput.value;
   if (!raw.trim()) return;
-  scanStats.textContent = "Checking for secrets on your device...";
+  scanStats.textContent = "Scrubbing locally on your device…";
   const res = await runExtensionNanoScan(raw);
   lastSanitizedText = res.sanitizedText;
   sanitizedOutput.textContent = res.sanitizedText;
   const count = res.mergedSpans.length;
-  const engine = res.nanoActive ? "On-Device Nano 4" : "Local Pattern Firewall";
+  const engine = res.nanoActive ? "Nano 4 + Firewall" : "Deterministic Firewall";
   scanStats.textContent =
     count === 0
-      ? `Protected (${engine}) · No secrets detected`
-      : `Protected (${engine}) · ${count} secret(s) hidden from AI`;
+      ? `Safe (${engine}) · No secrets detected`
+      : `Protected (${engine}) · ${count} secret(s) scrubbed`;
   copyBtn.disabled = false;
   handoffBtn.disabled = false;
 }
@@ -143,6 +211,7 @@ async function loadPendingCapture() {
   const stored = await chrome.storage.session.get(CAPTURE_STORAGE_KEY);
   const capture = stored?.[CAPTURE_STORAGE_KEY];
   if (capture?.rawText) {
+    if (manualDrawer) manualDrawer.open = true;
     titleInput.value = capture.title || "Captured Selection";
     rawInput.value = capture.rawText;
     await chrome.storage.session.remove(CAPTURE_STORAGE_KEY);
@@ -151,9 +220,9 @@ async function loadPendingCapture() {
   }
 }
 
-captureBtn.addEventListener("click", async () => {
+captureBtn?.addEventListener("click", async () => {
   if (typeof chrome === "undefined" || !chrome.tabs?.query) {
-    scanStats.textContent = "Paste any ticket text above and click Mask Secrets Locally.";
+    scanStats.textContent = "Paste any text above and click Scrub Locally.";
     return;
   }
   try {
@@ -162,46 +231,43 @@ captureBtn.addEventListener("click", async () => {
     const [{ result }] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: () => {
+        const active = document.activeElement;
+        if (active && (active.tagName === "TEXTAREA" || active.tagName === "INPUT")) {
+          return active.value || "";
+        }
+        if (active?.isContentEditable) {
+          return active.innerText || active.textContent || "";
+        }
+        const ed = document.querySelector('[contenteditable="true"], [role="textbox"], textarea');
+        if (ed) return ed.value || ed.innerText || ed.textContent || "";
         const clone = document.body.cloneNode(true);
         clone.querySelectorAll("script, style, nav, footer").forEach((el) => el.remove());
         return clone.innerText.slice(0, 6000);
       },
     });
-    titleInput.value = tab.title || "Active Tab Ticket";
+    titleInput.value = tab.title || "Active Editor Capture";
     rawInput.value = result || "";
     await runFirewall();
   } catch {
-    scanStats.textContent =
-      "Tab capture is limited to supported issue trackers. Right-click selected text to import from any page.";
+    scanStats.textContent = "Tab capture unavailable on this page. Paste text above to scrub locally.";
   }
 });
 
-scanBtn.addEventListener("click", () => {
-  void runFirewall();
-});
+scanBtn?.addEventListener("click", () => { void runFirewall(); });
 
-copyBtn.addEventListener("click", async () => {
+copyBtn?.addEventListener("click", async () => {
   if (!lastSanitizedText) return;
   try {
     await navigator.clipboard.writeText(lastSanitizedText);
     copyBtn.textContent = "Copied Safe Text!";
-    setTimeout(() => {
-      copyBtn.textContent = "Copy Safe Text";
-    }, 1500);
-  } catch {
-    // Ignore clipboard error
-  }
+    setTimeout(() => { copyBtn.textContent = "Copy Safe Text"; }, 1500);
+  } catch { /* ignore */ }
 });
 
-handoffBtn.addEventListener("click", async () => {
+handoffBtn?.addEventListener("click", async () => {
   if (!lastSanitizedText) return;
-  // Strictly transmit sanitized payload ONLY — raw PII never crosses to the web workbench
   const targetKey = workbenchTargetSelect?.value === "local" ? "local" : "production";
-  const url = buildSanitizedHandoffUrl(
-    titleInput.value || "Extension Capture",
-    lastSanitizedText,
-    WORKBENCH_URLS[targetKey],
-  );
+  const url = buildSanitizedHandoffUrl(titleInput.value || "Extension Capture", lastSanitizedText, WORKBENCH_URLS[targetKey]);
   if (typeof chrome !== "undefined" && chrome.tabs?.create) {
     await chrome.tabs.create({ url });
   } else {
@@ -209,46 +275,42 @@ handoffBtn.addEventListener("click", async () => {
   }
 });
 
+function renderShieldState(enabled) {
+  if (!shieldToggleBtn || !shieldToggleLabel) return;
+  shieldToggleBtn.setAttribute("aria-checked", String(enabled));
+  shieldToggleLabel.textContent = enabled ? "ON" : "OFF";
+}
+
+function renderShieldStats(stats) {
+  if (statBlockedPastes) statBlockedPastes.textContent = String(stats?.totalBlockedPastes ?? 0);
+  if (statSecretsBlocked) statSecretsBlocked.textContent = String(stats?.totalSecretsIntercepted ?? 0);
+}
+
+function renderProtectionLevel(level) {
+  activeProtectionLevel = level === "low" || level === "high" ? level : "medium";
+  for (const btn of levelButtons) {
+    btn.setAttribute("aria-pressed", String(btn.getAttribute("data-level-choice") === activeProtectionLevel));
+  }
+  const meta = LEVEL_CAPABILITIES[activeProtectionLevel];
+  if (levelModeTag) levelModeTag.textContent = meta.tag;
+  if (levelCapabilityText) levelCapabilityText.textContent = meta.text;
+}
+
 if (typeof chrome !== "undefined" && chrome.storage?.onChanged) {
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName === "session" && changes[CAPTURE_STORAGE_KEY]?.newValue) {
       void loadPendingCapture();
     }
     if (areaName === "local") {
-      if (changes[SHIELD_ENABLED_KEY]) {
-        renderShieldState(changes[SHIELD_ENABLED_KEY].newValue !== false);
-      }
-      if (changes[SHIELD_STATS_KEY]) {
-        renderShieldStats(changes[SHIELD_STATS_KEY].newValue);
-      }
+      if (changes[SHIELD_ENABLED_KEY]) renderShieldState(changes[SHIELD_ENABLED_KEY].newValue !== false);
+      if (changes[SHIELD_STATS_KEY]) renderShieldStats(changes[SHIELD_STATS_KEY].newValue);
+      if (changes[PROTECTION_LEVEL_KEY]) renderProtectionLevel(changes[PROTECTION_LEVEL_KEY].newValue);
     }
   });
 }
 
-function renderShieldState(enabled) {
-  if (!shieldToggleBtn || !shieldToggleLabel) return;
-  shieldToggleBtn.setAttribute("aria-checked", String(enabled));
-  shieldToggleLabel.textContent = `Live Paste Protection: ${enabled ? "ON" : "OFF"}`;
-}
-
-function renderShieldStats(stats) {
-  if (statBlockedPastes) {
-    statBlockedPastes.textContent = String(stats?.totalBlockedPastes ?? 0);
-  }
-  if (statSecretsBlocked) {
-    statSecretsBlocked.textContent = String(stats?.totalSecretsIntercepted ?? 0);
-  }
-}
-
-function renderProtectionLevel(level) {
-  activeProtectionLevel = level === "low" || level === "high" ? level : "medium";
-  for (const btn of levelButtons) {
-    const choice = btn.getAttribute("data-level-choice");
-    btn.setAttribute("aria-pressed", String(choice === activeProtectionLevel));
-  }
-}
-
 async function initPasteShieldControls() {
+  renderProtectionLevel("medium");
   if (typeof chrome === "undefined" || !chrome.storage?.local) return;
   const res = await chrome.storage.local.get([
     SHIELD_ENABLED_KEY,
@@ -256,8 +318,7 @@ async function initPasteShieldControls() {
     PROTECTION_LEVEL_KEY,
     WORKBENCH_TARGET_KEY,
   ]);
-  const enabled = typeof res?.[SHIELD_ENABLED_KEY] === "boolean" ? res[SHIELD_ENABLED_KEY] : true;
-  renderShieldState(enabled);
+  renderShieldState(typeof res?.[SHIELD_ENABLED_KEY] === "boolean" ? res[SHIELD_ENABLED_KEY] : true);
   renderShieldStats(res?.[SHIELD_STATS_KEY]);
   renderProtectionLevel(res?.[PROTECTION_LEVEL_KEY] || "medium");
   if (workbenchTargetSelect && (res?.[WORKBENCH_TARGET_KEY] === "local" || res?.[WORKBENCH_TARGET_KEY] === "production")) {
@@ -265,19 +326,23 @@ async function initPasteShieldControls() {
   }
 
   shieldToggleBtn?.addEventListener("click", async () => {
-    const current = shieldToggleBtn.getAttribute("aria-checked") !== "false";
-    const next = !current;
+    const next = !(shieldToggleBtn.getAttribute("aria-checked") !== "false");
     renderShieldState(next);
     await chrome.storage.local.set({ [SHIELD_ENABLED_KEY]: next });
   });
 
   for (const btn of levelButtons) {
     btn.addEventListener("click", async () => {
-      const choice = btn.getAttribute("data-level-choice") || "medium";
-      renderProtectionLevel(choice);
+      renderProtectionLevel(btn.getAttribute("data-level-choice") || "medium");
       await chrome.storage.local.set({ [PROTECTION_LEVEL_KEY]: activeProtectionLevel });
     });
   }
+
+  resetStatsBtn?.addEventListener("click", async () => {
+    const emptyStats = { totalBlockedPastes: 0, totalSecretsIntercepted: 0 };
+    renderShieldStats(emptyStats);
+    await chrome.storage.local.set({ [SHIELD_STATS_KEY]: emptyStats });
+  });
 
   workbenchTargetSelect?.addEventListener("change", async () => {
     const val = workbenchTargetSelect.value === "local" ? "local" : "production";
@@ -287,5 +352,6 @@ async function initPasteShieldControls() {
 
 setupThemeSwitcher();
 void initPasteShieldControls();
+void refreshActiveTabStatus();
 void refreshNanoStatus();
 void loadPendingCapture();

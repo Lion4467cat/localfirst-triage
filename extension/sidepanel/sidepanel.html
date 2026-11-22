@@ -4,41 +4,33 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
-    <title>LocalFirst Triage — Side Panel</title>
+    <title>LocalFirst Shield — Daily Control Center</title>
     <link rel="stylesheet" href="sidepanel.css" />
     <script src="theme-init.js"></script>
   </head>
   <body>
     <main class="panel">
-      <header class="header">
-        <div class="brand">
-          <div class="brand-icon" aria-hidden="true">
-            <svg viewBox="0 0 32 32" width="22" height="22" fill="none">
-              <rect width="32" height="32" rx="7" fill="#0B0C10"/>
-              <path d="M5.5 8.5a2.5 2.5 0 0 1 2.5-2.5h5.2v20H8a2.5 2.5 0 0 1-2.5-2.5v-15Z" fill="#F8FAFC"/>
-              <rect x="15.25" y="4.5" width="1.5" height="23" rx="0.75" fill="#00E5A3"/>
-              <path d="M19.2 6.8h4.8a2 2 0 0 1 2 2v14.4a2 2 0 0 1-2 2h-4.8V6.8Z" stroke="#F8FAFC" stroke-width="1.9"/>
-            </svg>
+      <!-- 1. Live Guard Header -->
+      <header class="card header-card">
+        <div class="header-top">
+          <div class="brand">
+            <div class="brand-icon" aria-hidden="true">
+              <svg viewBox="0 0 32 32" width="22" height="22" fill="none">
+                <rect width="32" height="32" rx="7" fill="#0B0C10" />
+                <path d="M5.5 8.5a2.5 2.5 0 0 1 2.5-2.5h5.2v20H8a2.5 2.5 0 0 1-2.5-2.5v-15Z" fill="#F8FAFC" />
+                <rect x="15.25" y="4.5" width="1.5" height="23" rx="0.75" fill="#00E5A3" />
+                <path d="M19.2 6.8h4.8a2 2 0 0 1 2 2v14.4a2 2 0 0 1-2 2h-4.8V6.8Z" stroke="#F8FAFC" stroke-width="1.9" />
+              </svg>
+            </div>
+            <div class="brand-meta">
+              <div class="brand-row">
+                <h1>LocalFirst Shield</h1>
+                <span class="ver-pill">v4.2.0</span>
+              </div>
+              <p class="subtitle">Zero-Leakage On-Device Firewall</p>
+            </div>
           </div>
-          <div>
-            <h1>LocalFirst Triage</h1>
-            <p class="subtitle">Live Privacy Firewall</p>
-          </div>
-        </div>
 
-        <div class="theme-group" role="group" aria-label="Color theme">
-          <button type="button" class="theme-btn" data-theme-choice="system" aria-pressed="true">System</button>
-          <button type="button" class="theme-btn" data-theme-choice="light" aria-pressed="false">Light</button>
-          <button type="button" class="theme-btn" data-theme-choice="dark" aria-pressed="false">Dark</button>
-        </div>
-      </header>
-
-      <section class="card shield-card" aria-label="Live Browser Paste Shield">
-        <div class="shield-header">
-          <div>
-            <p class="shield-title">Live Browser Paste Shield</p>
-            <p class="shield-domains">ChatGPT · Claude · Gemini · GitHub · Slack</p>
-          </div>
           <button
             id="btn-shield-toggle"
             type="button"
@@ -47,84 +39,139 @@
             class="shield-switch"
           >
             <span class="shield-switch-dot"></span>
-            <span id="shield-toggle-label">Live Paste Protection: ON</span>
+            <span id="shield-toggle-label">ON</span>
           </button>
         </div>
-        <div class="shield-counters">
-          <div class="shield-stat">
-            <span class="shield-stat-label">Pastes Protected</span>
-            <span id="stat-blocked-pastes" class="shield-stat-val">0</span>
+
+        <div class="tab-status-row">
+          <div id="tab-status-pill" class="tab-pill is-manual">
+            <span class="tab-dot" aria-hidden="true"></span>
+            <span id="tab-status-text">Checking active tab…</span>
           </div>
-          <div class="shield-stat">
-            <span class="shield-stat-label">Secrets Blocked</span>
-            <span id="stat-secrets-blocked" class="shield-stat-val">0</span>
+          <button id="btn-arm-tab" type="button" class="btn-arm" hidden>Arm Tab</button>
+        </div>
+        <p id="tab-status-hint" class="tab-hint" hidden>
+          Auto-guard covers ChatGPT, Claude, Gemini, GitHub &amp; Slack.
+        </p>
+      </header>
+
+      <!-- 2. 3-Level Protection Dial + Live Capability List -->
+      <section class="card dial-card" aria-label="Protection Level">
+        <div class="section-head">
+          <span class="section-label">Protection Dial</span>
+          <span id="level-mode-tag" class="mode-tag">Balanced · Default</span>
+        </div>
+
+        <div class="level-group" role="group" aria-label="Protection level">
+          <button type="button" class="level-btn" data-level-choice="low" aria-pressed="false">Low</button>
+          <button type="button" class="level-btn" data-level-choice="medium" aria-pressed="true">Medium</button>
+          <button type="button" class="level-btn" data-level-choice="high" aria-pressed="false">High</button>
+        </div>
+
+        <div class="capability-box">
+          <div class="capability-title">Active Right Now</div>
+          <p id="level-capability-text" class="capability-text"></p>
+        </div>
+      </section>
+
+      <!-- 3. Verifiable Protection Facts & Telemetry Card -->
+      <section class="card telemetry-card" aria-label="Protection Telemetry">
+        <div class="section-head">
+          <span class="section-label">Zero-PII Telemetry</span>
+          <button id="btn-reset-stats" type="button" class="btn-reset">Reset</button>
+        </div>
+
+        <div class="telemetry-grid">
+          <div class="metric-tile">
+            <span class="metric-label">Events Blocked</span>
+            <span id="stat-blocked-pastes" class="metric-val">0</span>
+          </div>
+          <div class="metric-tile">
+            <span class="metric-label">Secrets Trapped</span>
+            <span id="stat-secrets-blocked" class="metric-val">0</span>
+          </div>
+          <div class="metric-tile metric-safe">
+            <span class="metric-label">Raw Cloud Leaks</span>
+            <span id="stat-cloud-leaks" class="metric-val">0</span>
           </div>
         </div>
-        <div class="field">
-          <label>Protection Level</label>
-          <div class="level-group" role="group" aria-label="Protection level">
-            <button type="button" class="level-btn" data-level-choice="low" aria-pressed="false" title="Secrets Only (API keys, JWT, PEM, DB URI, Gov IDs, Cards)">Low</button>
-            <button type="button" class="level-btn" data-level-choice="medium" aria-pressed="true" title="Balanced: Secrets + phones, emails, names, employers & Nano 4">Medium</button>
-            <button type="button" class="level-btn" data-level-choice="high" aria-pressed="false" title="Strict Zero-Trust: Medium + addresses, M&A & always-on Nano 4">High</button>
+
+        <div class="facts-strip">
+          <div class="fact-row">
+            <span class="fact-k">Local Floor</span>
+            <span class="fact-v">&lt;2ms Sync</span>
+          </div>
+          <div class="fact-row">
+            <span class="fact-k">On-Device AI</span>
+            <span id="nano-badge" class="fact-v fact-ai">Checking…</span>
+          </div>
+          <div class="fact-row">
+            <span class="fact-k">Protected Surfaces</span>
+            <span class="fact-v">Paste + Send Interception</span>
+          </div>
+          <div class="fact-row" data-benchmark-slot="true" hidden>
+            <span class="fact-k">Benchmark</span>
+            <span id="benchmark-slot-val" class="fact-v">—</span>
           </div>
         </div>
-        <div class="field">
-          <label for="workbench-target">Workbench Target</label>
+      </section>
+
+      <!-- 4. Compact Secondary Manual Scrub Drawer -->
+      <details id="manual-drawer" class="card drawer-card">
+        <summary class="drawer-summary">
+          <span>Manual Scrub &amp; Handoff</span>
+          <span class="drawer-chev" aria-hidden="true">▾</span>
+        </summary>
+
+        <div class="drawer-body">
+          <div class="field">
+            <label for="ticket-title">Incident Title</label>
+            <input id="ticket-title" type="text" placeholder="Selected incident or page title" />
+          </div>
+
+          <div class="field">
+            <label for="raw-input">Original Text (Stays on Device)</label>
+            <textarea
+              id="raw-input"
+              rows="4"
+              placeholder="Paste text or click 'Capture Active Editor' to scrub locally."
+            ></textarea>
+          </div>
+
+          <div class="actions">
+            <button id="btn-capture-tab" type="button" class="btn secondary">Capture Active Editor</button>
+            <button id="btn-run-firewall" type="button" class="btn primary">Scrub Locally</button>
+          </div>
+
+          <div class="stats" id="scan-stats">Ready to scrub locally on your device.</div>
+
+          <div class="field">
+            <label for="sanitized-output">Safe Version for AI</label>
+            <pre id="sanitized-output" class="output">Click "Scrub Locally" to preview safe redacted text.</pre>
+          </div>
+
+          <div class="actions">
+            <button id="btn-copy" type="button" class="btn secondary" disabled>Copy Safe Text</button>
+            <button id="btn-handoff" type="button" class="btn primary" disabled>Open Live Demo Workbench →</button>
+          </div>
+        </div>
+      </details>
+
+      <!-- Minimal Footer -->
+      <footer class="panel-footer">
+        <div class="footer-target">
+          <label for="workbench-target">Workbench</label>
           <select id="workbench-target">
-            <option value="production">Production (para-1-2e22b.web.app)</option>
-            <option value="local">Local Preview (localhost:4173)</option>
+            <option value="production">Production: para-1-2e22b.web.app</option>
+            <option value="local">Local: localhost:4173</option>
           </select>
         </div>
-      </section>
 
-      <div class="status-row">
-        <span id="nano-badge" class="badge">Checking On-Device AI...</span>
-        <span class="badge badge-safe">Zero raw secrets uploaded</span>
-      </div>
-
-      <section class="actions">
-        <button id="btn-capture-tab" type="button" class="btn secondary">
-          Capture Active Page
-        </button>
-        <button id="btn-run-firewall" type="button" class="btn primary">
-          Mask Secrets Locally
-        </button>
-      </section>
-
-      <section class="card">
-        <div class="field">
-          <label for="ticket-title">Incident Title</label>
-          <input id="ticket-title" type="text" placeholder="Selected incident or page title" />
+        <div class="theme-group" role="group" aria-label="Color theme">
+          <button type="button" class="theme-btn" data-theme-choice="system" aria-pressed="true">Auto</button>
+          <button type="button" class="theme-btn" data-theme-choice="light" aria-pressed="false">Light</button>
+          <button type="button" class="theme-btn" data-theme-choice="dark" aria-pressed="false">Dark</button>
         </div>
-
-        <div class="field">
-          <label for="raw-input">Original Text (Stays on Device)</label>
-          <textarea
-            id="raw-input"
-            rows="5"
-            placeholder="Right-click any text on GitHub/Jira/Zendesk -> 'Sanitize & Triage with LocalFirst' or click 'Capture Active Page'."
-          ></textarea>
-        </div>
-      </section>
-
-      <section class="stats" id="scan-stats">
-        Ready to mask secrets locally before handing off to AI.
-      </section>
-
-      <section class="card">
-        <div class="field">
-          <label for="sanitized-output">Safe Version for AI</label>
-          <pre id="sanitized-output" class="output">Click "Mask Secrets Locally" to preview safe redacted text.</pre>
-        </div>
-      </section>
-
-      <footer class="footer">
-        <button id="btn-copy" type="button" class="btn secondary" disabled>
-          Copy Safe Text
-        </button>
-        <button id="btn-handoff" type="button" class="btn primary" disabled>
-          Open Safe Copy in Web App
-        </button>
       </footer>
     </main>
     <script type="module" src="sidepanel.js"></script>

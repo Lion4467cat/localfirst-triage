@@ -197,16 +197,53 @@ async function main() {
       throw new Error(`Expected clean Send to succeed with 0 extra modals, got ${JSON.stringify(afterCleanSend)}`);
     }
 
-    // 6. Verify Side Panel stats & toggle OFF
+    // 6. Verify Side Panel at 360px width: 0 console/CSP errors, 0 overflow, Protection Dial persistence
     let [sw] = context.serviceWorkers();
     if (!sw) sw = await context.waitForEvent("serviceworker");
     const extId = new URL(sw.url()).hostname;
     const spPage = await context.newPage();
+    await spPage.setViewportSize({ width: 360, height: 740 });
+    const spErrors = [];
+    spPage.on("pageerror", (err) => spErrors.push(err.message));
+    spPage.on("console", (msg) => {
+      if (msg.type() === "error") spErrors.push(msg.text());
+    });
     await spPage.goto(`chrome-extension://${extId}/sidepanel/sidepanel.html`, { waitUntil: "domcontentloaded" });
-    await spPage.waitForTimeout(250);
+    await spPage.waitForTimeout(300);
+
+    if (spErrors.length > 0) {
+      throw new Error(`Side panel had console/CSP errors: ${spErrors.join(" | ")}`);
+    }
+    const overflow = await spPage.evaluate(
+      () => document.documentElement.scrollWidth > window.innerWidth,
+    );
+    if (overflow) {
+      throw new Error("Side panel has horizontal overflow at 360px width");
+    }
+
     const blockedPastes = await spPage.locator("#stat-blocked-pastes").textContent();
     if (Number(blockedPastes) < 2) {
       throw new Error(`Expected >= 2 blocked pastes in Side Panel stats, got ${blockedPastes}`);
+    }
+
+    // Test Low -> Medium -> High dial updates capability text & persists to chrome.storage.local
+    for (const [lvl, expectedSubstr] of [
+      ["low", "Paste Guard Only"],
+      ["medium", "Send-Button/Enter Guard"],
+      ["high", "Gemini Nano 4 Semantic Check"],
+    ]) {
+      await spPage.locator(`[data-level-choice="${lvl}"]`).click();
+      await spPage.waitForTimeout(100);
+      const capText = await spPage.locator("#level-capability-text").textContent();
+      if (!capText?.includes(expectedSubstr)) {
+        throw new Error(`Expected capability text for '${lvl}' to include '${expectedSubstr}', got '${capText}'`);
+      }
+      const storedLevel = await spPage.evaluate(
+        () => new Promise((resolve) => chrome.storage.local.get("protectionLevel", (r) => resolve(r.protectionLevel))),
+      );
+      if (storedLevel !== lvl) {
+        throw new Error(`Expected chrome.storage.local.protectionLevel === '${lvl}', got '${storedLevel}'`);
+      }
     }
 
     await spPage.locator("#btn-shield-toggle").click();
