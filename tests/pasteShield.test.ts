@@ -112,4 +112,30 @@ describe("Live Browser Paste Shield (firewall-core)", () => {
     expect(pass3.mergedSpans.length).toBe(0);
     expect(pass3.sanitizedText).toBe(pass1.sanitizedText);
   });
+
+  it("produces 0 false positives on everyday/dev prose and preserves trailing non-secret sentences byte-for-byte", () => {
+    const zeroFpCases = [
+      "This feature is a work in progress and will go live in production tomorrow. Call me later if it breaks.",
+      "My app works at scale using localStorage and contenteditable inside checkout-gateway after v4.8.2 deploy.",
+      "Please explain how Docker containers talk to each other on localhost port 8080.",
+    ];
+    for (const prose of zeroFpCases) {
+      for (const level of ["low", "medium"] as const) {
+        const res = scrubSync(prose, true, level);
+        expect(res.mergedSpans.length).toBe(0);
+        expect(res.sanitizedText).toBe(prose);
+      }
+    }
+
+    const addrCase = "my address is 42 Oak Street, Koramangala, Bengaluru 560034. Please fix the login bug after this.";
+    const addrRes = scrubSync(addrCase, true, "medium");
+    expect(addrRes.sanitizedText).not.toContain("42 Oak Street");
+    expect(addrRes.sanitizedText).toContain("Please fix the login bug after this.");
+
+    const phoneCase = "my phone number is 9876543210 and my name is ravi. Can you help me write a python script?";
+    const phoneRes = scrubSync(phoneCase, true, "medium");
+    expect(phoneRes.sanitizedText).not.toContain("9876543210");
+    expect(phoneRes.sanitizedText).not.toContain("ravi");
+    expect(phoneRes.sanitizedText).toContain("Can you help me write a python script?");
+  });
 });

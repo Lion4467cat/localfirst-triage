@@ -155,7 +155,7 @@ async function main() {
 
     await page.locator("#sim-prosemirror p").click();
     const nlSample =
-      "my phone number is 9876543210 and my name is ravi and i work in Zenith company and my api key is 23224324234kjjjkjl";
+      "my phone number is 9876543210 and my name is ravi and i work in Zenith company and my api key is 23224324234kjjjkjl. Can you help me write a python script?";
     await page.keyboard.type(nlSample, { delay: 2 });
     // Wait for 1100ms post-typing pause timer
     await page.waitForTimeout(1350);
@@ -173,11 +173,11 @@ async function main() {
     await page.evaluate(() => {
       document.querySelector("#localfirst-paste-shield-host")?.shadowRoot?.querySelector("#lf-paste-safe")?.click();
     });
-    // Ensure 0 follow-up HUD pops over the next 1500ms (strict idempotency + WeakMap guard)
-    await page.waitForTimeout(1500);
+    // Ensure 0 follow-up HUD pops over the next 2000ms (ProseMirror 600ms cooldown + strict idempotency)
+    await page.waitForTimeout(2000);
     const mountCountAfterScrub = await page.evaluate(() => window.__hudMountCount);
     if (mountCountAfterScrub !== 1) {
-      throw new Error(`Expected 0 follow-up HUD pops after Scrub Draft Now, got ${mountCountAfterScrub}`);
+      throw new Error(`Expected 0 follow-up HUD pops after Scrub Draft Now over 2000ms, got ${mountCountAfterScrub}`);
     }
     const scrubbedDraft = await page.locator("#sim-prosemirror").textContent();
     if (
@@ -185,9 +185,10 @@ async function main() {
       scrubbedDraft.includes("9876543210") ||
       scrubbedDraft.includes("ravi") ||
       scrubbedDraft.includes("Zenith company") ||
-      scrubbedDraft.includes("23224324234kjjjkjl")
+      scrubbedDraft.includes("23224324234kjjjkjl") ||
+      !scrubbedDraft.includes("Can you help me write a python script?")
     ) {
-      throw new Error(`Expected all 4 natural-language secrets scrubbed from nested ProseMirror draft, got '${scrubbedDraft}'`);
+      throw new Error(`Expected all 4 secrets scrubbed and trailing prose preserved in nested ProseMirror draft, got '${scrubbedDraft}'`);
     }
 
     // 4b. Clicking simulated ChatGPT Send button while unscrubbed multi-segment address exists -> intercepts click & pops Send Intercepted HUD

@@ -1,5 +1,5 @@
 import type { DetectorSource, ProtectionLevel, RedactionSpan } from "../types/triage";
-import { mergeAndRedactSpans } from "./spanMerger";
+import { maskProtectedTokens, mergeAndRedactSpans } from "./spanMerger";
 
 interface RegexRule {
   category: string;
@@ -137,10 +137,18 @@ const DETERMINISTIC_REGEX_RULES: RegexRule[] = [
     detector: "REGEX_FIREWALL",
     captureGroup: 1,
     pattern:
-      /\b(?:(?:api\s+key|apikey|secret\s+key|access\s+key|auth\s+token|bearer\s+token|private\s+token|client\s+secret)(?:\s+(?:is|was|are))?\s*(?:[:=]|->)?|(?:api_key|password|passcode|passwd)\s+(?:is|was|are|->))\s*([^\s"',;]{6,})/gi,
-    validator: (m) => !m.startsWith("[REDACTED:"),
+      /\b(?:(?:api\s+key|apikey|secret\s+key|access\s+key|auth\s+token|bearer\s+token|private\s+token|client\s+secret)(?:\s+(?:is|was|are))?\s*(?:[:=]|->)?|(?:api_key|password|passcode|passwd)\s+(?:is|was|are|->))\s*([^\s"',;\[\]\u0000]{6,})/gi,
+    validator: (m) => !m.includes("[REDACTED:") && !m.includes("\u0000"),
   },
 ];
+
+const ADDRESS_INDICATOR_REGEX =
+  /\b(?:\d{1,5}\s+[A-Za-z]|\d{5,6}\b|road|rd|street|st|ave|avenue|lane|ln|layout|nagar|sector|cross|main|block|apt|flat|floor)\b/i;
+
+const ORG_IDIOM_BLOCKLIST = new Set([
+  "progress", "production", "tech", "software", "silence", "general",
+  "home", "night", "remote", "shift", "me", "you", "us", "now", "free", "fine", "well", "scale",
+]);
 
 const CONTEXTUAL_HEURISTIC_RULES: RegexRule[] = [
   {
@@ -149,7 +157,7 @@ const CONTEXTUAL_HEURISTIC_RULES: RegexRule[] = [
     captureGroup: 1,
     minLevel: "medium",
     pattern:
-      /\b(?:my\s+name\s+is|i\s+am\s+called|call\s+me|patient\s+name(?:\s+is)?|customer\s+name(?:\s+is)?|full\s+name(?:\s+is)?|name\s*[:=])\s+([a-zA-Z][a-zA-Z.'-]{1,24}(?:\s+(?!(?:and|from|at|in|who|with|is|for|on|to)\b)[a-zA-Z][a-zA-Z.'-]{1,24})?)/gi,
+      /\b(?:my\s+name\s+is|i\s+am\s+called|patient\s+name(?:\s+is)?|customer\s+name(?:\s+is)?|full\s+name(?:\s+is)?|name\s*[:=])\s+([A-Za-z][A-Za-z'-]{1,24}(?:\s+(?!(?:and|is|was|from|at|in|who|with|but|so|to|for|on|please|can|will|working|living)\b)[A-Za-z][A-Za-z'-]{1,24}){0,2})/gi,
   },
   {
     category: "ORG_TERM",
@@ -157,7 +165,8 @@ const CONTEXTUAL_HEURISTIC_RULES: RegexRule[] = [
     captureGroup: 1,
     minLevel: "medium",
     pattern:
-      /\b(?:work(?:ing)?\s+(?:in|at|for)|employed\s+(?:at|by|with)|employee\s+(?:at|of))\s+(?!(?:a|an|the|my|our|this|that)\b)([A-Za-z0-9&._-]{2,28}(?:\s+(?:company|corp|corporation|inc|ltd|pvt|bank|insurance|technologies|tech|labs|group))?)/gi,
+      /\b(?:i\s+work\s+(?:in|at|for)|working\s+(?:at|for)|employed\s+(?:at|by)|my\s+company\s+is)\s+(?!(?:a|an|the|my|our|this|that|progress|production|tech|software|silence|general|home|night|remote|shift|me|you|us|now|free|fine|well|scale)\b)([A-Za-z0-9&._-]{2,28}(?:\s+(?:company|corp|corporation|inc|ltd|pvt|bank|insurance|technologies|tech|labs|group))?)/gi,
+    validator: (m) => !ORG_IDIOM_BLOCKLIST.has(m.trim().toLowerCase()),
   },
   {
     category: "ADDRESS",
@@ -165,7 +174,16 @@ const CONTEXTUAL_HEURISTIC_RULES: RegexRule[] = [
     captureGroup: 1,
     minLevel: "medium",
     pattern:
-      /\b(?:live(?:s|d)?\s+(?:at|in|near)|home\s+address\s*(?:is|:)?|address\s*(?:is|:))\s+((?:(?!\s+(?:and\s+(?:my|i)\b|my\s+(?:phone|email|name|api)\b))[^\n;.]){4,120})/gi,
+      /\b(?:my\s+address\s+is|home\s+address(?:\s+is)?|shipping\s+address(?:\s+is)?|address\s*[:=]|residing\s+at|lives?\s+at)\s+((?:(?!\s+(?:and\s+(?:my|i|the|please|can|will|help)\b|my\s+(?:phone|email|name|api)\b|please\b|can\s+you\b))[^.\n;!?\u0000\[\]]){4,120})/gi,
+  },
+  {
+    category: "ADDRESS",
+    detector: "HEURISTIC_GUARD",
+    captureGroup: 1,
+    minLevel: "medium",
+    pattern:
+      /\blive(?:s|d)?\s+(?:at|in|near)\s+((?:(?!\s+(?:and\s+(?:my|i|the|please|can|will|help)\b|my\s+(?:phone|email|name|api)\b|please\b|can\s+you\b))[^.\n;!?\u0000\[\]]){4,120})/gi,
+    validator: (m) => ADDRESS_INDICATOR_REGEX.test(m),
   },
   {
     category: "ADDRESS",
@@ -180,7 +198,7 @@ const CONTEXTUAL_HEURISTIC_RULES: RegexRule[] = [
     detector: "HEURISTIC_GUARD",
     minLevel: "medium",
     pattern:
-      /\b(?:(?:admitted to|discharged from|diagnosed with|treated at|hospitalized at|undergoing)\s+[^.\n;)]{3,70}|(?:patient|daughter|son|wife|husband|mother|father)\b[^.\n;]{0,55}\b(?:ICU|ER|NICU|ward|hospital|clinic|chemo|chemotherapy|surgery|seizure|oncology|cardiology|biopsy|MRN|prescription)\b[^.\n;)]{0,40}\)?|(?:MRN|DOB|diagnosis)\s*[:#]\s*[^\n,;]+)/gi,
+      /\b(?:(?:admitted to|discharged from|diagnosed with|treated at|hospitalized at|undergoing)\s+[^.\n;)\[\]\u0000]{3,70}|(?:patient|daughter|son|wife|husband|mother|father)\b[^.\n;\[\]\u0000]{0,55}\b(?:ICU|ER|NICU|ward|hospital|clinic|chemo|chemotherapy|surgery|seizure|oncology|cardiology|biopsy|MRN|prescription)\b[^.\n;)\[\]\u0000]{0,40}\)?|(?:MRN|DOB|diagnosis)\s*[:#]\s*[^\n,;\[\]\u0000]+)/gi,
   },
   {
     category: "M_AND_A_SECRET",
@@ -194,14 +212,16 @@ const CONTEXTUAL_HEURISTIC_RULES: RegexRule[] = [
     detector: "HEURISTIC_GUARD",
     minLevel: "medium",
     pattern:
-      /\b(?:(?:log\s*in|sign\s*in|unlock|authenticate)\s+using\s+(?:[^.\n'"]|'[A-Za-z]){4,80}|(?:password|passcode|passphrase|pin|credentials?)\s+(?:is|was|are|:)\s+(?:[^.\n'"]|'[A-Za-z]){3,80}|(?:admin|root|prod)\s+(?:password|passphrase)\s*[:=]\s*[^\s,;]+)/gi,
+      /\b(?:(?:log\s*in|sign\s*in|unlock|authenticate)\s+using\s+(?:[^.\n'"\[\]\u0000]|'[A-Za-z]){4,80}|(?:password|passcode|passphrase|pin|credentials?)\s+(?:is|was|are|:)\s+(?:[^.\n'"\[\]\u0000]|'[A-Za-z]){3,80}|(?:admin|root|prod)\s+(?:password|passphrase)\s*[:=]\s*[^\s,;\[\]\u0000]+)/gi,
   },
   {
     category: "PERSONAL_PII_LOCATION",
     detector: "HEURISTIC_GUARD",
     minLevel: "medium",
     pattern:
-      /(?:\b(?:lives?\s+(?:near|at|on|in)|home\s+address|resides?\s+at)\s+[A-Z0-9][^.\n;)]{3,60}|\b(?:VP|CEO|CFO|CTO|Director|Customer|Client|Patient)\s+(?:of\s+[A-Za-z]+\s+)?\([A-Z][a-z]+\s+[A-Z][a-z]+[^)\n]{0,60}\))/g,
+      /(?:\b(?:lives?\s+(?:near|at|on|in)|home\s+address|resides?\s+at)\s+[A-Z0-9][^.\n;!?\)\[\]\u0000]{3,60}|\b(?:VP|CEO|CFO|CTO|Director|Customer|Client|Patient)\s+(?:of\s+[A-Za-z]+\s+)?\([A-Z][a-z]+\s+[A-Z][a-z]+[^)\n\[\]\u0000]{0,60}\))/g,
+    validator: (m) =>
+      !/^lives?\s+/i.test(m) || ADDRESS_INDICATOR_REGEX.test(m),
   },
 ];
 
@@ -218,6 +238,7 @@ function runRules(
   protectionLevel: ProtectionLevel = "medium",
 ): RedactionSpan[] {
   const spans: RedactionSpan[] = [];
+  const { scanBuffer, protectedRanges } = maskProtectedTokens(text);
   let counter = startCounter;
   const activeRank = LEVEL_RANK[protectionLevel];
 
@@ -228,7 +249,7 @@ function runRules(
     }
     const regex = new RegExp(rule.pattern.source, rule.pattern.flags);
     let match: RegExpExecArray | null;
-    while ((match = regex.exec(text)) !== null) {
+    while ((match = regex.exec(scanBuffer)) !== null) {
       const fullMatch = match[0];
       if (!fullMatch) {
         break;
@@ -236,7 +257,7 @@ function runRules(
       const groupIdx = rule.captureGroup;
       const matchedText =
         typeof groupIdx === "number" ? (match[groupIdx] ?? "") : fullMatch;
-      if (!matchedText) {
+      if (!matchedText || matchedText.includes("\u0000")) {
         continue;
       }
       if (rule.validator && !rule.validator(matchedText)) {
@@ -246,13 +267,17 @@ function runRules(
         typeof groupIdx === "number"
           ? match.index + Math.max(0, fullMatch.lastIndexOf(matchedText))
           : match.index;
+      const end = start + matchedText.length;
+      if (protectedRanges.some((pr) => start < pr.end && end > pr.start)) {
+        continue;
+      }
       spans.push({
         start,
-        end: start + matchedText.length,
+        end,
         category: rule.category,
         detector: rule.detector,
         placeholder: `[REDACTED:${rule.category}_${counter++}]`,
-        matchedText,
+        matchedText: text.slice(start, end),
         masked: true,
       });
     }
@@ -268,40 +293,62 @@ export function detectRegexSpans(
   return runRules(text, DETERMINISTIC_REGEX_RULES, 1, protectionLevel);
 }
 
+function isLikelyNormalIdentifier(val: string): boolean {
+  if (val.includes("/") || /\s/.test(val)) return true;
+  if (/^[a-z]+(?:[A-Z][a-z]+)+$/.test(val)) return true; // camelCase (localStorage, useEffect)
+  if (/^[a-z]+(?:-[a-z]+)+$/.test(val)) return true; // kebab-case (checkout-gateway)
+  return false;
+}
+
 export function detectHighEntropySecrets(
   text: string,
   entropyThreshold = 3.25,
 ): RedactionSpan[] {
   const spans: RedactionSpan[] = [];
+  const { scanBuffer, protectedRanges } = maskProtectedTokens(text);
   const normalizedThreshold = Number.isFinite(entropyThreshold) ? entropyThreshold : 3.25;
   const assignmentRegex =
-    /\b(?:api[_-]?key|x[_-]?api[_-]?key|secret|token|access[_-]?token|refresh[_-]?token|session[_-]?token|id[_-]?token|password|passwd|pwd|client[_-]?secret|signing[_-]?key|webhook[_-]?secret|private[_-]?key|auth[_-]?secret)\\?["']?\s*(?:[:=]|%3D)\s*\\?["']?([^\s"',;\\]{12,})\\?["']?/gi;
+    /\b(?:api[_-]?key|x[_-]?api[_-]?key|secret|token|access[_-]?token|refresh[_-]?token|session[_-]?token|id[_-]?token|password|passwd|pwd|client[_-]?secret|signing[_-]?key|webhook[_-]?secret|private[_-]?key|auth[_-]?secret)\\?["']?\s*(?:[:=]|%3D)\s*\\?["']?([^\s"',;\[\]\\/\u0000]{16,})\\?["']?/gi;
   let counter = 50;
   let match: RegExpExecArray | null;
 
-  while ((match = assignmentRegex.exec(text)) !== null) {
+  while ((match = assignmentRegex.exec(scanBuffer)) !== null) {
     const secretValue = match[1];
-    if (!secretValue || secretValue.startsWith("[REDACTED:")) continue;
+    if (
+      !secretValue ||
+      secretValue.includes("[REDACTED:") ||
+      secretValue.includes("\u0000") ||
+      isLikelyNormalIdentifier(secretValue)
+    ) {
+      continue;
+    }
     const entropy = shannonEntropy(secretValue);
-    const hasMixedClasses =
-      /[a-z]/.test(secretValue) &&
-      (/[A-Z0-9_-]/.test(secretValue) || /[^a-zA-Z0-9]/.test(secretValue));
+    const hasLower = /[a-z]/.test(secretValue);
+    const hasUpper = /[A-Z]/.test(secretValue);
+    const hasDigit = /[0-9]/.test(secretValue);
+    const hasSymbol = /[^A-Za-z0-9]/.test(secretValue);
+    const classCount = [hasLower, hasUpper, hasDigit, hasSymbol].filter(Boolean).length;
+    const hasStrongMix = classCount >= 3 || (hasDigit && /[_-]/.test(secretValue));
 
     const meetsThreshold =
-      entropy >= normalizedThreshold ||
-      (normalizedThreshold <= 3.25 && secretValue.length >= 16 && hasMixedClasses);
+      normalizedThreshold < 3.0
+        ? entropy >= normalizedThreshold
+        : !/^[a-z]+$/.test(secretValue) && hasStrongMix && entropy >= normalizedThreshold;
 
     if (meetsThreshold) {
       const valueOffset = match[0].lastIndexOf(secretValue);
       const start = match.index + Math.max(0, valueOffset);
       const end = start + secretValue.length;
+      if (protectedRanges.some((pr) => start < pr.end && end > pr.start)) {
+        continue;
+      }
       spans.push({
         start,
         end,
         category: "HIGH_ENTROPY_SECRET",
         detector: "ENTROPY_SCANNER",
         placeholder: `[REDACTED:HIGH_ENTROPY_SECRET_${counter++}]`,
-        matchedText: secretValue,
+        matchedText: text.slice(start, end),
         masked: true,
       });
     }
@@ -325,6 +372,7 @@ export function detectPolicyTermSpans(
 ): RedactionSpan[] {
   if (!customTerms || customTerms.length === 0) return [];
   const spans: RedactionSpan[] = [];
+  const { scanBuffer, protectedRanges } = maskProtectedTokens(text);
   let counter = startCounter;
 
   for (const rawTerm of customTerms) {
@@ -336,14 +384,22 @@ export function detectPolicyTermSpans(
     const regex = new RegExp(`${leading}${escaped}${trailing}`, "gi");
     let match: RegExpExecArray | null;
 
-    while ((match = regex.exec(text)) !== null) {
+    while ((match = regex.exec(scanBuffer)) !== null) {
+      const start = match.index;
+      const end = start + match[0].length;
+      if (
+        match[0].includes("\u0000") ||
+        protectedRanges.some((pr) => start < pr.end && end > pr.start)
+      ) {
+        continue;
+      }
       spans.push({
-        start: match.index,
-        end: match.index + match[0].length,
+        start,
+        end,
         category,
         detector: "POLICY_TERM",
         placeholder: `[REDACTED:${category}_${counter++}]`,
-        matchedText: match[0],
+        matchedText: text.slice(start, end),
         masked: true,
       });
     }

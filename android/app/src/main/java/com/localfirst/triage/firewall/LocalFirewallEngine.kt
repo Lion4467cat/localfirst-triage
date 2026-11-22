@@ -158,11 +158,28 @@ object LocalFirewallEngine {
             detector = DetectorSource.REGEX_FIREWALL,
             captureGroup = 1,
             pattern = Regex(
-                """\b(?:(?:api\s+key|apikey|secret\s+key|access\s+key|auth\s+token|bearer\s+token|private\s+token|client\s+secret)(?:\s+(?:is|was|are))?\s*(?:[:=]|->)?|(?:api_key|password|passcode|passwd)\s+(?:is|was|are|->))\s*([^\s"',;]{6,})""",
+                """\b(?:(?:api\s+key|apikey|secret\s+key|access\s+key|auth\s+token|bearer\s+token|private\s+token|client\s+secret)(?:\s+(?:is|was|are))?\s*(?:[:=]|->)?|(?:api_key|password|passcode|passwd)\s+(?:is|was|are|->))\s*([^\s"',;\[\]\u0000]{6,})""",
                 RegexOption.IGNORE_CASE,
             ),
-            validator = { !it.startsWith("[REDACTED:") },
+            validator = { !it.contains("[REDACTED:") && !it.contains("\u0000") },
         ),
+    )
+
+    private val ADDRESS_INDICATOR_REGEX = Regex(
+        """\b(?:\d{1,5}\s+[A-Za-z]|\d{5,6}\b|road|rd|street|st|ave|avenue|lane|ln|layout|nagar|sector|cross|main|block|apt|flat|floor)\b""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private val ORG_IDIOM_BLOCKLIST = setOf(
+        "progress", "production", "tech", "software", "silence", "general",
+        "home", "night", "remote", "shift", "me", "you", "us", "now", "free", "fine", "well", "scale",
+    )
+
+    private val NANO_STOPWORDS = setOf(
+        "the", "and", "for", "with", "this", "that", "from", "have", "will", "can",
+        "please", "help", "later", "tomorrow", "progress", "production", "scale",
+        "localhost", "you", "are", "was", "were", "not", "but", "all", "any",
+        "how", "who", "what", "when", "where", "why",
     )
 
     private val CONTEXTUAL_HEURISTIC_RULES: List<RegexRule> = listOf(
@@ -172,7 +189,7 @@ object LocalFirewallEngine {
             captureGroup = 1,
             minLevel = ProtectionLevel.MEDIUM,
             pattern = Regex(
-                """\b(?:my\s+name\s+is|i\s+am\s+called|call\s+me|patient\s+name(?:\s+is)?|customer\s+name(?:\s+is)?|full\s+name(?:\s+is)?|name\s*[:=])\s+([a-zA-Z][a-zA-Z.'-]{1,24}(?:\s+(?!(?:and|from|at|in|who|with|is|for|on|to)\b)[a-zA-Z][a-zA-Z.'-]{1,24})?)""",
+                """\b(?:my\s+name\s+is|i\s+am\s+called|patient\s+name(?:\s+is)?|customer\s+name(?:\s+is)?|full\s+name(?:\s+is)?|name\s*[:=])\s+([A-Za-z][A-Za-z'-]{1,24}(?:\s+(?!(?:and|is|was|from|at|in|who|with|but|so|to|for|on|please|can|will|working|living)\b)[A-Za-z][A-Za-z'-]{1,24}){0,2})""",
                 RegexOption.IGNORE_CASE,
             ),
         ),
@@ -182,7 +199,18 @@ object LocalFirewallEngine {
             captureGroup = 1,
             minLevel = ProtectionLevel.MEDIUM,
             pattern = Regex(
-                """\b(?:work(?:ing)?\s+(?:in|at|for)|employed\s+(?:at|by|with)|employee\s+(?:at|of))\s+(?!(?:a|an|the|my|our|this|that)\b)([A-Za-z0-9&._-]{2,28}(?:\s+(?:company|corp|corporation|inc|ltd|pvt|bank|insurance|technologies|tech|labs|group))?)""",
+                """\b(?:i\s+work\s+(?:in|at|for)|working\s+(?:at|for)|employed\s+(?:at|by)|my\s+company\s+is)\s+(?!(?:a|an|the|my|our|this|that|progress|production|tech|software|silence|general|home|night|remote|shift|me|you|us|now|free|fine|well|scale)\b)([A-Za-z0-9&._-]{2,28}(?:\s+(?:company|corp|corporation|inc|ltd|pvt|bank|insurance|technologies|tech|labs|group))?)""",
+                RegexOption.IGNORE_CASE,
+            ),
+            validator = { it.trim().lowercase() !in ORG_IDIOM_BLOCKLIST },
+        ),
+        RegexRule(
+            category = "ADDRESS",
+            detector = DetectorSource.HEURISTIC_GUARD,
+            captureGroup = 1,
+            minLevel = ProtectionLevel.MEDIUM,
+            pattern = Regex(
+                """\b(?:my\s+address\s+is|home\s+address(?:\s+is)?|shipping\s+address(?:\s+is)?|address\s*[:=]|residing\s+at|lives?\s+at)\s+((?:(?!\s+(?:and\s+(?:my|i|the|please|can|will|help)\b|my\s+(?:phone|email|name|api)\b|please\b|can\s+you\b))[^.\n;!?\u0000\[\]]){4,120})""",
                 RegexOption.IGNORE_CASE,
             ),
         ),
@@ -192,9 +220,10 @@ object LocalFirewallEngine {
             captureGroup = 1,
             minLevel = ProtectionLevel.MEDIUM,
             pattern = Regex(
-                """\b(?:live(?:s|d)?\s+(?:at|in|near)|home\s+address\s*(?:is|:)?|address\s*(?:is|:))\s+((?:(?!\s+(?:and\s+(?:my|i)\b|my\s+(?:phone|email|name|api)\b))[^\n;.]){4,120})""",
+                """\blive(?:s|d)?\s+(?:at|in|near)\s+((?:(?!\s+(?:and\s+(?:my|i|the|please|can|will|help)\b|my\s+(?:phone|email|name|api)\b|please\b|can\s+you\b))[^.\n;!?\u0000\[\]]){4,120})""",
                 RegexOption.IGNORE_CASE,
             ),
+            validator = { ADDRESS_INDICATOR_REGEX.containsMatchIn(it) },
         ),
         RegexRule(
             category = "ADDRESS",
@@ -211,7 +240,7 @@ object LocalFirewallEngine {
             detector = DetectorSource.HEURISTIC_GUARD,
             minLevel = ProtectionLevel.MEDIUM,
             pattern = Regex(
-                """\b(?:(?:admitted to|discharged from|diagnosed with|treated at|hospitalized at|undergoing)\s+[^.\n;)]{3,70}|(?:patient|daughter|son|wife|husband|mother|father)\b[^.\n;]{0,55}\b(?:ICU|ER|NICU|ward|hospital|clinic|chemo|chemotherapy|surgery|seizure|oncology|cardiology|biopsy|MRN|prescription)\b[^.\n;)]{0,40}\)?|(?:MRN|DOB|diagnosis)\s*[:#]\s*[^\n,;]+)""",
+                """\b(?:(?:admitted to|discharged from|diagnosed with|treated at|hospitalized at|undergoing)\s+[^.\n;)\[\]\u0000]{3,70}|(?:patient|daughter|son|wife|husband|mother|father)\b[^.\n;\[\]\u0000]{0,55}\b(?:ICU|ER|NICU|ward|hospital|clinic|chemo|chemotherapy|surgery|seizure|oncology|cardiology|biopsy|MRN|prescription)\b[^.\n;)\[\]\u0000]{0,40}\)?|(?:MRN|DOB|diagnosis)\s*[:#]\s*[^\n,;\[\]\u0000]+)""",
                 RegexOption.IGNORE_CASE,
             ),
         ),
@@ -229,7 +258,7 @@ object LocalFirewallEngine {
             detector = DetectorSource.HEURISTIC_GUARD,
             minLevel = ProtectionLevel.MEDIUM,
             pattern = Regex(
-                """\b(?:(?:log\s*in|sign\s*in|unlock|authenticate)\s+using\s+(?:[^.\n'"]|'[A-Za-z]){4,80}|(?:password|passcode|passphrase|pin|credentials?)\s+(?:is|was|are|:)\s+(?:[^.\n'"]|'[A-Za-z]){3,80}|(?:admin|root|prod)\s+(?:password|passphrase)\s*[:=]\s*[^\s,;]+)""",
+                """\b(?:(?:log\s*in|sign\s*in|unlock|authenticate)\s+using\s+(?:[^.\n'"\[\]\u0000]|'[A-Za-z]){4,80}|(?:password|passcode|passphrase|pin|credentials?)\s+(?:is|was|are|:)\s+(?:[^.\n'"\[\]\u0000]|'[A-Za-z]){3,80}|(?:admin|root|prod)\s+(?:password|passphrase)\s*[:=]\s*[^\s,;\[\]\u0000]+)""",
                 RegexOption.IGNORE_CASE,
             ),
         ),
@@ -238,13 +267,14 @@ object LocalFirewallEngine {
             detector = DetectorSource.HEURISTIC_GUARD,
             minLevel = ProtectionLevel.MEDIUM,
             pattern = Regex(
-                """(?:\b(?:lives?\s+(?:near|at|on|in)|home\s+address|resides?\s+at)\s+[A-Z0-9][^.\n;)]{3,60}|\b(?:VP|CEO|CFO|CTO|Director|Customer|Client|Patient)\s+(?:of\s+[A-Za-z]+\s+)?\([A-Z][a-z]+\s+[A-Z][a-z]+[^)\n]{0,60}\))""",
+                """(?:\b(?:lives?\s+(?:near|at|on|in)|home\s+address|resides?\s+at)\s+[A-Z0-9][^.\n;!?\)\[\]\u0000]{3,60}|\b(?:VP|CEO|CFO|CTO|Director|Customer|Client|Patient)\s+(?:of\s+[A-Za-z]+\s+)?\([A-Z][a-z]+\s+[A-Z][a-z]+[^)\n\[\]\u0000]{0,60}\))""",
             ),
+            validator = { !Regex("""^lives?\s+""", RegexOption.IGNORE_CASE).containsMatchIn(it) || ADDRESS_INDICATOR_REGEX.containsMatchIn(it) },
         ),
     )
 
     private val ENTROPY_ASSIGNMENT_REGEX = Regex(
-        """\b(?:api[_-]?key|x[_-]?api[_-]?key|secret|token|access[_-]?token|refresh[_-]?token|session[_-]?token|id[_-]?token|password|passwd|pwd|client[_-]?secret|signing[_-]?key|webhook[_-]?secret|private[_-]?key|auth[_-]?secret)\\?["']?\s*(?:[:=]|%3D)\s*\\?["']?([^\s"',;\\]{12,})\\?["']?""",
+        """\b(?:api[_-]?key|x[_-]?api[_-]?key|secret|token|access[_-]?token|refresh[_-]?token|session[_-]?token|id[_-]?token|password|passwd|pwd|client[_-]?secret|signing[_-]?key|webhook[_-]?secret|private[_-]?key|auth[_-]?secret)\\?["']?\s*(?:[:=]|%3D)\s*\\?["']?([^\s"',;\[\]\\/\u0000]{16,})\\?["']?""",
         RegexOption.IGNORE_CASE,
     )
 
@@ -440,6 +470,29 @@ object LocalFirewallEngine {
         return Regex("""^(?:http\s+\d{3}|err_[a-z0-9_]+)$""", RegexOption.IGNORE_CASE).matches(normalized)
     }
 
+    private fun maskProtectedTokens(rawText: String): Pair<String, List<IntRange>> {
+        val protectedRanges = PROTECTED_PLACEHOLDER_REGEX.findAll(rawText).map {
+            it.range.first..(it.range.last + 1)
+        }.toList()
+        if (protectedRanges.isEmpty()) return rawText to emptyList()
+        val sb = StringBuilder(rawText.length)
+        var cursor = 0
+        for (pr in protectedRanges) {
+            sb.append(rawText, cursor, pr.first)
+            repeat(pr.last - pr.first) { sb.append('\u0000') }
+            cursor = pr.last
+        }
+        sb.append(rawText, cursor, rawText.length)
+        return sb.toString() to protectedRanges
+    }
+
+    private fun isLikelyNormalIdentifier(value: String): Boolean {
+        if (value.contains('/') || value.any { it.isWhitespace() }) return true
+        if (Regex("""^[a-z]+(?:[A-Z][a-z]+)+$""").matches(value)) return true
+        if (Regex("""^[a-z]+(?:-[a-z]+)+$""").matches(value)) return true
+        return false
+    }
+
     private fun runRules(
         text: String,
         rules: List<RegexRule>,
@@ -447,15 +500,17 @@ object LocalFirewallEngine {
         protectionLevel: ProtectionLevel = ProtectionLevel.MEDIUM,
     ): List<RedactionSpan> {
         val spans = mutableListOf<RedactionSpan>()
+        val (scanBuffer, protectedRanges) = maskProtectedTokens(text)
         var counter = startCounter
         for (rule in rules) {
             if (protectionLevel.ordinal < rule.minLevel.ordinal) continue
-            for (match in rule.pattern.findAll(text)) {
+            for (match in rule.pattern.findAll(scanBuffer)) {
                 val group = rule.captureGroup?.let { match.groups[it] }
                 val matchedText = if (rule.captureGroup != null) group?.value.orEmpty() else match.value
                 val start = if (rule.captureGroup != null) group?.range?.first ?: continue else match.range.first
                 val end = if (rule.captureGroup != null) (group?.range?.last ?: continue) + 1 else match.range.last + 1
-                if (matchedText.isEmpty()) continue
+                if (matchedText.isEmpty() || matchedText.contains('\u0000')) continue
+                if (protectedRanges.any { pr -> start < pr.last && end > pr.first }) continue
                 if (rule.validator != null && !rule.validator.invoke(matchedText)) continue
                 spans.add(
                     RedactionSpan(
@@ -464,7 +519,7 @@ object LocalFirewallEngine {
                         category = rule.category,
                         detector = rule.detector,
                         placeholder = "[REDACTED:${rule.category}_${counter++}]",
-                        matchedText = matchedText,
+                        matchedText = text.substring(start, end),
                         masked = true,
                     ),
                 )
@@ -485,30 +540,47 @@ object LocalFirewallEngine {
     ): List<RedactionSpan> {
         val threshold = if (entropyThreshold.isFinite()) entropyThreshold else RuntimeConfigValues.DEFAULT_ENTROPY_THRESHOLD
         val spans = mutableListOf<RedactionSpan>()
+        val (scanBuffer, protectedRanges) = maskProtectedTokens(text)
         var counter = 50
 
-        for (match in ENTROPY_ASSIGNMENT_REGEX.findAll(text)) {
+        for (match in ENTROPY_ASSIGNMENT_REGEX.findAll(scanBuffer)) {
             val secretGroup = match.groups[1] ?: continue
             val secretValue = secretGroup.value
-            if (secretValue.isEmpty() || secretValue.startsWith("[REDACTED:")) continue
-            val entropy = shannonEntropy(secretValue)
-            val hasMixedClasses =
-                Regex("""[a-z]""").containsMatchIn(secretValue) &&
-                    (Regex("""[A-Z0-9_-]""").containsMatchIn(secretValue) ||
-                        Regex("""[^a-zA-Z0-9]""").containsMatchIn(secretValue))
+            if (
+                secretValue.isEmpty() ||
+                secretValue.contains("[REDACTED:") ||
+                secretValue.contains('\u0000') ||
+                isLikelyNormalIdentifier(secretValue)
+            ) {
+                continue
+            }
+            val start = secretGroup.range.first
+            val end = secretGroup.range.last + 1
+            if (protectedRanges.any { pr -> start < pr.last && end > pr.first }) continue
 
-            val meetsThreshold =
-                entropy >= threshold || (threshold <= 3.25 && secretValue.length >= 16 && hasMixedClasses)
+            val entropy = shannonEntropy(secretValue)
+            val hasLower = Regex("""[a-z]""").containsMatchIn(secretValue)
+            val hasUpper = Regex("""[A-Z]""").containsMatchIn(secretValue)
+            val hasDigit = Regex("""[0-9]""").containsMatchIn(secretValue)
+            val hasSymbol = Regex("""[^A-Za-z0-9]""").containsMatchIn(secretValue)
+            val classCount = listOf(hasLower, hasUpper, hasDigit, hasSymbol).count { it }
+            val hasStrongMix = classCount >= 3 || (hasDigit && Regex("""[_-]""").containsMatchIn(secretValue))
+
+            val meetsThreshold = if (threshold < 3.0) {
+                entropy >= threshold
+            } else {
+                !Regex("""^[a-z]+$""").matches(secretValue) && hasStrongMix && entropy >= threshold
+            }
 
             if (meetsThreshold) {
                 spans.add(
                     RedactionSpan(
-                        start = secretGroup.range.first,
-                        end = secretGroup.range.last + 1,
+                        start = start,
+                        end = end,
                         category = "HIGH_ENTROPY_SECRET",
                         detector = DetectorSource.ENTROPY_SCANNER,
                         placeholder = "[REDACTED:HIGH_ENTROPY_SECRET_${counter++}]",
-                        matchedText = secretValue,
+                        matchedText = text.substring(start, end),
                         masked = true,
                     ),
                 )
@@ -559,11 +631,21 @@ object LocalFirewallEngine {
 
     fun buildSemanticSpans(text: String, items: List<SemanticExtractionItem>): List<RedactionSpan> {
         val spans = mutableListOf<RedactionSpan>()
+        val (scanBuffer, protectedRanges) = maskProtectedTokens(text)
         var counter = 1
 
         for (item in items) {
             val phrase = item.phrase.trim()
-            if (phrase.length < 3 || isTechnicalAllowlisted(phrase)) continue
+            if (
+                phrase.length < 3 ||
+                phrase.contains("[REDACTED:") ||
+                phrase.contains('\u0000') ||
+                !Regex("""[A-Za-z0-9]""").containsMatchIn(phrase) ||
+                isTechnicalAllowlisted(phrase) ||
+                phrase.lowercase() in NANO_STOPWORDS
+            ) {
+                continue
+            }
             val escaped = Regex.escape(phrase)
             val leading = if (Regex("""^[A-Za-z0-9_]""").containsMatchIn(phrase)) "\\b" else ""
             val trailing = if (Regex("""[A-Za-z0-9_]$""").containsMatchIn(phrase)) "\\b" else ""
@@ -578,15 +660,20 @@ object LocalFirewallEngine {
                 .uppercase()
                 .replace(Regex("""[^A-Z0-9_]"""), "_")
 
-            for (match in regex.findAll(text)) {
+            for (match in regex.findAll(scanBuffer)) {
+                val start = match.range.first
+                val end = match.range.last + 1
+                if (match.value.contains('\u0000') || protectedRanges.any { pr -> start < pr.last && end > pr.first }) {
+                    continue
+                }
                 spans.add(
                     RedactionSpan(
-                        start = match.range.first,
-                        end = match.range.last + 1,
+                        start = start,
+                        end = end,
                         category = category,
                         detector = DetectorSource.NANO_SEMANTIC_FIREWALL,
                         placeholder = "[REDACTED:${category}_${counter++}]",
-                        matchedText = match.value,
+                        matchedText = text.substring(start, end),
                         masked = true,
                     ),
                 )
@@ -622,6 +709,7 @@ object LocalFirewallEngine {
 
         val safeSpans = spans.filter { span ->
             !span.matchedText.contains("[REDACTED:") &&
+                !span.matchedText.contains('\u0000') &&
                 protectedRanges.none { pr -> span.start < pr.last && span.end > pr.first }
         }
         if (safeSpans.isEmpty()) return rawText to emptyList()

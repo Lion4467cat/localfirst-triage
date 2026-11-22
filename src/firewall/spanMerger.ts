@@ -49,16 +49,53 @@ export function isTechnicalAllowlisted(phrase: string): boolean {
   return false;
 }
 
+const NANO_STOPWORDS = new Set([
+  "the", "and", "for", "with", "this", "that", "from", "have", "will", "can",
+  "please", "help", "later", "tomorrow", "progress", "production", "scale",
+  "localhost", "you", "are", "was", "were", "not", "but", "all", "any",
+  "how", "who", "what", "when", "where", "why",
+]);
+
+export function isValidNanoPhrase(phrase: string): boolean {
+  const trimmed = phrase.trim();
+  if (trimmed.length < 3) return false;
+  if (trimmed.includes("[REDACTED:") || trimmed.includes("\u0000")) return false;
+  if (!/[A-Za-z0-9]/.test(trimmed)) return false;
+  if (isTechnicalAllowlisted(trimmed)) return false;
+  if (NANO_STOPWORDS.has(trimmed.toLowerCase())) return false;
+  return true;
+}
+
+export function maskProtectedTokens(rawText: string): {
+  scanBuffer: string;
+  protectedRanges: Array<{ start: number; end: number }>;
+} {
+  const protectedRanges = getProtectedPlaceholderRanges(rawText);
+  if (protectedRanges.length === 0) {
+    return { scanBuffer: rawText, protectedRanges };
+  }
+  let scanBuffer = "";
+  let cursor = 0;
+  for (const pr of protectedRanges) {
+    scanBuffer += rawText.slice(cursor, pr.start);
+    scanBuffer += "\u0000".repeat(pr.end - pr.start);
+    cursor = pr.end;
+  }
+  scanBuffer += rawText.slice(cursor);
+  return { scanBuffer, protectedRanges };
+}
+
 export function buildSemanticSpans(
   text: string,
   items: SemanticExtractionItem[],
 ): RedactionSpan[] {
   const spans: RedactionSpan[] = [];
+  const { scanBuffer, protectedRanges } = maskProtectedTokens(text);
   let counter = 1;
 
   for (const item of items) {
     const phrase = item.phrase?.trim();
-    if (!phrase || phrase.length < 3 || isTechnicalAllowlisted(phrase)) {
+    if (!phrase || !isValidNanoPhrase(phrase)) {
       continue;
     }
 
@@ -74,9 +111,15 @@ export function buildSemanticSpans(
     const regex = new RegExp(pattern, "gi");
     let match: RegExpExecArray | null;
 
-    while ((match = regex.exec(text)) !== null) {
+    while ((match = regex.exec(scanBuffer)) !== null) {
       const start = match.index;
       const end = start + match[0].length;
+      if (
+        match[0].includes("\u0000") ||
+        protectedRanges.some((pr) => start < pr.end && end > pr.start)
+      ) {
+        continue;
+      }
 
       const category = (item.category || "SEMANTIC_PII").toUpperCase().replace(/[^A-Z0-9_]/g, "_");
       spans.push({
@@ -85,7 +128,7 @@ export function buildSemanticSpans(
         category,
         detector: "NANO_SEMANTIC_FIREWALL",
         placeholder: `[REDACTED:${category}_${counter++}]`,
-        matchedText: match[0],
+        matchedText: text.slice(start, end),
         masked: true,
       });
     }
@@ -124,7 +167,7 @@ function overlapsProtectedRange(
   span: RedactionSpan,
   protectedRanges: Array<{ start: number; end: number }>,
 ): boolean {
-  if (span.matchedText.includes("[REDACTED:")) return true;
+  if (span.matchedText.includes("[REDACTED:") || span.matchedText.includes("\u0000")) return true;
   return protectedRanges.some((pr) => span.start < pr.end && span.end > pr.start);
 }
 

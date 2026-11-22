@@ -31,7 +31,12 @@
   let isInjectingSafePaste = false;
   let activeHud = null;
   let typingDebounceTimer = null;
+  let cooldownTimer = null;
   let lastNanoSweptText = "";
+
+  function normalizeForDedup(s) {
+    return (s || "").replace(/\r\n/g, "\n").replace(/\s+/g, " ").trim();
+  }
 
   // Per-editor state machine: tracks last scrubbed/dismissed/bypassed text cleanly
   const editorStates = new WeakMap();
@@ -161,20 +166,20 @@
     return target.innerText || target.textContent || "";
   }
 
-  function releaseInjectingGuard(target) {
+  function releaseInjectingGuard(target, expectedSanitizedText) {
+    clearTimeout(typingDebounceTimer);
+    clearTimeout(cooldownTimer);
+    isInjectingSafePaste = true;
     const st = getEditorState(target);
     if (st) {
-      st.lastScrubbedText = getTargetText(target);
+      st.lastScrubbedText = normalizeForDedup(expectedSanitizedText ?? getTargetText(target));
     }
-    clearTimeout(typingDebounceTimer);
-    requestAnimationFrame(() => {
-      setTimeout(() => {
-        if (st) {
-          st.lastScrubbedText = getTargetText(target);
-        }
-        isInjectingSafePaste = false;
-      }, 0);
-    });
+    cooldownTimer = setTimeout(() => {
+      if (st) {
+        st.lastScrubbedText = normalizeForDedup(getTargetText(target));
+      }
+      isInjectingSafePaste = false;
+    }, 600);
   }
 
   function insertSafeText(target, savedSel, text) {
@@ -243,7 +248,7 @@
         }
       }
     } finally {
-      releaseInjectingGuard(target);
+      releaseInjectingGuard(target, text);
     }
   }
 
@@ -300,7 +305,7 @@
         }
       }
     } finally {
-      releaseInjectingGuard(target);
+      releaseInjectingGuard(target, nextText);
     }
   }
 
@@ -489,11 +494,15 @@
     };
 
     const handlePasteSafe = () => {
+      clearTimeout(typingDebounceTimer);
+      const st = getEditorState(target);
       if (mode === "draft" || mode === "send") {
         replaceTargetText(target, currentScan.sanitizedText);
+        if (st) st.lastScrubbedText = normalizeForDedup(currentScan.sanitizedText);
         recordAggregateTelemetry(currentScan.mergedSpans.length);
       } else {
         insertSafeText(target, savedSel, currentScan.sanitizedText);
+        if (st) st.lastScrubbedText = normalizeForDedup(getTargetText(target));
       }
       card.innerHTML = `
         <div class="lf-toast">
@@ -521,7 +530,7 @@
     const handleCancel = () => {
       const st = getEditorState(target);
       if (st && (mode === "draft" || mode === "send")) {
-        st.lastDismissedText = rawText;
+        st.lastDismissedText = normalizeForDedup(rawText);
       }
       destroyHud();
     };
@@ -534,7 +543,7 @@
       }
       const st = getEditorState(target);
       if (mode === "draft" || mode === "send") {
-        if (st) st.bypassedText = rawText;
+        if (st) st.bypassedText = normalizeForDedup(rawText);
       } else {
         insertSafeText(target, savedSel, rawText);
       }
@@ -616,13 +625,14 @@
     const fw = globalThis.LocalFirstFirewall;
     if (!fw?.scrubSync || !target) return false;
     const text = getTargetText(target);
-    if (!text.trim()) return false;
+    const normText = normalizeForDedup(text);
+    if (!normText) return false;
 
     const st = getEditorState(target);
     if (st) {
-      if (text === st.lastScrubbedText) return false;
-      if (text === st.bypassedText) return false;
-      if (mode === "draft" && text === st.lastDismissedText) return false;
+      if (normText === st.lastScrubbedText) return false;
+      if (normText === st.bypassedText) return false;
+      if (mode === "draft" && normText === st.lastDismissedText) return false;
     }
 
     const scan = fw.scrubSync(text, true, protectionLevel);
@@ -637,18 +647,22 @@
       return true;
     }
 
+    if (activeHud && activeHud.target === target) {
+      destroyHud();
+    }
+
     // In HIGH protection mode, run always-on Nano 4 semantic PII sweep on drafts >= 20 chars
     if (
       mode === "draft" &&
       protectionLevel === "high" &&
       text.length >= 20 &&
-      text !== lastNanoSweptText &&
+      normText !== lastNanoSweptText &&
       typeof globalThis.LanguageModel !== "undefined" &&
       fw.runExtensionNanoScan
     ) {
-      lastNanoSweptText = text;
+      lastNanoSweptText = normText;
       void fw.runExtensionNanoScan(text, { timeoutMs: 4000 }).then((nanoRes) => {
-        if (nanoRes?.mergedSpans?.length >= 1 && getTargetText(target) === text) {
+        if (nanoRes?.mergedSpans?.length >= 1 && normalizeForDedup(getTargetText(target)) === normText) {
           showShieldHud({
             target,
             savedSel: null,
@@ -683,9 +697,10 @@
     const fw = globalThis.LocalFirstFirewall;
     if (!fw?.scrubSync) return;
     const text = getTargetText(target);
-    if (!text.trim()) return;
+    const normText = normalizeForDedup(text);
+    if (!normText) return;
     const st = getEditorState(target);
-    if (st && (text === st.lastScrubbedText || text === st.bypassedText)) return;
+    if (st && (normText === st.lastScrubbedText || normText === st.bypassedText)) return;
     const scan = fw.scrubSync(text, true, protectionLevel);
     if (scan.mergedSpans.length >= 1) {
       event.preventDefault();
@@ -715,9 +730,10 @@
     if (!target) return;
 
     const text = getTargetText(target);
-    if (!text.trim()) return;
+    const normText = normalizeForDedup(text);
+    if (!normText) return;
     const st = getEditorState(target);
-    if (st && (text === st.lastScrubbedText || text === st.bypassedText)) return;
+    if (st && (normText === st.lastScrubbedText || normText === st.bypassedText)) return;
 
     const fw = globalThis.LocalFirstFirewall;
     if (!fw?.scrubSync) return;

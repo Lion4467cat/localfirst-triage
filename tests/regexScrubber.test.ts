@@ -290,4 +290,31 @@ describe("regexScrubber", () => {
       expect(pass3.sanitizedText).toBe(pass1.sanitizedText);
     }
   });
+
+  it("enforces zero false positives on everyday/dev prose and strict sentence boundary preservation", () => {
+    const zeroFpCases = [
+      "This feature is a work in progress and will go live in production tomorrow. Call me later if it breaks.",
+      "My app works at scale using localStorage and contenteditable inside checkout-gateway after v4.8.2 deploy.",
+      "Please explain how Docker containers talk to each other on localhost port 8080.",
+    ];
+    for (const prose of zeroFpCases) {
+      for (const level of ["low", "medium"] as const) {
+        const res = scanAndRedactLocal(prose, { protectionLevel: level, includeHeuristics: true });
+        expect(res.mergedSpans).toEqual([]);
+        expect(res.sanitizedText).toBe(prose);
+      }
+    }
+
+    const addrCase = "my address is 42 Oak Street, Koramangala, Bengaluru 560034. Please fix the login bug after this.";
+    const addrRes = scanAndRedactLocal(addrCase, { protectionLevel: "medium", includeHeuristics: true });
+    expect(addrRes.sanitizedText).not.toContain("42 Oak Street");
+    expect(addrRes.sanitizedText).not.toContain("560034");
+    expect(addrRes.sanitizedText).toContain("Please fix the login bug after this.");
+
+    const phoneCase = "my phone number is 9876543210 and my name is ravi. Can you help me write a python script?";
+    const phoneRes = scanAndRedactLocal(phoneCase, { protectionLevel: "medium", includeHeuristics: true });
+    expect(phoneRes.sanitizedText).not.toContain("9876543210");
+    expect(phoneRes.sanitizedText).not.toContain("ravi");
+    expect(phoneRes.sanitizedText).toContain("Can you help me write a python script?");
+  });
 });

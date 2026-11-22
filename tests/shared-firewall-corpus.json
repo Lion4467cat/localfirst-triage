@@ -53,5 +53,49 @@
         "mustPreserve": ["TypeError", "src/App.tsx:42:10", "react@19.0.0"]
       }
     }
+  },
+  {
+    "id": "zero-fp-everyday-prose-1",
+    "input": "This feature is a work in progress and will go live in production tomorrow. Call me later if it breaks.",
+    "levels": {
+      "low": { "expectZeroMasks": true },
+      "medium": { "expectZeroMasks": true }
+    }
+  },
+  {
+    "id": "zero-fp-dev-identifiers-2",
+    "input": "My app works at scale using localStorage and contenteditable inside checkout-gateway after v4.8.2 deploy.",
+    "levels": {
+      "low": { "expectZeroMasks": true },
+      "medium": { "expectZeroMasks": true }
+    }
+  },
+  {
+    "id": "zero-fp-docker-localhost-3",
+    "input": "Please explain how Docker containers talk to each other on localhost port 8080.",
+    "levels": {
+      "low": { "expectZeroMasks": true },
+      "medium": { "expectZeroMasks": true }
+    }
+  },
+  {
+    "id": "boundary-preservation-address-and-trailing-sentence",
+    "input": "my address is 42 Oak Street, Koramangala, Bengaluru 560034. Please fix the login bug after this.",
+    "levels": {
+      "medium": {
+        "mustNotContain": ["42 Oak Street", "Koramangala", "Bengaluru", "560034"],
+        "mustPreserve": ["Please fix the login bug after this."]
+      }
+    }
+  },
+  {
+    "id": "boundary-preservation-phone-name-and-trailing-question",
+    "input": "my phone number is 9876543210 and my name is ravi. Can you help me write a python script?",
+    "levels": {
+      "medium": {
+        "mustNotContain": ["9876543210", "ravi"],
+        "mustPreserve": ["Can you help me write a python script?"]
+      }
+    }
   }
 ]
