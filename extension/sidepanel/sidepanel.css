@@ -133,11 +133,32 @@ h1 {
   text-transform: uppercase;
 }
 
-.header-actions {
+.header-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tool-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
+  justify-content: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 4px 8px;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tool-chip:hover {
+  border-color: var(--mint-border);
+  color: var(--mint);
 }
 
 .sfx-btn {
@@ -151,8 +172,9 @@ h1 {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 10px;
   font-weight: 700;
-  padding: 5px 8px;
+  padding: 4px 8px;
   cursor: pointer;
+  margin-left: auto;
   transition: transform 0.12s ease, background-color 0.15s ease, border-color 0.15s ease;
 }
 
@@ -160,17 +182,6 @@ h1 {
   border-color: var(--border-subtle);
   background: var(--bg-subtle);
   color: var(--text-secondary);
-}
-
-.setup-mini-btn {
-  border: 1px solid var(--border-strong);
-  border-radius: 999px;
-  background: var(--bg-subtle);
-  color: var(--text-primary);
-  font-size: 10px;
-  font-weight: 600;
-  padding: 5px 8px;
-  cursor: pointer;
 }
 
 .setup-card {

@@ -31,36 +31,56 @@
             </div>
           </div>
 
-          <div class="header-actions">
-            <button
-              id="btn-open-setup"
-              type="button"
-              class="setup-mini-btn"
-              title="Open First-Run Setup"
-            >
-              Setup
-            </button>
-            <button
-              id="btn-sfx-toggle"
-              type="button"
-              aria-label="Toggle UI sound effects"
-              aria-pressed="true"
-              title="UI sound effects: On"
-              class="sfx-btn"
-            >
-              <span id="sfx-toggle-label">SFX</span>
-            </button>
-            <button
-              id="btn-shield-toggle"
-              type="button"
-              role="switch"
-              aria-checked="true"
-              class="shield-switch"
-            >
-              <span class="shield-switch-dot"></span>
-              <span id="shield-toggle-label">ON</span>
-            </button>
-          </div>
+          <button
+            id="btn-shield-toggle"
+            type="button"
+            role="switch"
+            aria-checked="true"
+            class="shield-switch"
+          >
+            <span class="shield-switch-dot"></span>
+            <span id="shield-toggle-label">ON</span>
+          </button>
+        </div>
+
+        <div class="header-toolbar" aria-label="Quick controls">
+          <a
+            id="btn-header-workbench"
+            href="https://para-1-2e22b.web.app/"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="tool-chip"
+            title="Open Cordon Live Workbench"
+          >
+            Workbench ↗
+          </a>
+          <button
+            id="btn-header-theme"
+            type="button"
+            class="tool-chip"
+            aria-label="Toggle color theme"
+            title="Switch Light / Dark theme"
+          >
+            Theme: Auto
+          </button>
+          <button
+            id="btn-open-setup"
+            type="button"
+            class="tool-chip"
+            title="Open First-Run Setup"
+          >
+            Setup
+          </button>
+          <button
+            id="btn-sfx-toggle"
+            type="button"
+            aria-label="Toggle UI sound effects"
+            aria-pressed="true"
+            title="UI sound effects: On"
+            class="sfx-btn"
+          >
+            <span id="sfx-toggle-label">SFX</span>
+          </button>
         </div>
 
         <div class="tab-status-row">
@@ -242,17 +262,11 @@
       <!-- Minimal Footer -->
       <footer class="panel-footer">
         <div class="footer-target">
-          <label for="workbench-target">Workbench</label>
+          <label for="workbench-target">Target</label>
           <select id="workbench-target">
             <option value="production">Production: para-1-2e22b.web.app</option>
             <option value="local">Local: localhost:4173</option>
           </select>
-        </div>
-
-        <div class="theme-group" role="group" aria-label="Color theme">
-          <button type="button" class="theme-btn" data-theme-choice="system" aria-pressed="true">Auto</button>
-          <button type="button" class="theme-btn" data-theme-choice="light" aria-pressed="false">Light</button>
-          <button type="button" class="theme-btn" data-theme-choice="dark" aria-pressed="false">Dark</button>
         </div>
       </footer>
     </main>

@@ -44,10 +44,13 @@ const LEVEL_CAPABILITIES = {
 };
 
 const SIDEPANEL_LM_OPTIONS = {
+  expectedInputs: [{ type: "text", languages: ["en"] }],
   expectedOutputs: [{ type: "text", languages: ["en"] }],
 };
 
 const nanoBadge = document.getElementById("nano-badge");
+const headerThemeBtn = document.getElementById("btn-header-theme");
+const headerWorkbenchBtn = document.getElementById("btn-header-workbench");
 const setupGate = document.getElementById("setup-gate");
 const setupModelStatus = document.getElementById("setup-model-status");
 const setupReadyView = document.getElementById("setup-ready-view");
@@ -194,8 +197,9 @@ function applyTheme(pref, persist = true) {
   root.style.colorScheme = resolved;
   root.classList.toggle("dark", resolved === "dark");
 
-  for (const btn of themeButtons) {
-    btn.setAttribute("aria-pressed", String(btn.getAttribute("data-theme-choice") === pref));
+  if (headerThemeBtn) {
+    const label = pref === "dark" ? "Dark" : pref === "light" ? "Light" : "Auto";
+    headerThemeBtn.textContent = `Theme: ${label}`;
   }
 
   if (persist) {
@@ -208,9 +212,19 @@ function applyTheme(pref, persist = true) {
 
 function setupThemeSwitcher() {
   applyTheme(readThemePreference(), false);
-  for (const btn of themeButtons) {
-    btn.addEventListener("click", () => applyTheme(btn.getAttribute("data-theme-choice") || "system", true));
-  }
+  headerThemeBtn?.addEventListener("click", () => {
+    const curr = readThemePreference();
+    const next = curr === "system" ? "light" : curr === "light" ? "dark" : "system";
+    applyTheme(next, true);
+  });
+  headerWorkbenchBtn?.addEventListener("click", async (ev) => {
+    const targetKey = workbenchTargetSelect?.value === "local" ? "local" : "production";
+    const url = WORKBENCH_URLS[targetKey];
+    if (typeof chrome !== "undefined" && chrome.tabs?.create) {
+      ev.preventDefault();
+      await chrome.tabs.create({ url, active: true });
+    }
+  });
   window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener?.("change", () => {
     if (readThemePreference() === "system") applyTheme("system", false);
   });
@@ -296,45 +310,111 @@ setupEnterBtn?.addEventListener("click", async () => {
   await persistSetupState("completed");
 });
 
+function formatEtaSeconds(totalSec) {
+  if (!Number.isFinite(totalSec) || totalSec <= 0) return "~1s left";
+  const mins = Math.floor(totalSec / 60);
+  const secs = Math.round(totalSec % 60);
+  return mins > 0 ? `~${mins}m ${secs}s left` : `~${secs}s left`;
+}
+
 setupDownloadBtn?.addEventListener("click", async () => {
   if (!globalThis.LanguageModel?.create) {
     await refreshNanoStatus();
     return;
   }
+
   setupDownloadBtn.disabled = true;
+  setupDownloadBtn.textContent = "Downloading…";
   if (setupDownloadProgress) setupDownloadProgress.hidden = false;
-  if (setupProgressFill) setupProgressFill.style.width = "5%";
-  if (setupProgressPct) setupProgressPct.textContent = "5%";
+  if (setupProgressFill) setupProgressFill.style.width = "0%";
+  if (setupProgressPct) setupProgressPct.textContent = "0%";
   if (setupModelFeedback) {
     setupModelFeedback.hidden = false;
-    setupModelFeedback.textContent = "Downloading on-device Gemini Nano 4 model…";
+    setupModelFeedback.textContent = "Connecting to Chrome model service...";
   }
+
+  const startTime = Date.now();
+  let lastLoggedPct = -1;
+  let pollTimer = null;
+  let settled = false;
+
+  const completeDownloadFlow = async () => {
+    if (settled) return;
+    settled = true;
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+    if (setupProgressFill) setupProgressFill.style.width = "100%";
+    if (setupProgressPct) setupProgressPct.textContent = "100%";
+    await refreshNanoStatus();
+    playPanelLock();
+    await persistSetupState("completed");
+  };
+
+  pollTimer = setInterval(async () => {
+    try {
+      const avail = await globalThis.LanguageModel.availability(SIDEPANEL_LM_OPTIONS);
+      if (avail === "readily" || avail === "available") {
+        await completeDownloadFlow();
+      }
+    } catch { /* ignore transient poll errors */ }
+  }, 3000);
 
   try {
     const session = await globalThis.LanguageModel.create({
       ...SIDEPANEL_LM_OPTIONS,
       monitor(m) {
         m.addEventListener("downloadprogress", (e) => {
-          const pct = Math.max(5, Math.min(100, Math.round((e.loaded ?? 0) * 100)));
+          let pct = 0;
+          if (typeof e.total === "number" && e.total > 1) {
+            pct = Math.round((e.loaded / e.total) * 100);
+          } else if (typeof e.loaded === "number") {
+            pct = Math.round(e.loaded <= 1 ? e.loaded * 100 : e.loaded);
+          }
+          pct = Math.max(0, Math.min(100, pct));
+
           if (setupProgressFill) setupProgressFill.style.width = `${pct}%`;
           if (setupProgressPct) setupProgressPct.textContent = `${pct}%`;
+
+          const elapsedSec = (Date.now() - startTime) / 1000;
+          if (setupModelFeedback) {
+            setupModelFeedback.hidden = false;
+            if (pct === 0) {
+              setupModelFeedback.textContent = "Preparing download...";
+            } else if (pct >= 100) {
+              setupModelFeedback.textContent = "Finalizing on-device model...";
+            } else if (elapsedSec >= 1 && pct > lastLoggedPct) {
+              const rate = pct / elapsedSec;
+              const etaSec = (100 - pct) / rate;
+              setupModelFeedback.textContent = `Downloading · ${pct}% · ${formatEtaSeconds(etaSec)}`;
+            } else {
+              setupModelFeedback.textContent = `Downloading · ${pct}%`;
+            }
+          }
+          lastLoggedPct = pct;
         });
       },
     });
     session?.destroy?.();
-    if (setupProgressFill) setupProgressFill.style.width = "100%";
-    if (setupProgressPct) setupProgressPct.textContent = "100%";
-    await refreshNanoStatus();
-    playPanelLock();
-    await persistSetupState("completed");
-  } catch {
-    await refreshNanoStatus();
-    if (setupModelFeedback) {
-      setupModelFeedback.hidden = false;
-      setupModelFeedback.textContent = "Download failed or paused. Try again or continue in Deterministic Mode.";
+    await completeDownloadFlow();
+  } catch (err) {
+    if (!settled) {
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+      await refreshNanoStatus();
+      if (setupModelFeedback) {
+        setupModelFeedback.hidden = false;
+        setupModelFeedback.textContent = `Download error: ${err?.message || "Unable to download model"}. Retry or continue in Deterministic Mode.`;
+      }
+      setupDownloadBtn.textContent = "Retry Model Download";
     }
   } finally {
+    if (pollTimer) clearInterval(pollTimer);
     setupDownloadBtn.disabled = false;
+    if (!settled) setupDownloadBtn.textContent = "Download On-Device Model";
   }
 });
 
