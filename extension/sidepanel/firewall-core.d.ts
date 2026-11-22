@@ -48,6 +48,18 @@ export function runExtensionNanoScan(
   mergedSpans: ExtensionSpan[];
 }>;
 
+export function shouldInterceptSendKey(input: {
+  key: string;
+  isTextarea: boolean;
+  ctrlKey?: boolean;
+  metaKey?: boolean;
+  shiftKey?: boolean;
+  altKey?: boolean;
+  level: "low" | "medium" | "high";
+}): boolean;
+
+export function isLikelyNonSendButton(label: string | null | undefined): boolean;
+
 export function buildSanitizedHandoffUrl(
   title: string,
   sanitizedText: string,

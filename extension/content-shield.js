@@ -241,8 +241,20 @@
       scanEpoch++;
       const { target, savedSel, rawText, trigger } = hudState;
       setHud({ mode: "HIDDEN" });
-      if (trigger === "SEND") lastBypassedNorm = normalize(rawText);
-      else insertAtSel(target, savedSel, rawText);
+      if (trigger === "SEND") {
+        // "Confirm Send Raw Once" must actually send: mark this exact draft as bypassed
+        // (so the click below is not re-intercepted) and fire the real Send control.
+        lastBypassedNorm = normalize(rawText);
+        setTimeout(() => {
+          if (!isAlive()) return;
+          const btn = hudState.sendBtn && document.contains(hudState.sendBtn)
+            ? hudState.sendBtn
+            : document.querySelector(SEND_SEL);
+          btn?.click();
+        }, 0);
+      } else {
+        insertAtSel(target, savedSel, rawText);
+      }
     };
   }
 
@@ -275,16 +287,16 @@
     const scan = fw.scrubSync(text, true, protectionLevel);
     if (scan.mergedSpans.length >= 1) {
       ev.preventDefault(); ev.stopImmediatePropagation();
-      setHud({ mode: "MODAL", trigger: "SEND", target: ed, savedSel: null, rawText: text, scan, bypassArmed: false });
+      setHud({ mode: "MODAL", trigger: "SEND", target: ed, savedSel: null, rawText: text, scan, bypassArmed: false, sendBtn });
       return;
     }
-    if (protectionLevel === "high" && text.length >= 20 && !text.includes("[REDACTED:") && fw.runExtensionNanoScan && globalThis.LanguageModel) {
+    if (protectionLevel !== "low" && text.length >= 20 && !text.includes("[REDACTED:") && fw.runExtensionNanoScan && globalThis.LanguageModel) {
       ev.preventDefault(); ev.stopImmediatePropagation();
       const myEpoch = ++scanEpoch;
       void fw.runExtensionNanoScan(text, { timeoutMs: 2500 }).then((nanoRes) => {
         if (!isAlive() || myEpoch !== scanEpoch || isMuted(ed)) return;
         if (nanoRes?.mergedSpans?.length >= 1) {
-          setHud({ mode: "MODAL", trigger: "SEND", target: ed, savedSel: null, rawText: text, scan: nanoRes, bypassArmed: false });
+          setHud({ mode: "MODAL", trigger: "SEND", target: ed, savedSel: null, rawText: text, scan: nanoRes, bypassArmed: false, sendBtn });
         } else {
           lastBypassedNorm = norm;
           (sendBtn || document.querySelector(SEND_SEL))?.click();
@@ -296,9 +308,22 @@
   function onKeyDown(ev) {
     if (!isAlive()) return;
     if (hudState.mode === "MODAL") { if (ev.key === "Escape") { ev.preventDefault(); hudShadow?.getElementById("lf-cancel")?.click(); } return; }
-    if (isOwnHudEvent(ev) || !shieldEnabled || protectionLevel === "low" || ev.key !== "Enter" || ev.shiftKey || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    if (isOwnHudEvent(ev) || !shieldEnabled || protectionLevel === "low") return;
     const ed = resolveEditor(ev);
-    if (ed && !isMuted(ed) && ed.tagName !== "TEXTAREA") handleSendAttempt(ev, ed, null);
+    if (!ed || isMuted(ed)) return;
+    const fw = globalThis.LocalFirstFirewall;
+    const isSendKey = fw?.shouldInterceptSendKey
+      ? fw.shouldInterceptSendKey({
+          key: ev.key,
+          isTextarea: ed.tagName === "TEXTAREA",
+          ctrlKey: ev.ctrlKey,
+          metaKey: ev.metaKey,
+          shiftKey: ev.shiftKey,
+          altKey: ev.altKey,
+          level: protectionLevel,
+        })
+      : ev.key === "Enter" && ed.tagName !== "TEXTAREA" && !ev.shiftKey && !ev.ctrlKey && !ev.metaKey && !ev.altKey;
+    if (isSendKey) handleSendAttempt(ev, ed, null);
   }
 
   function onClick(ev) {
@@ -306,6 +331,9 @@
     const el = ev.target?.nodeType === 3 ? ev.target.parentElement : ev.target;
     const sendBtn = el?.closest?.(SEND_SEL);
     if (!sendBtn) return;
+    const fw = globalThis.LocalFirstFirewall;
+    const label = `${sendBtn.getAttribute("aria-label") || ""} ${sendBtn.textContent || ""}`;
+    if (fw?.isLikelyNonSendButton?.(label)) return;
     const ed = resolveEditor(document.activeElement) || (lastEditor && document.contains(lastEditor) ? lastEditor : null) || document.querySelector('[contenteditable="true"], [role="textbox"], textarea');
     if (ed && !isMuted(ed)) handleSendAttempt(ev, ed, sendBtn);
   }

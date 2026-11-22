@@ -86,4 +86,27 @@ describe("auditReceipt (ECDSA P-256)", () => {
     const invalid = await verifyAuditReceipt(tampered);
     expect(invalid.valid).toBe(false);
   });
+
+  it("verifies a receipt after a JSON round-trip (export -> later verification)", async () => {
+    const receipt = await mintZeroLeakageAuditReceipt({
+      rawText,
+      sanitizedText,
+      result: baseResult,
+    });
+    const revived = JSON.parse(JSON.stringify(receipt));
+    const result = await verifyAuditReceipt(revived);
+    expect(result.valid).toBe(true);
+  });
+
+  it("uses one stable signing identity per session and rejects a tampered public key", async () => {
+    const first = await mintZeroLeakageAuditReceipt({ rawText, sanitizedText, result: baseResult });
+    const second = await mintZeroLeakageAuditReceipt({ rawText, sanitizedText, result: baseResult });
+    expect(first.keyThumbprintSha256).toBe(second.keyThumbprintSha256);
+
+    const originalX = second.publicKeyJwk.x ?? "";
+    const flippedX = (originalX[0] === "A" ? "B" : "A") + originalX.slice(1);
+    const tampered = { ...second, publicKeyJwk: { ...second.publicKeyJwk, x: flippedX } };
+    const result = await verifyAuditReceipt(tampered);
+    expect(result.valid).toBe(false);
+  });
 });

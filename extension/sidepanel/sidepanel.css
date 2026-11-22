@@ -194,6 +194,28 @@ h1 {
   gap: 8px;
 }
 
+.setup-steps {
+  margin: 2px 0 4px;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.setup-steps li strong {
+  color: var(--text-primary);
+}
+
+.setup-try-btn {
+  display: block;
+  text-align: center;
+  text-decoration: none;
+  margin-bottom: 6px;
+}
+
 .setup-progress-wrap {
   display: flex;
   align-items: center;

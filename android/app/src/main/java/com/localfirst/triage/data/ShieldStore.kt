@@ -44,6 +44,23 @@ data class BlockHistoryEntry(
     }
 }
 
+/**
+ * One plain-language sentence per shield state, so a first-time user always knows the
+ * single next action. Kept out of Compose so it is unit-testable.
+ */
+object ShieldSetupCopy {
+    fun helperLine(accessibilityEnabled: Boolean, paused: Boolean, guardedAppCount: Int): String = when {
+        !accessibilityEnabled ->
+            "Tap Enable, then turn on Cordon in the Android list, and come back here. " +
+                "After that, open ChatGPT and type a secret."
+        paused ->
+            "Shield is paused. Tap Resume so your next message is protected."
+        else ->
+            "Shield is on and watching $guardedAppCount apps. Open ChatGPT, Claude or a browser, " +
+                "type a secret, and tap Send."
+    }
+}
+
 object ShieldStore {
     const val PREFS_NAME = "localfirst_ui_prefs"
     private const val KEY_HISTORY = "cordon_zero_pii_history"
@@ -59,7 +76,13 @@ object ShieldStore {
         GuardedAppSpec("com.Slack", "Slack", true),
         GuardedAppSpec("com.whatsapp", "WhatsApp", true),
         GuardedAppSpec("com.discord", "Discord", true),
+        // Every major mobile browser, so "OS-wide" is not Chrome-only.
         GuardedAppSpec("com.android.chrome", "Chrome", true),
+        GuardedAppSpec("org.mozilla.firefox", "Firefox", true),
+        GuardedAppSpec("com.brave.browser", "Brave", true),
+        GuardedAppSpec("com.microsoft.emmx", "Edge", true),
+        GuardedAppSpec("com.sec.android.app.sbrowser", "Samsung Internet", true),
+        GuardedAppSpec("com.opera.browser", "Opera", true),
     )
 
     fun prefs(context: Context): SharedPreferences =

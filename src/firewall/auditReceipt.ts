@@ -6,6 +6,65 @@ import type {
 
 let sessionKeyPairPromise: Promise<CryptoKeyPair> | null = null;
 
+const KEY_DB_NAME = "localfirst_receipt_keys";
+const KEY_DB_VERSION = 1;
+const KEY_STORE = "ecdsa_p256";
+const KEY_ID = "device-signing-key";
+
+function openKeyDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(KEY_DB_NAME, KEY_DB_VERSION);
+    req.onupgradeneeded = () => {
+      if (!req.result.objectStoreNames.contains(KEY_STORE)) {
+        req.result.createObjectStore(KEY_STORE);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/** Reuse one P-256 key per browser profile so receipts stay verifiable across sessions. */
+async function loadOrCreatePersistentKeyPair(): Promise<CryptoKeyPair> {
+  if (typeof indexedDB === "undefined") {
+    return createEphemeralKeyPair();
+  }
+  try {
+    const db = await openKeyDb();
+    const stored = await new Promise<CryptoKeyPair | undefined>((resolve, reject) => {
+      const tx = db.transaction(KEY_STORE, "readonly");
+      const req = tx.objectStore(KEY_STORE).get(KEY_ID);
+      req.onsuccess = () => resolve(req.result as CryptoKeyPair | undefined);
+      req.onerror = () => reject(req.error);
+    });
+    if (stored?.privateKey && stored?.publicKey) {
+      db.close();
+      return stored;
+    }
+    const created = await createEphemeralKeyPair();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(KEY_STORE, "readwrite");
+      tx.objectStore(KEY_STORE).put(created, KEY_ID);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+    return created;
+  } catch {
+    // Private browsing / blocked IndexedDB: fall back to a session-scoped key.
+    return createEphemeralKeyPair();
+  }
+}
+
+function createEphemeralKeyPair(): Promise<CryptoKeyPair> {
+  const crypto = getWebCrypto();
+  return crypto.subtle.generateKey(
+    { name: "ECDSA", namedCurve: "P-256" },
+    false, // privateKey is non-extractable
+    ["sign", "verify"],
+  );
+}
+
 function getWebCrypto(): Crypto {
   if (typeof globalThis.crypto === "undefined" || !globalThis.crypto.subtle) {
     throw new Error("Web Crypto API (crypto.subtle) is unavailable in this environment.");
@@ -64,12 +123,7 @@ async function sha256Hex(input: string): Promise<string> {
 
 async function getSessionSigningKeyPair(): Promise<CryptoKeyPair> {
   if (!sessionKeyPairPromise) {
-    const crypto = getWebCrypto();
-    sessionKeyPairPromise = crypto.subtle.generateKey(
-      { name: "ECDSA", namedCurve: "P-256" },
-      false, // privateKey is non-extractable
-      ["sign", "verify"],
-    );
+    sessionKeyPairPromise = loadOrCreatePersistentKeyPair();
   }
   return sessionKeyPairPromise;
 }

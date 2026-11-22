@@ -729,6 +729,30 @@
     }
   }
 
+  const NON_SEND_LABELS = [
+    "save", "save changes", "cancel", "delete", "close", "search",
+    "sign in", "sign up", "log in", "login", "upload", "attach", "add files",
+  ];
+
+  /**
+   * Decides whether a keydown is a send attempt worth intercepting.
+   * Plain Enter sends in rich-text composers; textareas need Ctrl/Cmd+Enter so
+   * Enter keeps inserting newlines. Shift+Enter is always a newline.
+   */
+  function shouldInterceptSendKey({ key, isTextarea, ctrlKey, metaKey, shiftKey, altKey, level }) {
+    if (key !== "Enter" || level === "low") return false;
+    if (shiftKey || altKey) return false;
+    if (isTextarea) return Boolean(ctrlKey || metaKey);
+    return !ctrlKey && !metaKey;
+  }
+
+  /** Rejects form submits whose label is clearly not a Send action. */
+  function isLikelyNonSendButton(label) {
+    const norm = String(label || "").replace(/\s+/g, " ").trim().toLowerCase();
+    if (!norm) return false;
+    return NON_SEND_LABELS.some((bad) => norm === bad || norm.startsWith(`${bad} `));
+  }
+
   function buildSanitizedHandoffUrl(title, sanitizedText, baseUrl = "https://para-1-2e22b.web.app/") {
     const json = JSON.stringify({ title, sanitizedText });
     const bytes = new TextEncoder().encode(json);
@@ -749,5 +773,7 @@
     scrubSync,
     runExtensionNanoScan,
     buildSanitizedHandoffUrl,
+    shouldInterceptSendKey,
+    isLikelyNonSendButton,
   };
 })(typeof globalThis !== "undefined" ? globalThis : self);

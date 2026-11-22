@@ -486,6 +486,58 @@ class ShieldStoreAndBurstTest {
     }
 
     // =====================================================================
+    // Plain-language setup guidance shown on the Shield tab
+    // =====================================================================
+
+    @Test
+    fun `setup helper gives one clear next action per shield state`() {
+        val off = ShieldSetupCopy.helperLine(accessibilityEnabled = false, paused = false, guardedAppCount = 12)
+        assertTrue("disabled state must say how to enable", off.contains("Enable", ignoreCase = true))
+        assertTrue("disabled state must mention the settings list", off.contains("Cordon", ignoreCase = true))
+
+        val paused = ShieldSetupCopy.helperLine(accessibilityEnabled = true, paused = true, guardedAppCount = 12)
+        assertTrue("paused state must say resume", paused.contains("Resume", ignoreCase = true))
+
+        val on = ShieldSetupCopy.helperLine(accessibilityEnabled = true, paused = false, guardedAppCount = 12)
+        assertTrue("enabled state must say it is on", on.contains("on", ignoreCase = true))
+        assertTrue("enabled state must say where to try it", on.contains("ChatGPT"))
+        assertTrue("enabled state must state coverage", on.contains("12"))
+        assertFalse("enabled state must not ask to enable", on.contains("Enable", ignoreCase = true))
+    }
+
+    // =====================================================================
+    // Guarded-app coverage: every major browser must be shielded
+    // =====================================================================
+
+    @Test
+    fun `guarded apps cover all major mobile browsers and chat surfaces`() {
+        val packages = ShieldStore.DEFAULT_GUARDED_APPS.map { it.packageName }.toSet()
+        val requiredBrowsers = setOf(
+            "com.android.chrome",
+            "org.mozilla.firefox",
+            "com.brave.browser",
+            "com.microsoft.emmx",
+            "com.sec.android.app.sbrowser",
+            "com.opera.browser",
+        )
+        val requiredChat = setOf(
+            "com.openai.chatgpt",
+            "com.anthropic.claude",
+            "com.google.android.apps.bard",
+            "com.whatsapp",
+            "com.Slack",
+            "com.discord",
+        )
+        for (pkg in requiredBrowsers + requiredChat) {
+            assertTrue("missing guarded package: $pkg", packages.contains(pkg))
+        }
+        assertTrue(
+            "every guarded app must be enabled by default",
+            ShieldStore.DEFAULT_GUARDED_APPS.all { it.defaultEnabled },
+        )
+    }
+
+    // =====================================================================
     // ShieldGeometry: padding, screen clamp, editable clip, min touch target
     // =====================================================================
 

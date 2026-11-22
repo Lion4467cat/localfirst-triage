@@ -25,7 +25,7 @@
             <div class="brand-meta">
               <div class="brand-row">
                 <h1>CORDON SHIELD</h1>
-                <span class="ver-pill">v4.2</span>
+                <span class="ver-pill">v4.3.1</span>
               </div>
               <p class="subtitle">Zero-Leakage On-Device Firewall</p>
             </div>
@@ -94,7 +94,7 @@
           <span id="active-model-badge" class="model-pill">Model: Deterministic Rules Only</span>
         </div>
         <p id="tab-status-hint" class="tab-hint" hidden>
-          Auto-guard covers ChatGPT, Claude, Gemini, GitHub &amp; Slack.
+          Auto-guard covers ChatGPT, Claude, Gemini, GitHub, Slack &amp; Discord.
         </p>
       </header>
 
@@ -105,19 +105,39 @@
           <span id="setup-model-status" class="mode-tag">Checking…</span>
         </div>
 
+        <!-- Plain-language 3-step setup, always visible -->
+        <ol class="setup-steps">
+          <li id="setup-step-1">Leave the shield switch at the top on <strong>ON</strong>.</li>
+          <li id="setup-step-2">Open ChatGPT, Claude, Gemini, GitHub, Slack or Discord.</li>
+          <li id="setup-step-3">
+            Type or paste a secret and press <strong>Send</strong>. Cordon asks once:
+            <strong>Scrub &amp; Send</strong> or <strong>Send anyway</strong>.
+          </li>
+        </ol>
+        <a
+          class="btn secondary setup-try-btn"
+          href="https://chatgpt.com/"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Open ChatGPT to test ↗
+        </a>
+
         <!-- 1. Ready State -->
         <div id="setup-ready-view" class="setup-state-box" hidden>
-          <div class="setup-ready-title">On-Device AI Ready</div>
-          <p class="setup-step-desc">Gemini Nano 4 is active. Paste &amp; Send protection is armed.</p>
+          <div class="setup-ready-title">You're protected</div>
+          <p class="setup-step-desc">On-device AI is ready. Paste &amp; Send protection is armed.</p>
           <button id="btn-setup-enter" type="button" class="btn primary">
-            Enter Cordon →
+            Start using Cordon →
           </button>
         </div>
 
         <!-- 2. Downloadable / Downloading State -->
         <div id="setup-download-view" class="setup-state-box" hidden>
+          <div class="setup-ready-title">Optional: on-device AI (better detection)</div>
           <p class="setup-step-desc">
-            On-device AI is supported on this browser. Download the local model once for full contextual protection.
+            Cordon already works with built-in rules. Download the local model once to also catch
+            secrets written in plain English. This is optional and stays on your device.
           </p>
           <div id="setup-download-progress" class="setup-progress-wrap" hidden>
             <div class="setup-progress-track">
@@ -126,16 +146,19 @@
             <span id="setup-progress-pct" class="setup-progress-pct">0%</span>
           </div>
           <button id="btn-setup-download" type="button" class="btn primary">
-            Download On-Device Model
+            Download Model (optional)
           </button>
           <button id="btn-setup-skip-dl" type="button" class="btn-link-subtle">
-            Skip — Use Deterministic Only
+            Skip — use basic protection
           </button>
         </div>
 
         <!-- 3. Unavailable State -->
         <div id="setup-unavailable-view" class="setup-state-box" hidden>
-          <p class="setup-step-desc">On-device AI is unavailable in this browser.</p>
+          <p class="setup-step-desc">
+            Basic protection is already on. On-device AI is not available in this browser,
+            so English-language secrets may be missed.
+          </p>
           <div class="setup-option-row">
             <button type="button" class="setup-open-btn" data-open-url="chrome://settings/system">
               Open Chrome System Settings ↗
@@ -146,16 +169,16 @@
             Re-Check Status
           </button>
           <button id="btn-setup-skip-unavail" type="button" class="btn-link-subtle">
-            Continue in Deterministic Mode
+            Continue with basic protection
           </button>
         </div>
 
         <div id="setup-model-feedback" class="setup-feedback" hidden></div>
 
         <div id="setup-deterministic-warning" class="setup-warning" hidden>
-          <p>Local rules only — lower accuracy on unstructured PII/medical context.</p>
+          <p>Basic protection is on. It may miss secrets written in plain English.</p>
           <button id="btn-setup-confirm-det" type="button" class="btn warn-confirm">
-            Continue Anyway
+            Continue anyway
           </button>
         </div>
 

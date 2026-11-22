@@ -58,6 +58,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.localfirst.triage.data.ShieldSetupCopy
 import com.localfirst.triage.data.ShieldStore
 import com.localfirst.triage.firewall.LocalFirewallEngine
 import com.localfirst.triage.model.NanoStatus
@@ -215,6 +216,17 @@ fun ShieldScreen(
                         Text("Resume Background Shield", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
+
+                Text(
+                    text = ShieldSetupCopy.helperLine(
+                        accessibilityEnabled = isAccessibilityEnabled,
+                        paused = isShieldPaused,
+                        guardedAppCount = ShieldStore.DEFAULT_GUARDED_APPS.size,
+                    ),
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
             }
         }
 

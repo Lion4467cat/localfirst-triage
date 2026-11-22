@@ -3,8 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   buildSanitizedHandoffUrl,
+  isLikelyNonSendButton,
   mergeSpans,
   runLocalDeterministicScan,
+  shouldInterceptSendKey,
 } from "../extension/sidepanel/firewall-core.js";
 
 const EXT_DIR = path.resolve(process.cwd(), "extension");
@@ -79,6 +81,69 @@ describe("Chrome Extension MV3 companion", () => {
     expect(categories).toContain("NATURAL_SECRET");
     expect(categories).toContain("PERSONAL_PII_LOCATION");
     expect(categories).toContain("HIGH_ENTROPY_SECRET");
+  });
+
+  it("intercepts Enter sends in contenteditable and Ctrl/Cmd+Enter sends in textareas", () => {
+    // Plain Enter submits rich-text composers (ChatGPT/Claude/Slack)
+    expect(shouldInterceptSendKey({ key: "Enter", isTextarea: false, level: "medium" })).toBe(true);
+    // Plain Enter must keep inserting newlines in textareas
+    expect(shouldInterceptSendKey({ key: "Enter", isTextarea: true, level: "medium" })).toBe(false);
+    // Ctrl/Cmd+Enter is the submit shortcut for textarea composers (GitHub, Slack legacy)
+    expect(shouldInterceptSendKey({ key: "Enter", isTextarea: true, ctrlKey: true, level: "medium" })).toBe(true);
+    expect(shouldInterceptSendKey({ key: "Enter", isTextarea: true, metaKey: true, level: "medium" })).toBe(true);
+    // Shift+Enter is a newline everywhere; other keys and low protection pass through
+    expect(shouldInterceptSendKey({ key: "Enter", isTextarea: false, shiftKey: true, level: "medium" })).toBe(false);
+    expect(shouldInterceptSendKey({ key: "a", isTextarea: false, level: "medium" })).toBe(false);
+    expect(shouldInterceptSendKey({ key: "Enter", isTextarea: false, level: "low" })).toBe(false);
+  });
+
+  it("never mistakes save/cancel/delete submits for a Send control", () => {
+    for (const label of ["Save", "Save changes", "Cancel", "Delete", "Close", "Search", "Sign in", "Log in", "Upload"]) {
+      expect(isLikelyNonSendButton(label)).toBe(true);
+    }
+    for (const label of ["Send", "Send message", "Reply", "Post", "Submit", "Ask Gemini", ""]) {
+      expect(isLikelyNonSendButton(label)).toBe(false);
+    }
+  });
+
+  it("guards Discord and drops host permissions that never inject the shield", () => {
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(EXT_DIR, "manifest.json"), "utf8"),
+    ) as {
+      version: string;
+      host_permissions: string[];
+      content_scripts: Array<{ matches: string[] }>;
+    };
+    const matches = manifest.content_scripts.flatMap((entry) => entry.matches);
+    expect(matches).toContain("https://discord.com/*");
+    expect(manifest.host_permissions).toContain("https://discord.com/*");
+    for (const dead of ["atlassian.net", "zendesk.com", "pagerduty.com", "linear.app"]) {
+      expect(manifest.host_permissions.join(" ")).not.toContain(dead);
+    }
+    expect(manifest.version).toBe("4.3.1");
+  });
+
+  it("keeps package and extension versions in lockstep", () => {
+    const pkg = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), "package.json"), "utf8")) as {
+      version: string;
+    };
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(EXT_DIR, "manifest.json"), "utf8"),
+    ) as { version: string };
+    expect(pkg.version).toBe("4.3.1");
+    expect(manifest.version).toBe(pkg.version);
+  });
+
+  it("ships a three-step plain-language setup and names every guarded site", () => {
+    const html = fs.readFileSync(path.join(EXT_DIR, "sidepanel/sidepanel.html"), "utf8");
+    for (const id of ["setup-step-1", "setup-step-2", "setup-step-3"]) {
+      expect(html).toContain(`id="${id}"`);
+    }
+    expect(html).toMatch(/Open ChatGPT to test/i);
+    expect(html).toContain("Discord");
+    expect(html).toContain("v4.3.1");
+    // The model download must be presented as optional, never as a required first step.
+    expect(html).toMatch(/Optional:\s*on-device AI/i);
   });
 
   it("handles Unicode characters in Chrome Extension -> Web PWA handoff encoding", async () => {

@@ -53,11 +53,17 @@ service cloud.firestore {
         && !('constituentTexts' in data);
     }
 
-    // RE2 full-string matches guarding against unredacted AWS, Google/Firebase, and PEM secrets
+    // RE2 full-string matches guarding against unredacted credentials at the storage layer.
+    // Patterns avoid backslash escapes so they stay valid inside Firestore rules strings.
     function hasNoRawSecrets(text) {
       return !text.matches('(?s).*AKIA[0-9A-Z]{16}.*')
         && !text.matches('(?s).*AIza[0-9A-Za-z_-]{35}.*')
-        && !text.matches('(?s).*-----BEGIN [A-Z ]*PRIVATE KEY-----.*');
+        && !text.matches('(?s).*-----BEGIN [A-Z ]*PRIVATE KEY-----.*')
+        && !text.matches('(?s).*eyJ[A-Za-z0-9_-]{8,}[.][A-Za-z0-9_-]{8,}[.][A-Za-z0-9_-]{8,}.*')
+        && !text.matches('(?s).*sk_live_[A-Za-z0-9]{12,}.*')
+        && !text.matches('(?s).*sk_test_[A-Za-z0-9]{12,}.*')
+        && !text.matches('(?s).*xox[baprs]-[A-Za-z0-9-]{10,}.*')
+        && !text.matches('(?s).*gh[pousr]_[A-Za-z0-9]{20,}.*');
     }
 
     function areImmutableFieldsUnchanged() {

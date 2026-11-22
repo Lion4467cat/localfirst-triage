@@ -18,6 +18,7 @@ chrome.runtime.onInstalled.addListener(async () => {
     "https://gemini.google.com/*",
     "https://github.com/*",
     "https://app.slack.com/*",
+    "https://discord.com/*",
     "http://localhost/*",
   ];
   try {
