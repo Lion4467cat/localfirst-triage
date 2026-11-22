@@ -331,8 +331,8 @@
 .cordon-pointer-aura {
   background: radial-gradient(
     460px circle at var(--px, 50%) var(--py, 30%),
-    rgba(5, 150, 105, 0.085),
-    rgba(2, 132, 199, 0.04) 40%,
+    rgba(5, 150, 105, 0.18),
+    rgba(2, 132, 199, 0.10) 38%,
     transparent 70%
   );
 }
@@ -350,9 +350,9 @@
   background: linear-gradient(
     90deg,
     transparent 0%,
-    rgba(5, 150, 105, 0.07) 35%,
-    rgba(2, 132, 199, 0.09) 50%,
-    rgba(5, 150, 105, 0.07) 65%,
+    rgba(4, 120, 87, 0.22) 30%,
+    rgba(2, 132, 199, 0.34) 50%,
+    rgba(4, 120, 87, 0.22) 70%,
     transparent 100%
   );
 }
@@ -361,9 +361,9 @@
   background: linear-gradient(
     180deg,
     transparent 0%,
-    rgba(5, 150, 105, 0.07) 35%,
-    rgba(2, 132, 199, 0.09) 50%,
-    rgba(5, 150, 105, 0.07) 65%,
+    rgba(4, 120, 87, 0.22) 30%,
+    rgba(2, 132, 199, 0.34) 50%,
+    rgba(4, 120, 87, 0.22) 70%,
     transparent 100%
   );
 }
@@ -405,7 +405,11 @@
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
-  opacity: 0.55;
+  opacity: 0.85;
+}
+
+:root[data-theme="dark"] [data-edge-active="true"]::after {
+  opacity: 0.6;
 }
 
 @media (pointer: coarse) {
