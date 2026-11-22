@@ -13,7 +13,7 @@
     'button[data-testid="send-button"], button[aria-label*="Send" i], button.send-button, button[mattooltip*="Send" i], button[data-qa="texty_send_button"], button[type="submit"]';
 
   let shieldEnabled = true, protectionLevel = "medium", mutedUntil = 0, mutedTarget = null, lastEditor = null;
-  let scanEpoch = 0, typingTimer = null, hudHost = null, hudShadow = null;
+  let scanEpoch = 0, hudHost = null, hudShadow = null;
   let hudState = { mode: "HIDDEN", target: null, savedSel: null, rawText: "", scan: null, bypassArmed: false };
   let lastCleanNorm = "", lastDismissedNorm = "", lastBypassedNorm = "";
 
@@ -171,7 +171,6 @@
   function scrubCurrentDraft(ed, scan) {
     mutedTarget = ed;
     mutedUntil = Date.now() + 2000;
-    clearTimeout(typingTimer);
     scanEpoch++;
     setHud({ mode: "HIDDEN" });
     replaceEntireEditor(ed, scan.sanitizedText, scan.mergedSpans);
@@ -182,18 +181,24 @@
 
   function setHud(next) {
     if (!isAlive()) return;
-    hudState = { ...hudState, ...next };
+    const prev = hudState;
+    const nextState = { ...hudState, ...next };
+    if (
+      prev.mode === "MODAL" &&
+      nextState.mode === "MODAL" &&
+      prev.target === nextState.target &&
+      prev.rawText === nextState.rawText &&
+      prev.trigger === nextState.trigger &&
+      prev.bypassArmed === nextState.bypassArmed
+    ) {
+      return;
+    }
+    hudState = nextState;
     const host = ensureHost();
     host.dataset.lfState = hudState.mode;
     const box = hudShadow.getElementById("lf-box");
     if (hudState.mode === "HIDDEN" || !hudState.scan) { box.className = "box"; box.innerHTML = ""; return; }
     const count = hudState.scan.mergedSpans.length;
-    if (hudState.mode === "SILENT_PILL") {
-      box.className = "box pill";
-      box.innerHTML = `<span id="lf-pill-text">🛡️ ${count} secret${count === 1 ? "" : "s"}</span><button type="button" class="pri" id="lf-pill-scrub">Scrub</button>`;
-      hudShadow.getElementById("lf-pill-scrub").onclick = () => scrubCurrentDraft(hudState.target, hudState.scan);
-      return;
-    }
     const isSend = hudState.trigger === "SEND";
     const headline = isSend ? `Send Blocked — ${count} secret${count === 1 ? "" : "s"} detected` : `Blocked ${count} secret${count === 1 ? "" : "s"} locally`;
     const priLabel = isSend ? "Scrub Draft" : "Paste Safe Version";
@@ -234,49 +239,43 @@
     scanEpoch++;
     const scan = fw.scrubSync(rawText, true, protectionLevel);
     if (scan.mergedSpans.length === 0) return;
-    ev.preventDefault(); ev.stopImmediatePropagation(); clearTimeout(typingTimer);
+    ev.preventDefault(); ev.stopImmediatePropagation();
     recordStats(scan.mergedSpans.length);
     setHud({ mode: "MODAL", trigger: "PASTE", target: ed, savedSel: captureSel(ed), rawText, scan, bypassArmed: false });
   }
 
   function onInput(ev) {
-    if (!isAlive() || isOwnHudEvent(ev) || !shieldEnabled || protectionLevel === "low") return;
+    if (!isAlive() || isOwnHudEvent(ev) || !shieldEnabled) return;
     const ed = resolveEditor(ev);
-    if (!ed || isMuted(ed)) return;
+    if (!ed) return;
     lastEditor = ed;
-    const myEpoch = ++scanEpoch;
-    clearTimeout(typingTimer);
-    typingTimer = setTimeout(() => {
-      if (!isAlive() || myEpoch !== scanEpoch || isMuted(ed)) return;
-      const text = readEditorText(ed), norm = normalize(text), fw = globalThis.LocalFirstFirewall;
-      if (!fw?.scrubSync || !norm || norm === lastCleanNorm || norm === lastBypassedNorm || norm === lastDismissedNorm) {
-        if (hudState.mode === "SILENT_PILL") setHud({ mode: "HIDDEN" });
-        return;
-      }
-      const scan = fw.scrubSync(text, true, protectionLevel);
-      if (scan.mergedSpans.length >= 1) {
-        if (hudState.mode !== "MODAL") setHud({ mode: "SILENT_PILL", trigger: "TYPING", target: ed, savedSel: null, rawText: text, scan, bypassArmed: false });
-        return;
-      }
-      if (hudState.mode === "SILENT_PILL") setHud({ mode: "HIDDEN" });
-      if (protectionLevel === "high" && !text.includes("[REDACTED:") && text.length >= 20 && fw.runExtensionNanoScan && globalThis.LanguageModel) {
-        void fw.runExtensionNanoScan(text, { timeoutMs: 3500 }).then((nanoRes) => {
-          if (!isAlive() || myEpoch !== scanEpoch || isMuted(ed) || hudState.mode === "MODAL") return;
-          if (normalize(readEditorText(ed)) === norm && nanoRes?.mergedSpans?.length >= 1) {
-            setHud({ mode: "SILENT_PILL", trigger: "NANO", target: ed, savedSel: null, rawText: text, scan: nanoRes, bypassArmed: false });
-          }
-        });
-      }
-    }, 700);
+    const norm = normalize(readEditorText(ed));
+    if (norm !== lastDismissedNorm) lastDismissedNorm = "";
+    if (norm !== lastBypassedNorm) lastBypassedNorm = "";
   }
 
-  function handleSendAttempt(ev, ed) {
+  function handleSendAttempt(ev, ed, sendBtn = null) {
     const fw = globalThis.LocalFirstFirewall, text = readEditorText(ed), norm = normalize(text);
     if (!fw?.scrubSync || !norm || norm === lastCleanNorm || norm === lastBypassedNorm) return;
     const scan = fw.scrubSync(text, true, protectionLevel);
-    if (scan.mergedSpans.length === 0) return;
-    ev.preventDefault(); ev.stopImmediatePropagation(); clearTimeout(typingTimer);
-    setHud({ mode: "MODAL", trigger: "SEND", target: ed, savedSel: null, rawText: text, scan, bypassArmed: false });
+    if (scan.mergedSpans.length >= 1) {
+      ev.preventDefault(); ev.stopImmediatePropagation();
+      setHud({ mode: "MODAL", trigger: "SEND", target: ed, savedSel: null, rawText: text, scan, bypassArmed: false });
+      return;
+    }
+    if (protectionLevel === "high" && text.length >= 20 && !text.includes("[REDACTED:") && fw.runExtensionNanoScan && globalThis.LanguageModel) {
+      ev.preventDefault(); ev.stopImmediatePropagation();
+      const myEpoch = ++scanEpoch;
+      void fw.runExtensionNanoScan(text, { timeoutMs: 2500 }).then((nanoRes) => {
+        if (!isAlive() || myEpoch !== scanEpoch || isMuted(ed)) return;
+        if (nanoRes?.mergedSpans?.length >= 1) {
+          setHud({ mode: "MODAL", trigger: "SEND", target: ed, savedSel: null, rawText: text, scan: nanoRes, bypassArmed: false });
+        } else {
+          lastBypassedNorm = norm;
+          sendBtn?.click();
+        }
+      });
+    }
   }
 
   function onKeyDown(ev) {
@@ -284,15 +283,16 @@
     if (hudState.mode === "MODAL") { if (ev.key === "Escape") { ev.preventDefault(); hudShadow?.getElementById("lf-cancel")?.click(); } return; }
     if (isOwnHudEvent(ev) || !shieldEnabled || protectionLevel === "low" || ev.key !== "Enter" || ev.shiftKey || ev.ctrlKey || ev.metaKey || ev.altKey) return;
     const ed = resolveEditor(ev);
-    if (ed && !isMuted(ed) && ed.tagName !== "TEXTAREA") handleSendAttempt(ev, ed);
+    if (ed && !isMuted(ed) && ed.tagName !== "TEXTAREA") handleSendAttempt(ev, ed, null);
   }
 
   function onClick(ev) {
     if (!isAlive() || isOwnHudEvent(ev) || !shieldEnabled || protectionLevel === "low") return;
     const el = ev.target?.nodeType === 3 ? ev.target.parentElement : ev.target;
-    if (!el?.closest?.(SEND_SEL)) return;
+    const sendBtn = el?.closest?.(SEND_SEL);
+    if (!sendBtn) return;
     const ed = resolveEditor(document.activeElement) || (lastEditor && document.contains(lastEditor) ? lastEditor : null) || document.querySelector('[contenteditable="true"], [role="textbox"], textarea');
-    if (ed && !isMuted(ed)) handleSendAttempt(ev, ed);
+    if (ed && !isMuted(ed)) handleSendAttempt(ev, ed, sendBtn);
   }
 
   loadSettings();

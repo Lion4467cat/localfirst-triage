@@ -136,7 +136,7 @@ async function main() {
       throw new Error(`Expected safe redacted text in #sim-github-issue, got '${taAfter}'`);
     }
 
-    // 4. Typing 3 secrets in bursts into nested ProseMirror -> SILENT_PILL only (0 modals!)
+    // 4. Typing 3 secrets in bursts into nested ProseMirror -> ZERO HUD popups while typing!
     await page.evaluate(() => {
       window.__modalOpenCount = 0;
       window.__sendHandlerCallCount = 0;
@@ -145,26 +145,14 @@ async function main() {
       });
     });
     await page.locator("#sim-prosemirror p").click();
-    await page.keyboard.type("my phone number is 9876543210 ", { delay: 2 });
-    await page.waitForTimeout(850);
-    const pill1 = await page.evaluate(() => ({
-      state: document.querySelector("#localfirst-paste-shield-host")?.dataset?.lfState,
-      text: document.querySelector("#localfirst-paste-shield-host")?.shadowRoot?.querySelector("#lf-pill-text")?.textContent,
+    await page.keyboard.type("my phone number is 9876543210 and my name is ravi and my api key is 23224324234kjjjkjl", { delay: 2 });
+    await page.waitForTimeout(900);
+    const duringTyping = await page.evaluate(() => ({
+      state: document.querySelector("#localfirst-paste-shield-host")?.dataset?.lfState || "HIDDEN",
       modals: window.__modalOpenCount,
     }));
-    if (pill1.state !== "SILENT_PILL" || pill1.modals !== 0) {
-      throw new Error(`Expected SILENT_PILL and 0 modals while typing, got ${JSON.stringify(pill1)}`);
-    }
-
-    await page.keyboard.type("and my name is ravi and my api key is 23224324234kjjjkjl", { delay: 2 });
-    await page.waitForTimeout(850);
-    const pill2 = await page.evaluate(() => ({
-      state: document.querySelector("#localfirst-paste-shield-host")?.dataset?.lfState,
-      text: document.querySelector("#localfirst-paste-shield-host")?.shadowRoot?.querySelector("#lf-pill-text")?.textContent,
-      modals: window.__modalOpenCount,
-    }));
-    if (pill2.state !== "SILENT_PILL" || !pill2.text?.includes("3 secrets") || pill2.modals !== 0) {
-      throw new Error(`Expected updated SILENT_PILL with 3 secrets & 0 modals, got ${JSON.stringify(pill2)}`);
+    if (duringTyping.state !== "HIDDEN" || duringTyping.modals !== 0) {
+      throw new Error(`Expected HIDDEN and 0 modals while typing, got ${JSON.stringify(duringTyping)}`);
     }
 
     // 5. Clicking Send button -> opens MODAL EXACTLY ONCE (modalOpenCount === 1), blocks submit
