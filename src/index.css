@@ -217,6 +217,7 @@
 }
 
 .lf-card {
+  position: relative;
   background-color: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   box-shadow: var(--shadow-card);
@@ -387,10 +388,6 @@
     rgba(0, 229, 163, 0.08) 65%,
     transparent 100%
   );
-}
-
-:where([data-edge-active="true"]:not(.fixed):not(.absolute):not(.sticky)) {
-  position: relative;
 }
 
 [data-edge-active="true"]::after {

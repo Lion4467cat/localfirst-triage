@@ -91,7 +91,9 @@ export function PointerField() {
       }
 
       const targetEl = ev.target as Element | null;
-      const nextEdgeEl = (targetEl?.closest(EDGE_GLOW_SELECTOR) as HTMLElement | null) ?? null;
+      const candidateEl = (targetEl?.closest(EDGE_GLOW_SELECTOR) as HTMLElement | null) ?? null;
+      const nextEdgeEl =
+        candidateEl && getComputedStyle(candidateEl).position !== "static" ? candidateEl : null;
       if (hoveredEdgeEl && hoveredEdgeEl !== nextEdgeEl) {
         clearEdgeEl();
       }

@@ -480,9 +480,9 @@ export function HeroEngineDiagram({
           })}
         </div>
 
-        {/* Right Column: Sticky Live Interactive Preview Stage */}
+        {/* Right Column: Live Interactive Preview Stage (centered beside 01/02/03, zero sticky twitch) */}
         <div
-          className="lf-card rounded-2xl p-4 sm:p-5 md:sticky md:top-16"
+          className="lf-card rounded-2xl p-4 sm:p-5 md:self-center"
           style={{ borderColor: "var(--border-strong)" }}
         >
           <AnimatePresence mode="wait">
