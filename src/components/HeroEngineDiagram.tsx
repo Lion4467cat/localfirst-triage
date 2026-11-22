@@ -123,99 +123,104 @@ export function HeroEngineDiagram({
   const activeTooltip = CHAMBER_TOOLTIPS.find((c) => c.id === hoveredChamber) ?? null;
   const baseMed = baselineBench.webSrcFirewall.medium;
   const optMed = optimizedBench.webSrcFirewall.medium;
+  const medLatency = optimizedBench.extensionFirewallCore.medium.latency;
 
   return (
     <section
       id="story-top"
       ref={rootRef}
-      className="lf-hero-glow relative flex min-h-[calc(100dvh-48px)] flex-col justify-center gap-8 border-b px-4 py-10 lg:px-8"
+      className="lf-hero-glow relative flex flex-col justify-center gap-12 border-b px-4 py-10 lg:px-8 lg:py-14"
       style={{ borderColor: "var(--border-subtle)" }}
     >
-      <div className="mx-auto grid w-full max-w-[1440px] grid-cols-1 items-center gap-10 lg:grid-cols-[44fr_56fr]">
-        {/* Left Column: Crisp Copy & CTAs */}
+      {/* 00 · Oversized Editorial Hero */}
+      <div className="mx-auto grid w-full max-w-[1440px] grid-cols-1 items-center gap-10 lg:grid-cols-[46fr_54fr]">
+        {/* Left Column: Lando Kinetic Confidence × Two-Do Clarity */}
         <div className="space-y-6">
-          <div
-            className="inline-flex items-center gap-2 rounded-md border px-2.5 py-1 font-mono text-[11px] font-medium"
-            style={{
-              backgroundColor: "var(--bg-surface)",
-              borderColor: "var(--border-subtle)",
-              color: "var(--text-secondary)",
-            }}
-          >
-            <span
-              className="h-1.5 w-1.5 rounded-full"
-              style={{ backgroundColor: "var(--safe-solid)" }}
-            />
-            <span>Unified 3-Surface Firebase AI Logic Firewall · Chrome · Android · Web</span>
+          <div className="font-mono text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: "var(--text-secondary)" }}>
+            FIREBASE AI LOGIC · CHROME · ANDROID · WEB
           </div>
 
           <h1
-            className="text-4xl font-bold tracking-[-0.03em] sm:text-5xl lg:text-[3.35rem] lg:leading-[1.08]"
-            style={{ color: "var(--text-primary)" }}
+            className="font-display font-bold uppercase tracking-[-0.04em]"
+            style={{
+              fontSize: "clamp(2.5rem, 6vw, 4.75rem)",
+              lineHeight: 0.96,
+              color: "var(--text-primary)",
+            }}
           >
-            Keep secrets on your device. Send only safe context to AI.
+            <span
+              className="inline-block rounded-sm px-1.5 py-0.5"
+              style={{
+                backgroundColor: "var(--accent-primary)",
+                color: "var(--accent-on-primary)",
+              }}
+            >
+              ON DEVICE.
+            </span>
+            <br />
+            <span>NEVER IN CLOUD.</span>
           </h1>
 
           <p
             className="max-w-xl text-base leading-relaxed sm:text-lg"
             style={{ color: "var(--text-secondary)" }}
           >
-            One deterministic + on-device Gemini Nano 4 firewall protecting browser pastes (ChatGPT, Claude, Gemini, GitHub, Slack), Android OS text actions, and this live Firebase AI Logic Workbench.
+            An air-gapped hybrid AI firewall that traps secrets locally in {medLatency.medianMs.toFixed(2)}ms before they ever reach an LLM—across Chrome, Android, and Web.
           </p>
 
           <div className="flex flex-wrap items-center gap-3 pt-1">
             <button
               type="button"
               onClick={onJumpToWorkbench}
-              className="lf-btn-primary inline-flex min-h-[44px] items-center gap-2 rounded-xl px-5 text-sm font-semibold"
+              className="lf-btn-primary inline-flex min-h-[44px] items-center gap-2 rounded-lg px-5 text-sm font-bold"
             >
               <span>Run Live Workbench</span>
               <ArrowDown className="h-4 w-4" aria-hidden="true" />
             </button>
 
-            <button
-              type="button"
-              onClick={onJumpToProcess}
-              className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border px-4 text-sm font-medium"
+            <a
+              href="https://github.com/Lion4467cat/localfirst-triage/releases"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border px-4 text-xs font-semibold"
               style={{
-                backgroundColor: "var(--bg-surface)",
+                backgroundColor: "transparent",
                 borderColor: "var(--border-strong)",
                 color: "var(--text-primary)",
               }}
             >
-              <span>Inspect How It Works</span>
-              <ChevronDown className="h-4 w-4" aria-hidden="true" />
+              <span>Chrome Extension</span>
+              <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+            </a>
+
+            <a
+              href="https://github.com/Lion4467cat/localfirst-triage/releases"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border px-4 text-xs font-semibold"
+              style={{
+                backgroundColor: "transparent",
+                borderColor: "var(--border-strong)",
+                color: "var(--text-primary)",
+              }}
+            >
+              <span>Android APK</span>
+              <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+            </a>
+
+            <button
+              type="button"
+              onClick={onJumpToProcess}
+              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border px-3.5 text-xs font-medium"
+              style={{
+                backgroundColor: "transparent",
+                borderColor: "var(--border-subtle)",
+                color: "var(--text-secondary)",
+              }}
+            >
+              <span>01–03 Architecture</span>
+              <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
             </button>
-
-            <a
-              href="https://github.com/Lion4467cat/localfirst-triage/releases"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border px-3.5 text-xs font-semibold"
-              style={{
-                backgroundColor: "var(--bg-surface)",
-                borderColor: "var(--border-subtle)",
-                color: "var(--text-secondary)",
-              }}
-            >
-              <span>Chrome Extension (v4.2.0)</span>
-              <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-            </a>
-
-            <a
-              href="https://github.com/Lion4467cat/localfirst-triage/releases"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border px-3.5 text-xs font-semibold"
-              style={{
-                backgroundColor: "var(--bg-surface)",
-                borderColor: "var(--border-subtle)",
-                color: "var(--text-secondary)",
-              }}
-            >
-              <span>Android APK (v4.2.0)</span>
-              <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-            </a>
           </div>
         </div>
 
@@ -514,91 +519,108 @@ export function HeroEngineDiagram({
         </div>
       </div>
 
-      {/* Verified Third-Party Benchmarks Proof Strip (Data-Driven from benchmarks/*.json) */}
+      {/* Massive Pit-Wall Telemetry Strip (Data-Driven from third-party-optimized.json) */}
       <div
-        className="mx-auto w-full max-w-[1440px] rounded-2xl border p-4 sm:p-5"
+        className="mx-auto grid w-full max-w-[1440px] grid-cols-2 divide-y border sm:grid-cols-4 sm:divide-x sm:divide-y-0"
         style={{
           backgroundColor: "var(--bg-surface)",
           borderColor: "var(--border-subtle)",
         }}
       >
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <ShieldCheck className="h-4 w-4" style={{ color: "var(--safe-text)" }} aria-hidden="true" />
-            <h2 className="font-mono text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-primary)" }}>
-              Verified Third-Party Benchmarks
-            </h2>
+        <div className="p-4 sm:p-5">
+          <div className="font-display text-3xl font-bold tracking-tight tabular-nums sm:text-4xl" style={{ color: "var(--safe-text)" }}>
+            {optMed.suiteB.recallPct}%
           </div>
-          <span className="font-mono text-[11px]" style={{ color: "var(--text-muted)" }}>
+          <div className="mt-1 font-mono text-[11px] uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
+            Gitleaks {optMed.suiteB.caught}/{optMed.suiteB.total}
+          </div>
+        </div>
+        <div className="p-4 sm:p-5" style={{ borderColor: "var(--border-subtle)" }}>
+          <div className="font-display text-3xl font-bold tracking-tight tabular-nums sm:text-4xl" style={{ color: "var(--text-primary)" }}>
+            {medLatency.medianMs.toFixed(2)}ms
+          </div>
+          <div className="mt-1 font-mono text-[11px] uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
+            Median Local Scrub
+          </div>
+        </div>
+        <div className="p-4 sm:p-5" style={{ borderColor: "var(--border-subtle)" }}>
+          <div className="font-display text-3xl font-bold tracking-tight tabular-nums sm:text-4xl" style={{ color: "var(--nano-text)" }}>
+            {optMed.suiteC.fprPct.toFixed(1)}%
+          </div>
+          <div className="mt-1 font-mono text-[11px] uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
+            Benign Dev False Positives
+          </div>
+        </div>
+        <div className="p-4 sm:p-5" style={{ borderColor: "var(--border-subtle)" }}>
+          <div className="font-display text-3xl font-bold tracking-tight tabular-nums sm:text-4xl" style={{ color: "var(--text-primary)" }}>
+            0 B
+          </div>
+          <div className="mt-1 font-mono text-[11px] uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
+            Raw Secret Cloud Egress
+          </div>
+        </div>
+      </div>
+
+      {/* 01 · THE AIRGAP | 02 · VERIFIED THIRD-PARTY PROOF | 03 · THREE SURFACES */}
+      <div className="mx-auto grid w-full max-w-[1440px] gap-6 lg:grid-cols-3">
+        <div className="border-t pt-4" style={{ borderColor: "var(--border-strong)" }}>
+          <div className="font-mono text-[11px] font-bold uppercase tracking-wider" style={{ color: "var(--safe-text)" }}>
+            01 · The Airgap
+          </div>
+          <div className="mt-3 space-y-2.5 text-xs" style={{ color: "var(--text-secondary)" }}>
+            <p><strong style={{ color: "var(--text-primary)" }}>i. Deterministic &lt;1ms Floor:</strong> Regex, Luhn, IBAN mod-97, IPv4/IPv6 &amp; Shannon entropy lock secrets locally.</p>
+            <p><strong style={{ color: "var(--text-primary)" }}>ii. On-Device Gemini Nano 4:</strong> Chrome Gemma 4 reads unstructured medical, family &amp; M&amp;A context (<code className="font-mono">ONLY_ON_DEVICE</code>).</p>
+            <p><strong style={{ color: "var(--text-primary)" }}>iii. Fail-Closed Cloud Escalation:</strong> <code className="font-mono">verifyZeroLeakage()</code> blocks any unmasked span before Cloud Gemini.</p>
+          </div>
+        </div>
+
+        <div className="border-t pt-4" style={{ borderColor: "var(--border-strong)" }}>
+          <div className="font-mono text-[11px] font-bold uppercase tracking-wider" style={{ color: "var(--nano-text)" }}>
+            02 · Verified Third-Party Proof
+          </div>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full text-left font-mono text-[11px] tabular-nums">
+              <thead>
+                <tr className="border-b" style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}>
+                  <th className="py-1 pr-2">Suite</th>
+                  <th className="py-1 pr-2">Before</th>
+                  <th className="py-1">After</th>
+                </tr>
+              </thead>
+              <tbody style={{ color: "var(--text-primary)" }}>
+                <tr className="border-b" style={{ borderColor: "var(--border-subtle)" }}>
+                  <td className="py-1.5 pr-2">Gitleaks (42)</td>
+                  <td className="py-1.5 pr-2" style={{ color: "var(--text-secondary)" }}>{baseMed.suiteB.recallPct}%</td>
+                  <td className="py-1.5 font-bold" style={{ color: "var(--safe-text)" }}>{optMed.suiteB.recallPct}%</td>
+                </tr>
+                <tr className="border-b" style={{ borderColor: "var(--border-subtle)" }}>
+                  <td className="py-1.5 pr-2">ai4privacy A1</td>
+                  <td className="py-1.5 pr-2" style={{ color: "var(--text-secondary)" }}>{baseMed.suiteA1.recallPct}%</td>
+                  <td className="py-1.5 font-bold" style={{ color: "var(--nano-text)" }}>{optMed.suiteA1.recallPct}% + Nano 4</td>
+                </tr>
+                <tr>
+                  <td className="py-1.5 pr-2">Benign FPR</td>
+                  <td className="py-1.5 pr-2" style={{ color: "var(--text-secondary)" }}>{baseMed.suiteC.fprPct}%</td>
+                  <td className="py-1.5 font-bold" style={{ color: "var(--safe-text)" }}>{optMed.suiteC.fprPct}% (0 idemFail)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-2 font-mono text-[10px]" style={{ color: "var(--text-muted)" }}>
             Reproduce: <code>node scripts/benchmark-third-party.mjs</code>
-          </span>
+          </p>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-xl border p-3" style={{ backgroundColor: "var(--bg-subtle)", borderColor: "var(--border-subtle)" }}>
-            <div className="font-mono text-[10.5px] uppercase" style={{ color: "var(--text-secondary)" }}>
-              Gitleaks Upstream Creds
-            </div>
-            <div className="mt-1 flex items-baseline gap-2 font-mono text-xl font-bold tabular-nums" style={{ color: "var(--safe-text)" }}>
-              <span>{optMed.suiteB.recallPct}%</span>
-              <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
-                ({optMed.suiteB.caught}/{optMed.suiteB.total})
-              </span>
-            </div>
-            <div className="mt-0.5 text-[11px]" style={{ color: "var(--text-muted)" }}>
-              Up from {baseMed.suiteB.recallPct}% baseline · 0% dev FP
-            </div>
+        <div className="border-t pt-4" style={{ borderColor: "var(--border-strong)" }}>
+          <div className="font-mono text-[11px] font-bold uppercase tracking-wider" style={{ color: "var(--text-primary)" }}>
+            03 · Three Surfaces, One Engine
           </div>
-
-          <div className="rounded-xl border p-3" style={{ backgroundColor: "var(--bg-subtle)", borderColor: "var(--border-subtle)" }}>
-            <div className="font-mono text-[10.5px] uppercase" style={{ color: "var(--text-secondary)" }}>
-              Global Structured PII
-            </div>
-            <div className="mt-1 flex items-baseline gap-2 font-mono text-xl font-bold tabular-nums" style={{ color: "var(--nano-text)" }}>
-              <span>{optMed.suiteA1.recallPct}%</span>
-              <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
-                ({optMed.suiteA1.caught}/{optMed.suiteA1.total}) + Nano 4
-              </span>
-            </div>
-            <div className="mt-0.5 text-[11px]" style={{ color: "var(--text-muted)" }}>
-              Up from {baseMed.suiteA1.recallPct}% floor · Gemma 4 handles NER
-            </div>
-          </div>
-
-          <div className="rounded-xl border p-3" style={{ backgroundColor: "var(--bg-subtle)", borderColor: "var(--border-subtle)" }}>
-            <div className="font-mono text-[10.5px] uppercase" style={{ color: "var(--text-secondary)" }}>
-              Dev / Code False Positives
-            </div>
-            <div className="mt-1 flex items-baseline gap-2 font-mono text-xl font-bold tabular-nums" style={{ color: "var(--safe-text)" }}>
-              <span>0.0%</span>
-              <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
-                ({optMed.suiteC.fprPct}% corpus)
-              </span>
-            </div>
-            <div className="mt-0.5 text-[11px]" style={{ color: "var(--text-muted)" }}>
-              0 flags on stack traces, TS, SQL, Dockerfiles
-            </div>
-          </div>
-
-          <div className="rounded-xl border p-3" style={{ backgroundColor: "var(--bg-subtle)", borderColor: "var(--border-subtle)" }}>
-            <div className="font-mono text-[10.5px] uppercase" style={{ color: "var(--text-secondary)" }}>
-              Deterministic Speed
-            </div>
-            <div className="mt-1 flex items-baseline gap-2 font-mono text-xl font-bold tabular-nums" style={{ color: "var(--text-primary)" }}>
-              <span>{optimizedBench.extensionFirewallCore.medium.latency.medianMs.toFixed(2)}ms</span>
-              <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
-                ({optimizedBench.extensionFirewallCore.medium.latency.p95Ms.toFixed(2)}ms P95)
-              </span>
-            </div>
-            <div className="mt-0.5 text-[11px]" style={{ color: "var(--text-muted)" }}>
-              {optMed.idempotencyFailures} idempotency failures · 0 raw cloud bytes
-            </div>
+          <div className="mt-3 space-y-2.5 text-xs" style={{ color: "var(--text-secondary)" }}>
+            <p><strong style={{ color: "var(--text-primary)" }}>Chrome Extension:</strong> Live Paste &amp; Send guardrail on ChatGPT, Claude, Gemini, GitHub &amp; Slack.</p>
+            <p><strong style={{ color: "var(--text-primary)" }}>Android App:</strong> OS-wide <code className="font-mono">Scrub with LocalFirst</code> + Share Sheet + Kotlin <code className="font-mono">firebase-ai</code>.</p>
+            <p><strong style={{ color: "var(--text-primary)" }}>Web PWA:</strong> Hybrid Workbench, &lt;5ms IndexedDB Dedup, RAM Rehydration &amp; ECDSA Receipts.</p>
           </div>
         </div>
-
-        <p className="mt-2.5 text-[11px]" style={{ color: "var(--text-muted)" }}>
-          Provenance: <code>gitleaks/gitleaks</code> (<code>config/gitleaks.toml</code>) &amp; <code>ai4privacy/pii-masking-200k</code> (150 English rows) + 100 clean dev/prose chunks. Web &amp; Chrome Extension engines match 100%.
-        </p>
       </div>
     </section>
   );

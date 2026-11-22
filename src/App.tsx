@@ -846,7 +846,13 @@ export function App() {
           <main
             id="workbench-act"
             ref={workbenchRef}
-            className="mx-auto flex w-full max-w-[1680px] flex-col gap-3 p-3 scroll-mt-12 lg:h-[calc(100dvh-48px)] lg:min-h-[620px] lg:overflow-hidden lg:p-4"
+            className={`mx-auto flex w-full max-w-[1680px] flex-col gap-3 rounded-xl p-3 scroll-mt-12 lg:h-[calc(100dvh-48px)] lg:min-h-[620px] lg:overflow-hidden lg:p-4 ${
+              isRunning || isGeneratingBrief
+                ? "lf-running-border"
+                : currentResult
+                  ? "lf-verified-border"
+                  : ""
+            }`}
           >
             <LivePipelineRail
               currentResult={currentResult}

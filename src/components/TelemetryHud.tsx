@@ -116,15 +116,21 @@ export function TelemetryHud({
       }}
     >
       <div className="mx-auto flex min-h-12 max-w-[1680px] flex-wrap items-center justify-between gap-2 py-1.5 lg:h-12 lg:flex-nowrap lg:py-0">
-        {/* Left: Bespoke Geometric Airgap Mark + Live Hardware Status Dot */}
+        {/* Left: Bespoke Geometric Airgap Mark + Word-First Hardware Status */}
         <div className="flex min-w-0 items-center gap-2.5">
           <div className="flex items-center gap-2">
             <BrandLogo size={22} />
             <span
-              className="text-sm font-semibold tracking-tight"
+              className="font-display text-sm font-bold tracking-tight uppercase"
               style={{ color: "var(--text-primary)" }}
             >
-              LocalFirst
+              LOCALFIRST
+            </span>
+            <span
+              className="hidden font-mono text-[10px] font-medium uppercase tracking-wider sm:inline"
+              style={{ color: "var(--text-muted)" }}
+            >
+              v4.2 · HYBRID AIRGAP
             </span>
           </div>
 
@@ -135,21 +141,14 @@ export function TelemetryHud({
           />
 
           <div
-            className="hidden items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium sm:inline-flex"
+            className="hidden items-center gap-1.5 rounded border px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider sm:inline-flex"
             style={{
-              backgroundColor: "var(--bg-subtle)",
-              borderColor: "var(--border-subtle)",
-              color: "var(--text-secondary)",
+              backgroundColor: nanoReady ? "var(--nano-bg)" : "var(--safe-bg)",
+              borderColor: nanoReady ? "var(--nano-border)" : "var(--safe-border)",
+              color: nanoReady ? "var(--nano-text)" : "var(--safe-text)",
             }}
           >
-            <span
-              className="h-1.5 w-1.5 rounded-full"
-              style={{
-                backgroundColor: nanoReady ? "var(--nano-solid)" : "var(--safe-solid)",
-              }}
-              aria-hidden="true"
-            />
-            <span>{nanoReady ? "Nano 4 Ready" : "Local Shield Active"}</span>
+            <span>{nanoReady ? "ON-DEVICE READY" : "DETERMINISTIC FLOOR"}</span>
           </div>
 
           {telemetry.nanoStatus === "DOWNLOADABLE" && (

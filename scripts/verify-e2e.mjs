@@ -64,7 +64,7 @@ async function main() {
     });
 
     await page.goto(BASE_URL, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector("text=Keep secrets on your device. Send only safe context to AI.");
+    await page.waitForSelector("text=NEVER IN CLOUD.");
 
     // 0. Verify live Anime.js v4 Hero SVG animation across two frames 350ms apart
     const frameA = await page.evaluate(() => {
