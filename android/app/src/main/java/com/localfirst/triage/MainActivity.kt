@@ -36,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -93,7 +94,7 @@ class MainActivity : ComponentActivity() {
                 val vm: TriageViewModel = viewModel()
                 val state by vm.uiState.collectAsStateWithLifecycle()
                 var activeTab by remember { mutableIntStateOf(0) }
-                var showSetupScreen by remember {
+                var showSetupScreen by rememberSaveable {
                     mutableStateOf(!prefs.getBoolean("cordon_setup_done", false))
                 }
                 val sharedPayload by pendingSharedText

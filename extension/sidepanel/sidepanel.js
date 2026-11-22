@@ -46,12 +46,15 @@ const LEVEL_CAPABILITIES = {
 const nanoBadge = document.getElementById("nano-badge");
 const setupGate = document.getElementById("setup-gate");
 const setupModelStatus = document.getElementById("setup-model-status");
+const setupModelFeedback = document.getElementById("setup-model-feedback");
 const setupCheckModelBtn = document.getElementById("btn-setup-check-model");
 const setupCompleteBtn = document.getElementById("btn-setup-complete");
 const setupSkipBtn = document.getElementById("btn-setup-skip");
 const setupDetWarning = document.getElementById("setup-deterministic-warning");
 const setupConfirmDetBtn = document.getElementById("btn-setup-confirm-det");
 const openSetupBtn = document.getElementById("btn-open-setup");
+const copyInlineBtns = Array.from(document.querySelectorAll("[data-copy-text]"));
+const setupExtLinks = Array.from(document.querySelectorAll(".setup-ext-link"));
 const sfxToggleBtn = document.getElementById("btn-sfx-toggle");
 const sfxToggleLabel = document.getElementById("sfx-toggle-label");
 const shieldToggleBtn = document.getElementById("btn-shield-toggle");
@@ -262,18 +265,60 @@ openSetupBtn?.addEventListener("click", () => {
 });
 
 setupCheckModelBtn?.addEventListener("click", async () => {
+  if (setupModelFeedback) {
+    setupModelFeedback.hidden = false;
+    setupModelFeedback.textContent = "Checking on-device model availability…";
+  }
   const avail = await refreshNanoStatus();
   if ((avail === "downloadable" || avail === "after-download") && globalThis.LanguageModel?.create) {
     if (setupModelStatus) setupModelStatus.textContent = "Downloading…";
+    if (setupModelFeedback) setupModelFeedback.textContent = "Starting on-device model download…";
     try {
       const session = await globalThis.LanguageModel.create(TEXT_ONLY_OPTIONS);
       session?.destroy?.();
-      await refreshNanoStatus();
+      const postAvail = await refreshNanoStatus();
+      if (setupModelFeedback) setupModelFeedback.textContent = `Model status: ${postAvail}`;
     } catch {
       await refreshNanoStatus();
+      if (setupModelFeedback) setupModelFeedback.textContent = "Model download requires Chrome AI flags enabled.";
     }
+    return;
+  }
+  if (setupModelFeedback) {
+    setupModelFeedback.textContent =
+      avail === "readily" || avail === "available"
+        ? "On-device Gemini Nano 4 is ready."
+        : "On-device model unavailable — deterministic firewall is active, or enable Chrome flags above.";
   }
 });
+
+for (const btn of copyInlineBtns) {
+  btn.addEventListener("click", async () => {
+    const text = btn.getAttribute("data-copy-text");
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // Fallback for restricted contexts
+    }
+    const prev = btn.textContent;
+    btn.textContent = "Copied!";
+    setTimeout(() => {
+      btn.textContent = prev || "Copy";
+    }, 1400);
+  });
+}
+
+for (const link of setupExtLinks) {
+  link.addEventListener("click", async (ev) => {
+    const href = link.getAttribute("href");
+    if (!href) return;
+    if (typeof chrome !== "undefined" && chrome.tabs?.create) {
+      ev.preventDefault();
+      await chrome.tabs.create({ url: href });
+    }
+  });
+}
 
 setupCompleteBtn?.addEventListener("click", async () => {
   playPanelLock();

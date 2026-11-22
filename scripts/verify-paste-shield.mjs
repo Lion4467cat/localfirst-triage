@@ -221,6 +221,40 @@ async function main() {
       throw new Error("Side panel has horizontal overflow at 360px width");
     }
 
+    // Verify First-Run Setup Gate: visible initially, interactive buttons, disappears after confirm, stays hidden on reload
+    if (!(await spPage.locator("#setup-gate").isVisible())) {
+      throw new Error("Expected #setup-gate to be visible on first launch");
+    }
+    await spPage.locator("#btn-setup-check-model").click();
+    await spPage.waitForTimeout(100);
+    const feedbackText = await spPage.locator("#setup-model-feedback").textContent();
+    if (!feedbackText || !feedbackText.trim()) {
+      throw new Error("Expected #setup-model-feedback to show status after clicking Check Model");
+    }
+    await spPage.locator("#btn-setup-skip").click();
+    if (!(await spPage.locator("#setup-deterministic-warning").isVisible())) {
+      throw new Error("Expected #setup-deterministic-warning to appear after clicking Skip");
+    }
+    await spPage.locator("#btn-setup-confirm-det").click();
+    await spPage.waitForTimeout(100);
+    if (await spPage.locator("#setup-gate").isVisible()) {
+      throw new Error("Expected #setup-gate to disappear after confirming Deterministic Mode");
+    }
+    await spPage.reload({ waitUntil: "domcontentloaded" });
+    await spPage.waitForTimeout(200);
+    if (await spPage.locator("#setup-gate").isVisible()) {
+      throw new Error("Expected #setup-gate to stay hidden after reload once completed");
+    }
+    await spPage.locator("#btn-open-setup").click();
+    if (!(await spPage.locator("#setup-gate").isVisible())) {
+      throw new Error("Expected #btn-open-setup to re-open #setup-gate");
+    }
+    await spPage.locator("#btn-setup-complete").click();
+    await spPage.waitForTimeout(100);
+    if (await spPage.locator("#setup-gate").isVisible()) {
+      throw new Error("Expected #btn-setup-complete to dismiss #setup-gate");
+    }
+
     const blockedPastes = await spPage.locator("#stat-blocked-pastes").textContent();
     if (Number(blockedPastes) < 2) {
       throw new Error(`Expected >= 2 blocked pastes in Side Panel stats, got ${blockedPastes}`);

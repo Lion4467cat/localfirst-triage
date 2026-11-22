@@ -1,5 +1,7 @@
 package com.localfirst.triage.ui.screens
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -17,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Shield
@@ -40,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
@@ -60,9 +64,22 @@ fun FirstRunSetupScreen(
     modifier: Modifier = Modifier,
 ) {
     val tokens = LocalFirstThemeTokens.colors
+    val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val view = LocalView.current
     var showOptOutWarning by remember { mutableStateOf(false) }
+    var actionFeedback by remember { mutableStateOf<String?>(null) }
+
+    fun openExternalUrl(url: String) {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (_: Exception) {
+            actionFeedback = "No browser app found to open $url"
+        }
+    }
 
     val (statusLabel, statusBg, statusBorder, statusFg) = when (state.nanoStatus) {
         NanoStatus.READY -> listOf("AVAILABLE", tokens.safeBg, tokens.safeBorder, tokens.safeText)
@@ -168,13 +185,24 @@ fun FirstRunSetupScreen(
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = onRecheckNano) {
+                    OutlinedButton(onClick = {
+                        onRecheckNano()
+                        actionFeedback = when (state.nanoStatus) {
+                            NanoStatus.READY -> "On-device AI model is ready."
+                            NanoStatus.DOWNLOADABLE -> "Model is downloadable. Tap Download Model."
+                            NanoStatus.MODEL_DOWNLOADING -> "Model download is in progress."
+                            NanoStatus.UNAVAILABLE -> "On-device model unavailable on this device — deterministic firewall remains active."
+                        }
+                    }) {
                         Icon(Icons.Default.Refresh, contentDescription = null)
                         Text("Check Model", modifier = Modifier.padding(start = 4.dp), fontSize = 12.sp)
                     }
                     if (state.nanoStatus == NanoStatus.DOWNLOADABLE) {
                         Button(
-                            onClick = onWarmupNano,
+                            onClick = {
+                                actionFeedback = "Starting on-device model download…"
+                                onWarmupNano()
+                            },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.secondary,
                                 contentColor = MaterialTheme.colorScheme.onSecondary,
@@ -183,6 +211,26 @@ fun FirstRunSetupScreen(
                             Icon(Icons.Default.Download, contentDescription = null)
                             Text("Download Model", modifier = Modifier.padding(start = 4.dp), fontSize = 12.sp)
                         }
+                    }
+                }
+
+                actionFeedback?.let { msg ->
+                    Text(
+                        text = msg,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = tokens.safeText,
+                    )
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = { openExternalUrl("https://developer.android.com/ai/gemini-nano") }) {
+                        Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
+                        Text("On-Device AI Docs", fontSize = 11.5.sp)
+                    }
+                    TextButton(onClick = { openExternalUrl("https://para-1-2e22b.web.app") }) {
+                        Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
+                        Text("Web Workbench", fontSize = 11.5.sp)
                     }
                 }
             }
