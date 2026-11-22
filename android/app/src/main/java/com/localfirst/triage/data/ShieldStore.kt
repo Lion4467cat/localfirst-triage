@@ -24,16 +24,23 @@ data class BlockHistoryEntry(
     val categoryCounts: Map<String, Int>,
     val totalBlocked: Int,
     val engineUsed: String,
+    val actionType: String = ACTION_SCRUBBED,
 ) {
+    companion object {
+        const val ACTION_SCRUBBED = "scrubbed"
+        const val ACTION_OVERRIDE = "override"
+    }
+
     fun formatSummary(): String {
+        val statusSuffix = if (actionType == ACTION_OVERRIDE) "Unsafe Override" else "0 Leaked"
         if (categoryCounts.isEmpty()) {
-            return "$totalBlocked Secret(s) · 0 Leaked"
+            return "$totalBlocked Secret(s) · $statusSuffix"
         }
         val parts = categoryCounts.entries
             .sortedByDescending { it.value }
             .take(3)
             .map { (category, count) -> "$count ${ShieldStore.friendlyCategoryName(category)}" }
-        return (parts + "0 Leaked").joinToString(" · ")
+        return (parts + statusSuffix).joinToString(" · ")
     }
 }
 
@@ -126,6 +133,7 @@ object ShieldStore {
         spans: List<RedactionSpan>,
         engineUsed: String,
         timestampMs: Long = System.currentTimeMillis(),
+        actionType: String = BlockHistoryEntry.ACTION_SCRUBBED,
     ) {
         val activeSpans = spans.filter { it.masked }
         if (activeSpans.isEmpty()) return
@@ -140,14 +148,36 @@ object ShieldStore {
             categoryCounts = counts,
             totalBlocked = activeSpans.size,
             engineUsed = engineUsed,
+            actionType = actionType,
         )
         val existing = getHistory(context)
         val updated = (listOf(entry) + existing).take(MAX_HISTORY_ENTRIES)
-        val newTotal = getTotalBlocked(context) + activeSpans.size
+        val newTotal = if (actionType == BlockHistoryEntry.ACTION_SCRUBBED) {
+            getTotalBlocked(context) + activeSpans.size
+        } else {
+            getTotalBlocked(context)
+        }
         prefs(context).edit()
             .putString(KEY_HISTORY, serializeHistory(updated))
             .putInt(KEY_TOTAL_BLOCKED, newTotal)
             .apply()
+    }
+
+    fun recordOverrideEvent(
+        context: Context,
+        appName: String,
+        spans: List<RedactionSpan>,
+        engineUsed: String,
+        timestampMs: Long = System.currentTimeMillis(),
+    ) {
+        recordBlockEvent(
+            context = context,
+            appName = appName,
+            spans = spans,
+            engineUsed = engineUsed,
+            timestampMs = timestampMs,
+            actionType = BlockHistoryEntry.ACTION_OVERRIDE,
+        )
     }
 
     fun getHistory(context: Context): List<BlockHistoryEntry> {
@@ -176,6 +206,7 @@ object ShieldStore {
                 entry.totalBlocked.toString(),
                 enc(entry.engineUsed),
                 countsEncoded,
+                enc(entry.actionType),
             ).joinToString("|")
         }
     }
@@ -206,6 +237,7 @@ object ShieldStore {
                     categoryCounts = counts,
                     totalBlocked = parts[3].toIntOrNull() ?: 0,
                     engineUsed = dec(parts[4]),
+                    actionType = parts.getOrNull(6)?.let { dec(it) } ?: BlockHistoryEntry.ACTION_SCRUBBED,
                 )
             }
             .toList()

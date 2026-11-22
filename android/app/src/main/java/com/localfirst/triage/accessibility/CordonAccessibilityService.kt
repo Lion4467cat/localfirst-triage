@@ -20,6 +20,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import com.localfirst.triage.data.ShieldStore
 import com.localfirst.triage.firewall.LocalFirewallEngine
+import com.localfirst.triage.model.RedactionSpan
 
 /**
  * Pure burst/secret-trigger detector so background scanning never pops up mid-typing
@@ -40,6 +41,53 @@ object AccessibilityBurstDetector {
     }
 }
 
+/**
+ * Pure heuristic matcher for Send / Submit / Post buttons in guarded AI & chat apps.
+ */
+object SendButtonMatcher {
+    private val SEND_TOKEN_REGEX = Regex(
+        """(?:^|[\s_:/.-])(?:send|submit|post|dispatch)(?:$|[\s_:/.-])""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private val SEND_ID_SUFFIX_REGEX = Regex(
+        """(?:send_button|btn_send|composer_send|submit_button|action_send|send_msg|send_message|chat_send)""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    fun isLikelySendControl(
+        text: String?,
+        contentDescription: String?,
+        viewIdResourceName: String?,
+        isClickable: Boolean,
+        isEditable: Boolean,
+    ): Boolean {
+        if (isEditable) return false
+        val candidates = listOfNotNull(text, contentDescription, viewIdResourceName)
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+        if (candidates.isEmpty()) return false
+        return candidates.any { candidate ->
+            SEND_TOKEN_REGEX.containsMatchIn(candidate) ||
+                (isClickable && SEND_ID_SUFFIX_REGEX.containsMatchIn(candidate))
+        }
+    }
+}
+
+/**
+ * Volatile in-memory hold state for unredacted secrets in the active composer.
+ * Never persisted to disk (Zero-PII invariant).
+ */
+data class ProtectedHoldState(
+    val packageName: String,
+    val appName: String,
+    val rawTextHash: Int,
+    val sanitizedText: String,
+    val spans: List<RedactionSpan>,
+    val summaryText: String,
+    val isEmphasized: Boolean = false,
+)
+
 class CordonAccessibilityService : AccessibilityService() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var windowManager: WindowManager? = null
@@ -47,7 +95,9 @@ class CordonAccessibilityService : AccessibilityService() {
 
     private var lastObservedLength: Int = 0
     private var lastObservedPackage: String? = null
-    private var dismissedTextHash: Int? = null
+    private var overriddenTextHash: Int? = null
+    private var activeHold: ProtectedHoldState? = null
+    private var heldInputNode: AccessibilityNodeInfo? = null
     private var pendingDebounceRunnable: Runnable? = null
 
     override fun onServiceConnected() {
@@ -65,27 +115,47 @@ class CordonAccessibilityService : AccessibilityService() {
         }
 
         val eventType = event.eventType
+        val source = event.source
+
+        // 1. Active Send Interception: if user taps a likely Send/Submit control while a hold is armed
+        if (eventType == AccessibilityEvent.TYPE_VIEW_CLICKED && source != null) {
+            val hold = activeHold
+            if (hold != null && hold.packageName == pkg && isSendClickEvent(source, event)) {
+                val emphasized = hold.copy(isEmphasized = true)
+                activeHold = emphasized
+                // Attempt to keep focus in the composer input node so unredacted text isn't sent unchallenged
+                heldInputNode?.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+                renderHoldOverlay(emphasized)
+                return
+            }
+        }
+
         if (
             eventType != AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED &&
-            eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
+            eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED &&
+            eventType != AccessibilityEvent.TYPE_VIEW_FOCUSED
         ) {
             return
         }
 
-        val source = event.source ?: return
-        if (!source.isEditable || isPasswordNode(source)) {
-            return
-        }
+        val targetNode = when {
+            source != null && source.isEditable && !isPasswordNode(source) -> source
+            eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
+                val focused = rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+                if (focused != null && focused.isEditable && !isPasswordNode(focused)) focused else null
+            }
+            else -> null
+        } ?: return
 
-        val currentText = source.text?.toString().orEmpty()
+        val currentText = targetNode.text?.toString().orEmpty()
         if (currentText.isBlank()) {
             lastObservedLength = 0
             lastObservedPackage = pkg
-            dismissOverlay()
+            clearHoldAndOverlay()
             return
         }
 
-        if (currentText.hashCode() == dismissedTextHash) {
+        if (currentText.hashCode() == overriddenTextHash) {
             return
         }
 
@@ -93,15 +163,17 @@ class CordonAccessibilityService : AccessibilityService() {
         lastObservedLength = currentText.length
         lastObservedPackage = pkg
 
-        if (eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED &&
-            AccessibilityBurstDetector.shouldScanImmediately(prevLen, currentText)
+        if (
+            (eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED &&
+                AccessibilityBurstDetector.shouldScanImmediately(prevLen, currentText)) ||
+            eventType == AccessibilityEvent.TYPE_VIEW_FOCUSED
         ) {
             pendingDebounceRunnable?.let { mainHandler.removeCallbacks(it) }
-            scanNodeAndShowOverlay(source, pkg, currentText)
+            scanNodeAndArmHold(targetNode, pkg, currentText)
             return
         }
 
-        // For non-burst changes, wait for a pause (650ms) so typing is never interrupted.
+        // For non-burst typing/content updates, wait for a 650ms pause so typing is never interrupted.
         pendingDebounceRunnable?.let { mainHandler.removeCallbacks(it) }
         val textSnapshot = currentText
         val pkgSnapshot = pkg
@@ -110,13 +182,36 @@ class CordonAccessibilityService : AccessibilityService() {
             val focused = activeRoot.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return@Runnable
             if (focused.isEditable && !isPasswordNode(focused)) {
                 val latestText = focused.text?.toString().orEmpty()
-                if (latestText == textSnapshot && latestText.hashCode() != dismissedTextHash) {
-                    scanNodeAndShowOverlay(focused, pkgSnapshot, latestText)
+                if (latestText == textSnapshot && latestText.hashCode() != overriddenTextHash) {
+                    scanNodeAndArmHold(focused, pkgSnapshot, latestText)
                 }
             }
         }
         pendingDebounceRunnable = runnable
         mainHandler.postDelayed(runnable, 650L)
+    }
+
+    private fun isSendClickEvent(node: AccessibilityNodeInfo, event: AccessibilityEvent): Boolean {
+        val eventText = event.text.joinToString(" ").ifBlank { null }
+        val eventDesc = event.contentDescription?.toString()
+        if (SendButtonMatcher.isLikelySendControl(
+                text = node.text?.toString() ?: eventText,
+                contentDescription = node.contentDescription?.toString() ?: eventDesc,
+                viewIdResourceName = node.viewIdResourceName,
+                isClickable = node.isClickable,
+                isEditable = node.isEditable,
+            )
+        ) {
+            return true
+        }
+        val parent = node.parent ?: return false
+        return SendButtonMatcher.isLikelySendControl(
+            text = parent.text?.toString(),
+            contentDescription = parent.contentDescription?.toString(),
+            viewIdResourceName = parent.viewIdResourceName,
+            isClickable = parent.isClickable,
+            isEditable = parent.isEditable,
+        )
     }
 
     private fun isPasswordNode(node: AccessibilityNodeInfo): Boolean {
@@ -129,7 +224,18 @@ class CordonAccessibilityService : AccessibilityService() {
             variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD
     }
 
-    private fun scanNodeAndShowOverlay(
+    private fun formatCategoryCountsSummary(spans: List<RedactionSpan>): String {
+        val counts = LinkedHashMap<String, Int>()
+        for (span in spans) {
+            counts[span.category] = (counts[span.category] ?: 0) + 1
+        }
+        return counts.entries
+            .sortedByDescending { it.value }
+            .take(3)
+            .joinToString(" · ") { (cat, count) -> "$count ${ShieldStore.friendlyCategoryName(cat)}" }
+    }
+
+    private fun scanNodeAndArmHold(
         node: AccessibilityNodeInfo,
         pkg: String,
         rawText: String,
@@ -138,39 +244,54 @@ class CordonAccessibilityService : AccessibilityService() {
         val (sanitizedText, spans) = LocalFirewallEngine.scrub(rawText, level)
         val activeSpans = spans.filter { it.masked }
         if (activeSpans.isEmpty()) {
-            dismissOverlay()
+            clearHoldAndOverlay()
             return
         }
 
-        val categoriesPreview = activeSpans
-            .map { ShieldStore.friendlyCategoryName(it.category) }
-            .distinct()
-            .take(3)
-            .joinToString(", ")
-
-        showFloatingPill(
+        val hold = ProtectedHoldState(
+            packageName = pkg,
             appName = ShieldStore.appDisplayNameForPackage(pkg),
-            count = activeSpans.size,
-            categoriesPreview = categoriesPreview,
-            onScrub = {
+            rawTextHash = rawText.hashCode(),
+            sanitizedText = sanitizedText,
+            spans = activeSpans,
+            summaryText = formatCategoryCountsSummary(activeSpans),
+            isEmphasized = activeHold?.rawTextHash == rawText.hashCode() && activeHold?.isEmphasized == true,
+        )
+        activeHold = hold
+        heldInputNode = node
+        renderHoldOverlay(hold)
+    }
+
+    private fun renderHoldOverlay(hold: ProtectedHoldState) {
+        showHoldOverlay(
+            hold = hold,
+            onScrubAndInsert = {
+                val targetNode = heldInputNode
+                    ?: rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
                 val args = Bundle().apply {
-                    putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, sanitizedText)
+                    putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, hold.sanitizedText)
                 }
-                val replaced = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+                val replaced = targetNode?.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args) ?: false
                 if (replaced) {
                     ShieldStore.recordBlockEvent(
                         context = this,
-                        appName = ShieldStore.appDisplayNameForPackage(pkg),
-                        spans = activeSpans,
+                        appName = hold.appName,
+                        spans = hold.spans,
                         engineUsed = "Deterministic Rules",
                     )
-                    lastObservedLength = sanitizedText.length
+                    lastObservedLength = hold.sanitizedText.length
                 }
-                dismissOverlay()
+                clearHoldAndOverlay()
             },
-            onDismiss = {
-                dismissedTextHash = rawText.hashCode()
-                dismissOverlay()
+            onSendAnywayUnsafe = {
+                overriddenTextHash = hold.rawTextHash
+                ShieldStore.recordOverrideEvent(
+                    context = this,
+                    appName = hold.appName,
+                    spans = hold.spans,
+                    engineUsed = "Deterministic Rules",
+                )
+                clearHoldAndOverlay()
             },
         )
     }
@@ -181,40 +302,45 @@ class CordonAccessibilityService : AccessibilityService() {
         resources.displayMetrics,
     ).toInt()
 
-    private fun showFloatingPill(
-        appName: String,
-        count: Int,
-        categoriesPreview: String,
-        onScrub: () -> Unit,
-        onDismiss: () -> Unit,
+    private fun showHoldOverlay(
+        hold: ProtectedHoldState,
+        onScrubAndInsert: () -> Unit,
+        onSendAnywayUnsafe: () -> Unit,
     ) {
         mainHandler.post {
             dismissOverlayInternal()
             val wm = windowManager ?: return@post
 
+            val strokeColor = if (hold.isEmphasized) Color.parseColor("#FF4D5A") else Color.parseColor("#F59E0B")
+            val titleColor = if (hold.isEmphasized) Color.parseColor("#FF6B76") else Color.parseColor("#FBBF24")
+
             val container = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(dp(14), dp(10), dp(14), dp(10))
+                setPadding(dp(14), dp(12), dp(14), dp(12))
                 background = GradientDrawable().apply {
                     setColor(Color.parseColor("#11141B"))
-                    setStroke(dp(1), Color.parseColor("#00E5A3"))
+                    setStroke(dp(2), strokeColor)
                     cornerRadius = dp(16).toFloat()
                 }
-                elevation = dp(8).toFloat()
+                elevation = dp(10).toFloat()
             }
 
             val title = TextView(this).apply {
-                text = "Cordon Shield · $count secret(s) in $appName"
-                setTextColor(Color.parseColor("#00E5A3"))
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                text = if (hold.isEmphasized) {
+                    "HOLD ARMED · Scrub Before Sending?"
+                } else {
+                    "Scrub Before Sending?"
+                }
+                setTextColor(titleColor)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13.5f)
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
             }
 
             val subtitle = TextView(this).apply {
-                text = "Detected: $categoriesPreview"
-                setTextColor(Color.parseColor("#CBD5E1"))
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
-                setPadding(0, dp(2), 0, dp(8))
+                text = "${hold.summaryText} detected in ${hold.appName}"
+                setTextColor(Color.parseColor("#E2E8F0"))
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                setPadding(0, dp(3), 0, dp(10))
             }
 
             val actionsRow = LinearLayout(this).apply {
@@ -222,28 +348,28 @@ class CordonAccessibilityService : AccessibilityService() {
                 gravity = Gravity.END
             }
 
-            val dismissBtn = Button(this).apply {
-                text = "Dismiss"
-                setTextColor(Color.parseColor("#94A3B8"))
+            val overrideBtn = Button(this).apply {
+                text = "Send Anyway (Unsafe)"
+                setTextColor(Color.parseColor("#FDA4AF"))
                 setBackgroundColor(Color.TRANSPARENT)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-                setOnClickListener { onDismiss() }
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+                setOnClickListener { onSendAnywayUnsafe() }
             }
 
             val scrubBtn = Button(this).apply {
-                text = "Scrub in Field"
+                text = "Scrub & Insert"
                 setTextColor(Color.parseColor("#07090D"))
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
-                setPadding(dp(12), dp(6), dp(12), dp(6))
+                setPadding(dp(14), dp(6), dp(14), dp(6))
                 background = GradientDrawable().apply {
                     setColor(Color.parseColor("#00E5A3"))
                     cornerRadius = dp(10).toFloat()
                 }
-                setOnClickListener { onScrub() }
+                setOnClickListener { onScrubAndInsert() }
             }
 
-            actionsRow.addView(dismissBtn)
+            actionsRow.addView(overrideBtn)
             actionsRow.addView(scrubBtn)
             container.addView(title)
             container.addView(subtitle)
@@ -257,7 +383,7 @@ class CordonAccessibilityService : AccessibilityService() {
                 PixelFormat.TRANSLUCENT,
             ).apply {
                 gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-                y = dp(72)
+                y = dp(64)
             }
 
             runCatching {
@@ -265,6 +391,12 @@ class CordonAccessibilityService : AccessibilityService() {
                 overlayView = container
             }
         }
+    }
+
+    private fun clearHoldAndOverlay() {
+        activeHold = null
+        heldInputNode = null
+        dismissOverlay()
     }
 
     private fun dismissOverlay() {
@@ -279,12 +411,12 @@ class CordonAccessibilityService : AccessibilityService() {
 
     override fun onInterrupt() {
         pendingDebounceRunnable?.let { mainHandler.removeCallbacks(it) }
-        dismissOverlay()
+        clearHoldAndOverlay()
     }
 
     override fun onDestroy() {
         pendingDebounceRunnable?.let { mainHandler.removeCallbacks(it) }
-        dismissOverlay()
+        clearHoldAndOverlay()
         super.onDestroy()
     }
 }

@@ -1,6 +1,7 @@
 package com.localfirst.triage.data
 
 import com.localfirst.triage.accessibility.AccessibilityBurstDetector
+import com.localfirst.triage.accessibility.SendButtonMatcher
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -24,7 +25,27 @@ class ShieldStoreAndBurstTest {
         assertEquals(1, decoded.size)
         assertEquals("ChatGPT", decoded[0].appName)
         assertEquals(2, decoded[0].totalBlocked)
+        assertEquals(BlockHistoryEntry.ACTION_SCRUBBED, decoded[0].actionType)
         assertEquals("1 API Key · 1 Phone · 0 Leaked", decoded[0].formatSummary())
+    }
+
+    @Test
+    fun `zero-pii history preserves override action type without raw secrets`() {
+        val overrideEntry = BlockHistoryEntry(
+            id = "evt-2",
+            timestampMs = 1_763_820_005_000L,
+            appName = "Claude",
+            categoryCounts = mapOf("API_KEY" to 1),
+            totalBlocked = 1,
+            engineUsed = "Deterministic Rules",
+            actionType = BlockHistoryEntry.ACTION_OVERRIDE,
+        )
+
+        val decoded = ShieldStore.deserializeHistory(ShieldStore.serializeHistory(listOf(overrideEntry)))
+
+        assertEquals(1, decoded.size)
+        assertEquals(BlockHistoryEntry.ACTION_OVERRIDE, decoded[0].actionType)
+        assertEquals("1 API Key · Unsafe Override", decoded[0].formatSummary())
     }
 
     @Test
@@ -46,6 +67,46 @@ class ShieldStoreAndBurstTest {
             AccessibilityBurstDetector.shouldScanImmediately(
                 previousLength = 19,
                 currentText = "AKIAIOSFODNN7EXAMPLE",
+            ),
+        )
+    }
+
+    @Test
+    fun `send button matcher detects send submit post controls and ignores editable inputs`() {
+        assertTrue(
+            SendButtonMatcher.isLikelySendControl(
+                text = "Send",
+                contentDescription = null,
+                viewIdResourceName = null,
+                isClickable = true,
+                isEditable = false,
+            ),
+        )
+        assertTrue(
+            SendButtonMatcher.isLikelySendControl(
+                text = null,
+                contentDescription = "Submit prompt",
+                viewIdResourceName = "com.openai.chatgpt:id/composer_send",
+                isClickable = true,
+                isEditable = false,
+            ),
+        )
+        assertFalse(
+            SendButtonMatcher.isLikelySendControl(
+                text = "Please send this API key",
+                contentDescription = null,
+                viewIdResourceName = null,
+                isClickable = true,
+                isEditable = true,
+            ),
+        )
+        assertFalse(
+            SendButtonMatcher.isLikelySendControl(
+                text = "Settings",
+                contentDescription = "Open menu",
+                viewIdResourceName = "com.openai.chatgpt:id/menu_btn",
+                isClickable = true,
+                isEditable = false,
             ),
         )
     }
