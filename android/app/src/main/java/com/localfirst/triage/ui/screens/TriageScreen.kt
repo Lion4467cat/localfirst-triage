@@ -236,10 +236,10 @@ fun TriageScreen(
             ) {
                 Text(
                     text = when (state.nanoStatus) {
-                        NanoStatus.READY -> "On-Device AI Ready"
-                        NanoStatus.DOWNLOADABLE -> "Nano 4 Downloadable"
-                        NanoStatus.MODEL_DOWNLOADING -> "Preparing AI..."
-                        NanoStatus.UNAVAILABLE -> "Local Guard Active"
+                        NanoStatus.READY -> "Model: Gemini Nano (AICore)"
+                        NanoStatus.DOWNLOADABLE -> "Model: Nano Downloadable"
+                        NanoStatus.MODEL_DOWNLOADING -> "Model: Downloading..."
+                        NanoStatus.UNAVAILABLE -> "Model: Deterministic Rules Only"
                     },
                     color = if (state.nanoStatus == NanoStatus.READY) tokens.safeText else tokens.infoText,
                     fontSize = 11.sp,

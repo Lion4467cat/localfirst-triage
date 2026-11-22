@@ -207,7 +207,11 @@ export function triggerChromeNanoBackgroundDownload(): void {
   };
   try {
     if (g.LanguageModel?.create) {
-      void g.LanguageModel.create(TEXT_ONLY_ON_DEVICE_CREATE_OPTIONS).catch(() => undefined);
+      void g.LanguageModel.create(TEXT_ONLY_ON_DEVICE_CREATE_OPTIONS)
+        .then((session) => {
+          (session as { destroy?: () => void } | null)?.destroy?.();
+        })
+        .catch(() => undefined);
     } else if (g.ai?.languageModel?.create) {
       void g.ai.languageModel.create().catch(() => undefined);
     }

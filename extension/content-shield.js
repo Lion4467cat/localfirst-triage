@@ -197,16 +197,31 @@
     const host = ensureHost();
     host.dataset.lfState = hudState.mode;
     const box = hudShadow.getElementById("lf-box");
-    if (hudState.mode === "HIDDEN" || !hudState.scan) { box.className = "box"; box.innerHTML = ""; return; }
+    if (hudState.mode === "HIDDEN" || !hudState.scan) { box.className = "box"; box.replaceChildren(); return; }
     const count = hudState.scan.mergedSpans.length;
     const isSend = hudState.trigger === "SEND";
     const headline = isSend ? `Send Blocked — ${count} secret${count === 1 ? "" : "s"} detected` : `Blocked ${count} secret${count === 1 ? "" : "s"} locally`;
     const priLabel = isSend ? "Scrub Draft" : "Paste Safe Version";
     const bypLabel = isSend ? (hudState.bypassArmed ? "Confirm Send Raw Once?" : "Send Raw Once") : (hudState.bypassArmed ? "Confirm Paste Raw Once?" : "Paste Raw Once");
     box.className = "box modal";
-    box.innerHTML = `<div class="row"><span class="title" id="lf-headline">${headline}</span><span class="badge">CORDON · ${protectionLevel.toUpperCase()}</span></div><div class="prev" id="lf-preview"></div><div class="acts"><button type="button" class="pri" id="lf-primary">${priLabel}</button><button type="button" class="gho" id="lf-cancel">Cancel</button></div><button type="button" class="byp" id="lf-bypass">${bypLabel}</button>`;
-    hudShadow.getElementById("lf-preview").textContent = hudState.scan.sanitizedText.slice(0, 110);
-    hudShadow.getElementById("lf-primary").onclick = () => {
+    const mk = (tag, cls, id, text) => {
+      const el = document.createElement(tag);
+      if (cls) el.className = cls;
+      if (id) el.id = id;
+      if (tag === "button") el.type = "button";
+      if (text !== undefined) el.textContent = text;
+      return el;
+    };
+    const row = mk("div", "row");
+    row.append(mk("span", "title", "lf-headline", headline), mk("span", "badge", "", `CORDON · ${protectionLevel.toUpperCase()}`));
+    const prevEl = mk("div", "prev", "lf-preview", hudState.scan.sanitizedText.slice(0, 110));
+    const acts = mk("div", "acts");
+    const priBtn = mk("button", "pri", "lf-primary", priLabel);
+    const canBtn = mk("button", "gho", "lf-cancel", "Cancel");
+    acts.append(priBtn, canBtn);
+    const bypBtn = mk("button", "byp", "lf-bypass", bypLabel);
+    box.replaceChildren(row, prevEl, acts, bypBtn);
+    priBtn.onclick = () => {
       if (isSend) return scrubCurrentDraft(hudState.target, hudState.scan);
       mutedTarget = hudState.target;
       mutedUntil = Date.now() + 2000;
@@ -216,12 +231,12 @@
       insertAtSel(target, savedSel, scan.sanitizedText);
       lastCleanNorm = normalize(readEditorText(target));
     };
-    hudShadow.getElementById("lf-cancel").onclick = () => {
+    canBtn.onclick = () => {
       scanEpoch++;
       if (hudState.trigger === "SEND") lastDismissedNorm = normalize(hudState.rawText);
       setHud({ mode: "HIDDEN" });
     };
-    hudShadow.getElementById("lf-bypass").onclick = () => {
+    bypBtn.onclick = () => {
       if (!hudState.bypassArmed) return setHud({ bypassArmed: true });
       scanEpoch++;
       const { target, savedSel, rawText, trigger } = hudState;

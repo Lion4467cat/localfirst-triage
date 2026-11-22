@@ -235,7 +235,19 @@ export async function runTriagePipeline(
     input.sourcePlatform ?? (input.importedFromExtension ? "CHROME_EXTENSION" : "WEB");
 
   const protectionLevel: ProtectionLevel = input.protectionLevel ?? "medium";
-  const nanoResult = await extractNano(input.rawText);
+  let nanoResult: NanoExtractionResult;
+  try {
+    nanoResult = await extractNano(input.rawText);
+  } catch {
+    nanoResult = {
+      nanoStatus: "UNAVAILABLE",
+      inferenceSource: "LOCAL_REGEX_FALLBACK",
+      severity: "P2",
+      runbookId: null,
+      category: "GENERAL_INCIDENT",
+      spans: [],
+    };
+  }
 
   const stage1Source: TriageResult["stage1Source"] =
     nanoResult.nanoStatus === "READY" ? "ON_DEVICE (Nano 4)" : "HEURISTIC_GUARD";

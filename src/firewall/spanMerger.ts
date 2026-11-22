@@ -390,7 +390,12 @@ export function verifyZeroLeakage(
     for (const rawCandidate of candidates) {
       const candidate = rawCandidate.trim();
       if (candidate.length < 3 || candidate.startsWith("[REDACTED:")) continue;
-      const urlEncoded = encodeURIComponent(candidate);
+      let urlEncoded = candidate;
+      try {
+        urlEncoded = encodeURIComponent(candidate);
+      } catch {
+        urlEncoded = candidate;
+      }
       const jsonEscaped = JSON.stringify(candidate).slice(1, -1);
 
       if (

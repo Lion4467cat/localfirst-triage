@@ -220,7 +220,7 @@ fun FirstRunSetupScreen(
                         modifier = Modifier.align(Alignment.CenterHorizontally),
                     ) {
                         Text(
-                            text = "Continue in Deterministic Mode",
+                            text = "Skip — Use Deterministic Only",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
