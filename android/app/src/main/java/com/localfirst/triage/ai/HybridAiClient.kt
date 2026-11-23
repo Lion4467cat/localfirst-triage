@@ -546,14 +546,14 @@ class HybridAiClient(
         return ticket.copy(
             sanitizedText = sanitizedText,
             spans = effectiveSpans,
-            resolution = buildEmergencyLocalRca(sanitizedText.length, lastError),
+            resolution = buildEmergencyLocalRca(sanitizedText.length, humanizeCloudError(lastError)),
             resolutionMode = ResolutionMode.CLOUD_ERROR,
             inferenceSource = InferenceSource.CLOUD_ERROR,
             stage2Source = Stage2Source.CLOUD_ERROR,
             stage2LatencyMs = stage2Ms,
             latencyMs = ticket.stage1LatencyMs + stage2Ms,
             activeCloudModel = runtimeConfig.cloudModel,
-            cloudError = lastError,
+            cloudError = humanizeCloudError(lastError),
             zeroLeakageAudit = audit,
             queuedForReconnect = false,
             updatedAt = System.currentTimeMillis(),
@@ -627,14 +627,13 @@ class HybridAiClient(
         )
     }
 
-    private fun buildEmergencyLocalRca(sanitizedLen: Int, errorReason: String): String = listOf(
-        "### Root Cause Hypothesis (Local Deterministic SRE Fallback)",
+    private fun buildEmergencyLocalRca(sanitizedLen: Int, errorReason: String): String = listOf(        "### Root Cause Hypothesis (Local Deterministic SRE Fallback)",
         "- **Zero-Leakage Guarantee Held:** Stage 1 scrubbed all secrets locally (`0` raw PII bytes left device).",
         "- **Cloud Status:** Outbound Cloud Gemini call reported `$errorReason`.",
         "- **Sideload / Debug APK Tip:** App Check binds debug builds to tokens registered for your own Firebase project, so a freshly sideloaded APK can be refused by the cloud while every on-device feature keeps working offline with no setup. To register this build, copy the UUID printed in Logcat (`DebugAppCheckProvider`) into Firebase Console -> App Check -> Apps -> Android -> Manage debug tokens. For a zero-setup cloud demo, open https://para-1-2e22b.web.app.",
         "### Immediate Mitigation",
         "1. Rotate any exposed API keys, tokens, or private keys flagged by Stage 1.",
-        "2. Verify network & App Check connectivity, then tap Retry Cloud Escalation.",
+        "2. Verify network & App Check connectivity, then tap Send Scrubbed Text to Cloud AI again.",
         "### Verification Checklist",
         "- Confirm all `[REDACTED:...]` tokens remain masked in Zero-Leakage Proof ($sanitizedLen sanitized chars verified).",
     ).joinToString("\n")
@@ -686,5 +685,23 @@ class HybridAiClient(
             "You are a Principal SRE Incident Triage Assistant. Produce concise Markdown with sections: ### Root Cause Hypothesis, ### Immediate Mitigation, and ### Verification Checklist. Never ask for or echo redacted PII. Preserve exact [REDACTED:...] tokens verbatim and omit horizontal --- rules."
         const val BRIEF_SYSTEM_INSTRUCTION =
             "Start directly with **Executive Summary:** (2 sentences, no conversational intro or ---/*** rules) followed by **Slack Incident Update:** (1 paragraph), preserving exact [REDACTED:...] tokens verbatim."
+    }
+}
+
+internal fun humanizeCloudError(raw: String?): String {
+    val message = raw?.trim().orEmpty()
+    if (message.isEmpty()) return "the cloud call did not complete"
+    val lower = message.lowercase()
+    return when {
+        lower.contains("no signed in user") || lower.contains("nosignedinuser") ->
+            "AI Logic rejected the request because no signed-in session existed"
+        lower.contains("app check") || lower.contains("appcheck") || lower.contains("permission_denied") ->
+            "App Check rejected this build — register its debug token in Firebase Console"
+        lower.contains("unable to resolve host") || lower.contains("timeout") ||
+            lower.contains("timed out") || lower.contains("network") || lower.contains("unexpected") ->
+            "no network route to the cloud (offline, DNS blocked, or request timed out)"
+        lower.contains("not configured") || lower.contains("firebaseapp") || lower.contains("no app") ->
+            "Firebase is not configured in this build"
+        else -> message.trimEnd('.', ' ')
     }
 }

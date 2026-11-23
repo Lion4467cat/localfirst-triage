@@ -215,7 +215,7 @@ class HybridAiClientTest {
         assertEquals(ResolutionMode.CLOUD_ERROR, errorTicket.resolutionMode)
         assertEquals(Stage2Source.CLOUD_ERROR, errorTicket.stage2Source)
         assertEquals(InferenceSource.CLOUD_ERROR, errorTicket.inferenceSource)
-        assertTrue(errorTicket.cloudError.orEmpty().contains("403"))
+        assertTrue(errorTicket.cloudError.orEmpty().contains("App Check rejected"))
         assertTrue(errorTicket.resolution.contains("DebugAppCheckProvider"))
         assertFalse(errorTicket.resolution.contains(firebasePrefix))
     }

@@ -168,6 +168,7 @@ fun ShieldScreen(
             onSendToCloud = onSendScrubbedToCloud,
             cloudResult = state.currentResult?.resolution,
             inferenceSource = state.currentResult?.inferenceSource?.name,
+            cloudError = state.currentResult?.cloudError,
             isRunning = state.isRunning,
             offlineMode = state.offlineMode,
         )
@@ -549,6 +550,7 @@ private fun SandboxCard(
     onSendToCloud: (String) -> Unit,
     cloudResult: String?,
     inferenceSource: String?,
+    cloudError: String?,
     isRunning: Boolean,
     offlineMode: Boolean,
 ) {
@@ -747,7 +749,11 @@ private fun SandboxCard(
                         }
 
                         if (cloudResult != null && cloudResult.isNotBlank()) {
-                            CloudResponseCard(text = cloudResult, inferenceSource = inferenceSource)
+                            CloudResponseCard(
+                                text = cloudResult,
+                                inferenceSource = inferenceSource,
+                                cloudError = cloudError,
+                            )
                         }
                     }
                 }
@@ -756,12 +762,43 @@ private fun SandboxCard(
     }
 }
 
+internal data class CloudCardCopy(
+    val header: String,
+    val badge: String?,
+    val failed: Boolean,
+)
+
+internal fun cloudCardCopy(inferenceSource: String?, cloudError: String?): CloudCardCopy {
+    val failed = inferenceSource == "CLOUD_ERROR" || (inferenceSource == null && cloudError != null)
+    return when {
+        failed -> CloudCardCopy(
+            header = "Local Emergency RCA · cloud unreachable, nothing was sent",
+            badge = "LOCAL FALLBACK",
+            failed = true,
+        )
+        inferenceSource == null -> CloudCardCopy(
+            header = "Cloud AI Response · 0 raw PII left device",
+            badge = null,
+            failed = false,
+        )
+        else -> CloudCardCopy(
+            header = "Cloud AI Response · 0 raw PII left device",
+            badge = inferenceSource,
+            failed = false,
+        )
+    }
+}
+
 @Composable
-private fun CloudResponseCard(text: String, inferenceSource: String?) {
+private fun CloudResponseCard(text: String, inferenceSource: String?, cloudError: String?) {
     val tokens = LocalFirstThemeTokens.colors
+    val copy = cloudCardCopy(inferenceSource, cloudError)
+    val accentBg = if (copy.failed) tokens.warnBg else tokens.infoBg
+    val accentBorder = if (copy.failed) tokens.warnBorder else tokens.infoBorder
+    val accentText = if (copy.failed) tokens.warnText else tokens.infoText
     Surface(
-        color = tokens.infoBg,
-        border = BorderStroke(1.dp, tokens.infoBorder),
+        color = accentBg,
+        border = BorderStroke(1.dp, accentBorder),
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
@@ -775,28 +812,36 @@ private fun CloudResponseCard(text: String, inferenceSource: String?) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
-                    text = "Cloud AI Response · 0 raw PII left device",
+                    text = copy.header,
                     fontWeight = FontWeight.Bold,
                     fontSize = 11.sp,
-                    color = tokens.infoText,
+                    color = accentText,
                     modifier = Modifier.weight(1f),
                 )
-                if (inferenceSource != null) {
-                    val servedInCloud = inferenceSource == "IN_CLOUD"
+                if (copy.badge != null) {
+                    val servedInCloud = copy.badge == "IN_CLOUD"
                     Surface(
-                        color = if (servedInCloud) tokens.infoBg else tokens.safeBg,
-                        border = BorderStroke(1.dp, if (servedInCloud) tokens.infoBorder else tokens.safeBorder),
+                        color = if (servedInCloud) tokens.infoBg else accentBg,
+                        border = BorderStroke(1.dp, if (servedInCloud) tokens.infoBorder else accentBorder),
                         shape = RoundedCornerShape(6.dp),
                     ) {
                         Text(
-                            text = inferenceSource,
+                            text = copy.badge,
                             fontSize = 9.5.sp,
                             fontWeight = FontWeight.Bold,
-                            color = if (servedInCloud) tokens.infoText else tokens.safeText,
+                            color = if (servedInCloud) tokens.infoText else accentText,
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                         )
                     }
                 }
+            }
+            if (copy.failed && !cloudError.isNullOrBlank()) {
+                Text(
+                    text = cloudError.take(180),
+                    fontSize = 10.sp,
+                    lineHeight = 13.sp,
+                    color = accentText,
+                )
             }
             Column(
                 modifier = Modifier

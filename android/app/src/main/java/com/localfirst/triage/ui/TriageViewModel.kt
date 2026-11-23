@@ -258,7 +258,16 @@ class TriageViewModel(
         runHybridTriage()
     }
 
-    fun runHybridTriage() {
+    fun runHybridTriage() = launchTriage(escalateAfter = false)
+
+    fun runSandboxTriageAndEscalate(sanitizedText: String) {
+        val clean = sanitizedText.trim()
+        if (clean.isEmpty()) return
+        _uiState.update { it.copy(titleInput = "Quick Sandbox", rawTextInput = clean) }
+        launchTriage(escalateAfter = true)
+    }
+
+    private fun launchTriage(escalateAfter: Boolean) {
         val state = _uiState.value
         if (state.rawTextInput.isBlank()) return
         cancelActiveWork()
@@ -285,12 +294,40 @@ class TriageViewModel(
             val nextFeed = (listOf(result) + _uiState.value.syncedTickets.filter { it.id != result.id }).take(50)
             _uiState.update {
                 it.copy(
-                    isRunning = false,
+                    isRunning = escalateAfter,
                     currentResult = result,
                     syncedTickets = nextFeed,
                     totalRuns = it.totalRuns + 1,
                     localResolvedCount = it.localResolvedCount +
                         if (result.resolutionMode == ResolutionMode.LOCAL_RUNBOOK) 1 else 0,
+                )
+            }
+
+            if (!escalateAfter) return@launch
+
+            val escalated = aiClient.escalateApprovedTicket(
+                ticket = result,
+                updatedSpans = result.spans,
+                runtimeConfig = state.runtimeConfig,
+                offlineMode = state.offlineMode,
+                onStreamChunk = { partial ->
+                    _uiState.update { cur ->
+                        val active = cur.currentResult
+                        if (gen == runGeneration && active != null && active.id == result.id) {
+                            cur.copy(currentResult = active.copy(resolution = partial))
+                        } else {
+                            cur
+                        }
+                    }
+                },
+            )
+            if (gen != runGeneration) return@launch
+            volatileRawMap[escalated.id] = escalated
+            _uiState.update {
+                it.copy(
+                    isRunning = false,
+                    currentResult = escalated,
+                    syncedTickets = (listOf(escalated) + it.syncedTickets.filter { t -> t.id != escalated.id }).take(50),
                 )
             }
         }
@@ -318,43 +355,6 @@ class TriageViewModel(
         )
         volatileRawMap[updated.id] = updated
         _uiState.update { it.copy(currentResult = updated) }
-    }
-
-    fun approveAndEscalateToCloud() {
-        val ticket = _uiState.value.currentResult ?: return
-        val sourceTicket = volatileRawMap[ticket.id] ?: ticket
-        cancelActiveWork()
-        val gen = ++runGeneration
-
-        activeTriageJob = viewModelScope.launch {
-            _uiState.update { it.copy(isRunning = true) }
-            val escalated = aiClient.escalateApprovedTicket(
-                ticket = sourceTicket,
-                updatedSpans = sourceTicket.spans,
-                runtimeConfig = _uiState.value.runtimeConfig,
-                offlineMode = _uiState.value.offlineMode,
-                onStreamChunk = { partial ->
-                    _uiState.update { cur ->
-                        val active = cur.currentResult
-                        if (gen == runGeneration && active != null && active.id == sourceTicket.id) {
-                            cur.copy(currentResult = active.copy(resolution = partial))
-                        } else {
-                            cur
-                        }
-                    }
-                },
-            )
-            if (gen != runGeneration) return@launch
-            volatileRawMap[escalated.id] = escalated
-            val nextFeed = (listOf(escalated) + _uiState.value.syncedTickets.filter { it.id != escalated.id }).take(50)
-            _uiState.update {
-                it.copy(
-                    isRunning = false,
-                    currentResult = escalated,
-                    syncedTickets = nextFeed,
-                )
-            }
-        }
     }
 
     fun generateHybridBrief() {

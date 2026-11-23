@@ -349,10 +349,7 @@ class MainActivity : ComponentActivity() {
                                         }
                                     },
                                     onSendScrubbedToCloud = { sanitizedText ->
-                                        vm.updateTitle("Quick Sandbox")
-                                        vm.updateRawText(sanitizedText)
-                                        vm.runHybridTriage()
-                                        vm.approveAndEscalateToCloud()
+                                        vm.runSandboxTriageAndEscalate(sanitizedText)
                                     },
                                     modifier = Modifier.padding(innerPadding),
                                 )
