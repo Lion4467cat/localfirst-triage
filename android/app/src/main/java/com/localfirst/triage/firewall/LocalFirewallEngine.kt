@@ -90,6 +90,7 @@ object LocalFirewallEngine {
         "ZIP" to "POSTAL_CODE", "ZIPCODE" to "POSTAL_CODE", "PINCODE" to "POSTAL_CODE",
         "PEM_PRIVATE_KEY" to "PRIVATE_KEY", "DB_CONNECTION_URI" to "DB_URI",
         "HIGH_ENTROPY_SECRET" to "HIGH_ENTROPY", "NATURAL_SECRET" to "SECRET",
+        "FINANCIAL_ID" to "ACCOUNT_NUMBER", "CARD" to "CREDIT_CARD", "CREDITCARD" to "CREDIT_CARD",
     )
 
     fun normalizeRedactionCategory(rawType: String?): String {
@@ -206,13 +207,13 @@ object LocalFirewallEngine {
             // before the GOV_ID 5-4-1 shape so a PAN is named for what it is.
             category = "PAN_ID",
             detector = DetectorSource.REGEX_FIREWALL,
-            pattern = Regex("""\b[A-Z]{3}[PCHFATBLJG][A-Z](?!0000)\d{4}[A-Z]\b"""),
+            pattern = Regex("""\b[A-Z]{3}[PCHFATBLJG][A-Z](?!0000)\d{4}[A-Z]\b""", RegexOption.IGNORE_CASE),
         ),
         RegexRule(
             // Indian IFSC: 4 bank letters, a literal 0, then the branch code.
             category = "IFSC",
             detector = DetectorSource.REGEX_FIREWALL,
-            pattern = Regex("""\b[A-Z]{4}0[A-Z0-9]{6}\b"""),
+            pattern = Regex("""\b[A-Z]{4}0[A-Z0-9]{6}\b""", RegexOption.IGNORE_CASE),
         ),
         RegexRule(
             category = "CARD_EXPIRY",
@@ -449,6 +450,43 @@ object LocalFirewallEngine {
         "how", "who", "what", "when", "where", "why",
     )
 
+    /**
+     * Words that follow "I am", "this is" or "call me" far more often than a real name does.
+     * The weak cues only fire on a capitalised token outside this set, which is what keeps
+     * "i am ready", "i am testing" and "this is fine" out of the PERSON bucket.
+     */
+    private val NAME_STOPWORDS = setOf(
+        "ready", "testing", "test", "done", "here", "there", "going", "working", "fine", "good",
+        "great", "bad", "ok", "okay", "sure", "sorry", "busy", "happy", "tired", "new", "back",
+        "out", "in", "on", "up", "not", "no", "yes", "still", "also", "just", "very", "really",
+        "the", "a", "an", "this", "that", "it", "he", "she", "they", "we", "you", "i",
+        "afraid", "glad", "sad", "angry", "late", "early", "free", "available", "online",
+        "offline", "using", "trying", "looking", "writing", "reading", "learning", "building",
+        "running", "waiting", "checking", "asking", "curious", "confused", "stuck", "blocked",
+        "hungry", "sleepy", "wrong", "correct", "right", "important", "possible", "clear",
+        "unclear", "awesome", "amazing", "terrible", "broken", "fixed", "live", "dead",
+        "production", "staging", "development", "deploying", "merging", "pushing", "reviewing",
+        "updating", "migrating", "debugging", "coding", "shipping", "releasing", "investigating",
+        "monitoring", "restarting", "responding", "reporting", "sending", "joining", "leaving",
+        "finished", "complete", "completed", "starting", "stopping", "installing",
+    )
+
+    /** Explicit name cues ("my name is", "name:", "i am called") never need the capital gate. */
+    private fun looksLikePersonName(m: String): Boolean {
+        val text = m.trim()
+        if (text.isEmpty()) return false
+        val head = text.substringBefore(' ').lowercase()
+        return head !in NAME_STOPWORDS
+    }
+
+    /** Weak cues ("i am", "call me", "this is") need a capitalised first token to fire. */
+    private fun looksLikeWeakPersonName(m: String): Boolean {
+        val text = m.trim()
+        val first = text.firstOrNull() ?: return false
+        if (!first.isUpperCase()) return false
+        return looksLikePersonName(text)
+    }
+
     private val CONTEXTUAL_HEURISTIC_RULES: List<RegexRule> = listOf(
         RegexRule(
             category = "PERSON",
@@ -459,6 +497,18 @@ object LocalFirewallEngine {
                 """\b(?:my\s+name\s+is|i\s+am\s+called|patient\s+name(?:\s+is)?|customer\s+name(?:\s+is)?|full\s+name(?:\s+is)?|name\s*[:=])\s+([A-Za-z][A-Za-z'-]{1,24}(?:\s+(?!(?:and|is|was|from|at|in|who|with|but|so|to|for|on|please|can|will|working|living)\b)[A-Za-z][A-Za-z'-]{1,24}){0,2})""",
                 RegexOption.IGNORE_CASE,
             ),
+        ),
+        RegexRule(
+            // Weak self-introduction cues. The name must start with a capital, so "i am ready"
+            // never reaches the validator, and the stopword list catches "I am Testing the build".
+            category = "PERSON",
+            detector = DetectorSource.HEURISTIC_GUARD,
+            captureGroup = 1,
+            minLevel = ProtectionLevel.MEDIUM,
+            pattern = Regex(
+                """\b(?i:(?:i\s+am|i'm|call\s+me|this\s+is))\s+([A-Z][A-Za-z'-]{1,24}(?:\s+[A-Z][A-Za-z'-]{1,24}){0,2})""",
+            ),
+            validator = { looksLikeWeakPersonName(it) },
         ),
         RegexRule(
             category = "ORG_TERM",
@@ -516,10 +566,33 @@ object LocalFirewallEngine {
             captureGroup = 1,
             minLevel = ProtectionLevel.MEDIUM,
             pattern = Regex(
-                """(?<![\w.])((?:\d{1,5}[A-Za-z]?[/-][A-Za-z0-9]{1,4}|#\s?\d{1,5}[A-Za-z]?|[A-Z]-\d{1,4}|(?:plot|flat|door|house)(?!\s*(?:no\.?|number|#))\s*[A-Z]?\d{1,5}[A-Za-z]?|(?:block|unit|apt|apartment)\s*(?:no\.?|#)?\s*[A-Z]?\d{1,5}[A-Za-z]?)(?:(?![.;!?](?:\s|\z))[^\n\[\]\u0000]){0,80}?)(?=\s*(?:[;|!?](?:\s|\z)|\n|\z|\.(?=\s+[A-Z]|\s*\z)|(?:card|upi|pan|ifsc|cvv|cvc|cid|csc|exp|expiry|account|acct|iban|vpa)\b))""",
+                """(?<![\w.])((?:\d{1,5}[A-Za-z]?[/-][A-Za-z0-9]{1,4}|#\s?\d{1,5}[A-Za-z]?|[A-Z]-\d{1,4}|(?:plot|flat|door|house)(?!\s*(?:no\.?|number|#))\s*[A-Z]?\d{1,5}[A-Za-z]?|(?:block|unit|apt|apartment|suite)\s*(?:no\.?|#)?\s*[A-Z]?\d{1,5}[A-Za-z]?)(?:(?![.;!?](?:\s|\z))[^\n\[\]\u0000]){0,80}?)(?=\s*(?:[;|!?](?:\s|\z)|\n|\z|\.(?=\s+[A-Z]|\s*\z)|(?:card|upi|pan|ifsc|cvv|cvc|cid|csc|exp|expiry|account|acct|iban|vpa)\b))""",
                 RegexOption.IGNORE_CASE,
             ),
             validator = { looksLikeStandaloneAddress(it) },
+        ),
+        RegexRule(
+            // Secondary address line: "Apt 4B", "Suite 200", "Flat 302". Unambiguous unit words
+            // only, so "unit 5 failed" in a test log stays prose.
+            category = "ADDRESS",
+            detector = DetectorSource.HEURISTIC_GUARD,
+            minLevel = ProtectionLevel.MEDIUM,
+            pattern = Regex(
+                """(?<![\w.])((?:apt|apartment|suite|ste|flat)\.?\s*[A-Z]?\d{1,5}[A-Za-z]?(?:\s*[,·]\s*[A-Za-z0-9 .'-]{2,30})?)""",
+                RegexOption.IGNORE_CASE,
+            ),
+        ),
+        RegexRule(
+            // KYC forms sign off with a name after "Signature:"; without this the block's last
+            // line survives while the address above it is redacted.
+            category = "PERSON",
+            detector = DetectorSource.HEURISTIC_GUARD,
+            captureGroup = 1,
+            minLevel = ProtectionLevel.MEDIUM,
+            pattern = Regex(
+                """\b(?i:(?:signature|signed\s+by|authorised\s+signatory|authorized\s+signatory))\s*[:=]?\s*([A-Z][A-Za-z.'-]{1,24}(?:\s+[A-Z][A-Za-z.'-]{1,24}){0,3})""",
+            ),
+            validator = { looksLikePersonName(it) },
         ),
         RegexRule(
             category = "POSTAL_CODE",

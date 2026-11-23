@@ -4,13 +4,28 @@
     "input": "my address is 42 Oak Street, Koramangala, Bengaluru 560034 and my name is ravi",
     "levels": {
       "low": {
-        "mustPreserve": ["42 Oak Street, Koramangala, Bengaluru 560034", "ravi"]
+        "mustPreserve": [
+          "42 Oak Street, Koramangala, Bengaluru 560034",
+          "ravi"
+        ]
       },
       "medium": {
-        "mustNotContain": ["42 Oak Street", "Koramangala", "Bengaluru", "560034", "ravi"]
+        "mustNotContain": [
+          "42 Oak Street",
+          "Koramangala",
+          "Bengaluru",
+          "560034",
+          "ravi"
+        ]
       },
       "high": {
-        "mustNotContain": ["42 Oak Street", "Koramangala", "Bengaluru", "560034", "ravi"]
+        "mustNotContain": [
+          "42 Oak Street",
+          "Koramangala",
+          "Bengaluru",
+          "560034",
+          "ravi"
+        ]
       }
     }
   },
@@ -19,14 +34,30 @@
     "input": "my phone number is 9876543210 and my name is ravi and i work in Zenith company , and my api key is 23224324234kjjjkjl",
     "levels": {
       "low": {
-        "mustNotContain": ["23224324234kjjjkjl"],
-        "mustPreserve": ["9876543210", "ravi", "Zenith company"]
+        "mustNotContain": [
+          "23224324234kjjjkjl"
+        ],
+        "mustPreserve": [
+          "9876543210",
+          "ravi",
+          "Zenith company"
+        ]
       },
       "medium": {
-        "mustNotContain": ["9876543210", "ravi", "Zenith company", "23224324234kjjjkjl"]
+        "mustNotContain": [
+          "9876543210",
+          "ravi",
+          "Zenith company",
+          "23224324234kjjjkjl"
+        ]
       },
       "high": {
-        "mustNotContain": ["9876543210", "ravi", "Zenith company", "23224324234kjjjkjl"]
+        "mustNotContain": [
+          "9876543210",
+          "ravi",
+          "Zenith company",
+          "23224324234kjjjkjl"
+        ]
       }
     }
   },
@@ -35,8 +66,12 @@
     "input": "URGENT P0 Outage in checkout-gateway after v4.8.2 deploy.\nCustomer John's daughter (admitted to Manipal ICU Floor 3).",
     "levels": {
       "medium": {
-        "mustNotContain": ["Manipal ICU Floor 3"],
-        "mustPreserve": ["URGENT P0 Outage in checkout-gateway after v4.8.2 deploy."]
+        "mustNotContain": [
+          "Manipal ICU Floor 3"
+        ],
+        "mustPreserve": [
+          "URGENT P0 Outage in checkout-gateway after v4.8.2 deploy."
+        ]
       }
     }
   },
@@ -46,11 +81,19 @@
     "levels": {
       "low": {
         "expectZeroMasks": true,
-        "mustPreserve": ["TypeError", "src/App.tsx:42:10", "react@19.0.0"]
+        "mustPreserve": [
+          "TypeError",
+          "src/App.tsx:42:10",
+          "react@19.0.0"
+        ]
       },
       "medium": {
         "expectZeroMasks": true,
-        "mustPreserve": ["TypeError", "src/App.tsx:42:10", "react@19.0.0"]
+        "mustPreserve": [
+          "TypeError",
+          "src/App.tsx:42:10",
+          "react@19.0.0"
+        ]
       }
     }
   },
@@ -58,24 +101,36 @@
     "id": "zero-fp-everyday-prose-1",
     "input": "This feature is a work in progress and will go live in production tomorrow. Call me later if it breaks.",
     "levels": {
-      "low": { "expectZeroMasks": true },
-      "medium": { "expectZeroMasks": true }
+      "low": {
+        "expectZeroMasks": true
+      },
+      "medium": {
+        "expectZeroMasks": true
+      }
     }
   },
   {
     "id": "zero-fp-dev-identifiers-2",
     "input": "My app works at scale using localStorage and contenteditable inside checkout-gateway after v4.8.2 deploy.",
     "levels": {
-      "low": { "expectZeroMasks": true },
-      "medium": { "expectZeroMasks": true }
+      "low": {
+        "expectZeroMasks": true
+      },
+      "medium": {
+        "expectZeroMasks": true
+      }
     }
   },
   {
     "id": "zero-fp-docker-localhost-3",
     "input": "Please explain how Docker containers talk to each other on localhost port 8080.",
     "levels": {
-      "low": { "expectZeroMasks": true },
-      "medium": { "expectZeroMasks": true }
+      "low": {
+        "expectZeroMasks": true
+      },
+      "medium": {
+        "expectZeroMasks": true
+      }
     }
   },
   {
@@ -83,8 +138,15 @@
     "input": "my address is 42 Oak Street, Koramangala, Bengaluru 560034. Please fix the login bug after this.",
     "levels": {
       "medium": {
-        "mustNotContain": ["42 Oak Street", "Koramangala", "Bengaluru", "560034"],
-        "mustPreserve": ["Please fix the login bug after this."]
+        "mustNotContain": [
+          "42 Oak Street",
+          "Koramangala",
+          "Bengaluru",
+          "560034"
+        ],
+        "mustPreserve": [
+          "Please fix the login bug after this."
+        ]
       }
     }
   },
@@ -93,8 +155,13 @@
     "input": "my phone number is 9876543210 and my name is ravi. Can you help me write a python script?",
     "levels": {
       "medium": {
-        "mustNotContain": ["9876543210", "ravi"],
-        "mustPreserve": ["Can you help me write a python script?"]
+        "mustNotContain": [
+          "9876543210",
+          "ravi"
+        ],
+        "mustPreserve": [
+          "Can you help me write a python script?"
+        ]
       }
     }
   },
@@ -103,8 +170,14 @@
     "input": "KYC: address 143/A, 2nd Cross, Indiranagar, Bengaluru 560038 | card 4111 1111 1111 1111 exp 09/29 cvv 123 | upi ravi.kumar@oksbi | pan ABCPE1234F | ifsc HDFC0001234",
     "levels": {
       "low": {
-        "mustNotContain": ["4111 1111 1111 1111", "ABCPE1234F", "HDFC0001234"],
-        "mustPreserve": ["143/A"]
+        "mustNotContain": [
+          "4111 1111 1111 1111",
+          "ABCPE1234F",
+          "HDFC0001234"
+        ],
+        "mustPreserve": [
+          "143/A"
+        ]
       },
       "medium": {
         "mustNotContain": [
@@ -117,7 +190,9 @@
           "ABCPE1234F",
           "HDFC0001234"
         ],
-        "mustPreserve": ["KYC:"]
+        "mustPreserve": [
+          "KYC:"
+        ]
       },
       "high": {
         "mustNotContain": [
@@ -130,7 +205,9 @@
           "ABCPE1234F",
           "HDFC0001234"
         ],
-        "mustPreserve": ["KYC:"]
+        "mustPreserve": [
+          "KYC:"
+        ]
       }
     }
   },
@@ -138,8 +215,12 @@
     "id": "zero-fp-round2-developer-traps",
     "input": "v2.1/A shipped to staging. HTTP 404 from the CDN. Worker listening on port 8080. Order 4111111111111112 shipped. Tracking 1234567890123456 cleared. Deployed 2026-11-22 at noon. Phase 2 rollout finished.",
     "levels": {
-      "low": { "expectZeroMasks": true },
-      "medium": { "expectZeroMasks": true }
+      "low": {
+        "expectZeroMasks": true
+      },
+      "medium": {
+        "expectZeroMasks": true
+      }
     }
   },
   {
@@ -147,13 +228,147 @@
     "input": "Address: 143/A, 2nd Cross\nIndiranagar, Bengaluru 560038\nPAN: ABCPE1234F\nShip to 742 Evergreen Terrace, Springfield 62704",
     "levels": {
       "low": {
-        "mustPreserve": ["2nd Cross", "Indiranagar", "Bengaluru", "560038", "Springfield", "62704"]
+        "mustPreserve": [
+          "2nd Cross",
+          "Indiranagar",
+          "Bengaluru",
+          "560038",
+          "Springfield",
+          "62704"
+        ]
       },
       "medium": {
-        "mustNotContain": ["2nd Cross", "Indiranagar", "Bengaluru", "560038", "Springfield", "62704", "ABCPE1234F"]
+        "mustNotContain": [
+          "2nd Cross",
+          "Indiranagar",
+          "Bengaluru",
+          "560038",
+          "Springfield",
+          "62704",
+          "ABCPE1234F"
+        ]
       },
       "high": {
-        "mustNotContain": ["2nd Cross", "Indiranagar", "Bengaluru", "560038", "Springfield", "62704", "ABCPE1234F"]
+        "mustNotContain": [
+          "2nd Cross",
+          "Indiranagar",
+          "Bengaluru",
+          "560038",
+          "Springfield",
+          "62704",
+          "ABCPE1234F"
+        ]
+      }
+    }
+  },
+  {
+    "id": "round2-secondary-address-lines",
+    "input": "Ship it to 42 Oak Street, Koramangala, Bengaluru 560034, Apt 4B and the invoice copy to Suite 200, Flat 302.",
+    "levels": {
+      "low": {
+        "mustPreserve": [
+          "42 Oak Street, Koramangala, Bengaluru 560034, Apt 4B"
+        ]
+      },
+      "medium": {
+        "mustNotContain": [
+          "42 Oak Street",
+          "Koramangala",
+          "560034",
+          "Apt 4B",
+          "Suite 200",
+          "Flat 302"
+        ]
+      },
+      "high": {
+        "mustNotContain": [
+          "42 Oak Street",
+          "Koramangala",
+          "560034",
+          "Apt 4B",
+          "Suite 200",
+          "Flat 302"
+        ]
+      }
+    }
+  },
+  {
+    "id": "round2-kyc-multiline-signature",
+    "input": "Name: Rahul Verma\nAddress: 12 MG Road, Bengaluru 560001\nPAN: abcpd1234f\nIFSC: hdfc0001234\nSignature: Rahul Verma",
+    "levels": {
+      "low": {
+        "mustPreserve": [
+          "Rahul Verma"
+        ]
+      },
+      "medium": {
+        "mustNotContain": [
+          "Rahul Verma",
+          "12 MG Road",
+          "560001",
+          "abcpd1234f",
+          "hdfc0001234"
+        ]
+      },
+      "high": {
+        "mustNotContain": [
+          "Rahul Verma",
+          "12 MG Road",
+          "560001",
+          "abcpd1234f",
+          "hdfc0001234"
+        ]
+      }
+    }
+  },
+  {
+    "id": "round2-case-insensitive-pan-ifsc",
+    "input": "KYC pack: pan abcpd1234f and ifsc hdfc0001234 attached.",
+    "levels": {
+      "low": {
+        "mustNotContain": [
+          "abcpd1234f",
+          "hdfc0001234"
+        ]
+      },
+      "medium": {
+        "mustNotContain": [
+          "abcpd1234f",
+          "hdfc0001234"
+        ]
+      },
+      "high": {
+        "mustNotContain": [
+          "abcpd1234f",
+          "hdfc0001234"
+        ]
+      }
+    }
+  },
+  {
+    "id": "round2-name-cue-false-positives",
+    "input": "i am ready. i am testing the deploy. this is fine. i am on call tonight.",
+    "levels": {
+      "low": {
+        "mustPreserve": [
+          "i am ready",
+          "i am testing",
+          "this is fine"
+        ]
+      },
+      "medium": {
+        "mustPreserve": [
+          "i am ready",
+          "i am testing",
+          "this is fine"
+        ]
+      },
+      "high": {
+        "mustPreserve": [
+          "i am ready",
+          "i am testing",
+          "this is fine"
+        ]
       }
     }
   }

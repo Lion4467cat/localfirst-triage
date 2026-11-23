@@ -29,7 +29,10 @@ private class FakeHybridAiTransport(
 
     override suspend fun checkOnDeviceStatus(cloudModelName: String): NanoStatus = status
 
-    override fun downloadOnDeviceModel(cloudModelName: String): Flow<Int> = emptyFlow()
+    override suspend fun onDeviceModelName(cloudModelName: String): String? =
+        if (status == NanoStatus.READY) "gemini-nano-4-test" else null
+
+    override fun downloadOnDeviceModel(cloudModelName: String): Flow<NanoDownloadState> = emptyFlow()
 
     override suspend fun generateOnDeviceOnly(
         prompt: String,
@@ -79,6 +82,56 @@ class HybridAiClientTest {
 
     private val testFirebaseKey = listOf("AI", "zaSyD-1234567890abcdefghijklmnopqrs").joinToString("")
     private val firebasePrefix = listOf("AI", "zaSyD-").joinToString("")
+
+    @Test
+    fun sandboxRunsNanoAndRedactsSemanticPiiTheRulesMiss() = runTest {
+        val transport = FakeHybridAiTransport(
+            status = NanoStatus.READY,
+            onDeviceOutput = "Maya|PERSON_PII\noncology clinic|CONTEXTUAL_PHI\n\"Indiranagar\"|PERSON_PII",
+        )
+        val client = HybridAiClient(transport)
+        val text = "Hey team, cover for Maya while she is at the oncology clinic in Indiranagar next Tuesday"
+
+        val scan = client.scanSandbox(text, runtimeConfig = RuntimeConfigValues())
+
+        assertTrue(scan.usedNano)
+        assertEquals(InferenceSource.ON_DEVICE, scan.inferenceSource)
+        assertEquals(3, scan.semanticPhraseCount)
+        assertEquals(DetectorSource.NANO_SEMANTIC_FIREWALL, scan.spans.first { it.matchedText == "Maya" }.detector)
+        assertFalse(scan.sanitizedText.contains("Maya"))
+        assertFalse(scan.sanitizedText.contains("oncology clinic"))
+        assertFalse(scan.sanitizedText.contains("Indiranagar"))
+        assertTrue(scan.sanitizedText.contains("next Tuesday"))
+    }
+
+    @Test
+    fun sandboxFallsBackToDeterministicRulesWhenNanoIsUnavailable() = runTest {
+        val transport = FakeHybridAiTransport(status = NanoStatus.UNAVAILABLE)
+        val client = HybridAiClient(transport)
+        val card = "4111 1111 1111 1111"
+
+        val scan = client.scanSandbox("Charge card $card for the incident review", runtimeConfig = RuntimeConfigValues())
+
+        assertFalse(scan.usedNano)
+        assertEquals(InferenceSource.LOCAL_REGEX_FALLBACK, scan.inferenceSource)
+        assertFalse(scan.sanitizedText.contains(card))
+        assertTrue(scan.spans.isNotEmpty())
+    }
+
+    @Test
+    fun sandboxTreatsAQuietModelReplyAsRunWithNoSemanticSpans() = runTest {
+        val transport = FakeHybridAiTransport(
+            status = NanoStatus.READY,
+            onDeviceOutput = "NONE",
+        )
+        val client = HybridAiClient(transport)
+
+        val scan = client.scanSandbox("Deploy finished at 14:02 with no errors", runtimeConfig = RuntimeConfigValues())
+
+        assertTrue(scan.usedNano)
+        assertEquals(0, scan.semanticPhraseCount)
+        assertEquals("Deploy finished at 14:02 with no errors", scan.sanitizedText)
+    }
 
     @Test
     fun failClosedQuarantinesWhenNanoUnavailableAndRecoversPreferOnDeviceBriefToInCloud() = runTest {

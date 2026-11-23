@@ -37,23 +37,32 @@ object InstalledAppCatalog {
 
     fun isPinned(packageName: String): Boolean = packageName in PINNED_PACKAGES
 
-    fun order(apps: List<InstalledApp>): List<InstalledApp> {
+    fun order(
+        apps: List<InstalledApp>,
+        isGuarded: (String) -> Boolean = { false },
+    ): List<InstalledApp> {
         val rank = PINNED_PACKAGES.withIndex().associate { (index, pkg) -> pkg to index }
         return apps.sortedWith(
-            compareBy<InstalledApp> { rank[it.packageName] ?: Int.MAX_VALUE }
+            compareByDescending<InstalledApp> { isGuarded(it.packageName) }
+                .thenBy { rank[it.packageName] ?: Int.MAX_VALUE }
                 .thenBy { it.label.lowercase() }
                 .thenBy { it.packageName },
         )
     }
 
-    fun filter(apps: List<InstalledApp>, query: String): List<InstalledApp> {
+    fun filter(
+        apps: List<InstalledApp>,
+        query: String,
+        isGuarded: (String) -> Boolean = { false },
+    ): List<InstalledApp> {
         val trimmed = query.trim()
-        if (trimmed.isEmpty()) return order(apps)
+        if (trimmed.isEmpty()) return order(apps, isGuarded)
         val needle = trimmed.lowercase()
         return order(
             apps.filter {
                 it.label.lowercase().contains(needle) || it.packageName.lowercase().contains(needle)
             },
+            isGuarded,
         )
     }
 

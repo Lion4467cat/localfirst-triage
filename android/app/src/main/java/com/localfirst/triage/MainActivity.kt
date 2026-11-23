@@ -56,6 +56,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.localfirst.triage.data.InstalledAppCatalog
 import com.localfirst.triage.data.ShieldStore
 import com.localfirst.triage.ui.TriageViewModel
 import com.localfirst.triage.ui.screens.FirstRunSetupScreen
@@ -64,6 +65,8 @@ import com.localfirst.triage.ui.screens.SettingsScreen
 import com.localfirst.triage.ui.screens.ShieldScreen
 import com.localfirst.triage.ui.theme.AppThemeMode
 import com.localfirst.triage.ui.theme.LocalFirstTriageTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     private val pendingSharedText = mutableStateOf<Pair<String, String?>?>(null)
@@ -138,6 +141,18 @@ class MainActivity : ComponentActivity() {
                 var guardedAppsState by remember {
                     mutableStateOf(ShieldStore.getGuardedAppsState(this@MainActivity))
                 }
+                var installedPackages by remember { mutableStateOf<Set<String>?>(null) }
+
+                LaunchedEffect(Unit) {
+                    installedPackages = withContext(Dispatchers.IO) {
+                        InstalledAppCatalog.load(this@MainActivity).map { it.packageName }.toSet()
+                    }
+                }
+
+                // A default entry for an app that is not installed is not a guarded app.
+                val guardedAppCount = installedPackages?.let { installed ->
+                    guardedAppsState.count { (pkg, enabled) -> enabled && pkg in installed }
+                } ?: guardedAppsState.count { it.value }
 
                 fun refreshLocalShieldState() {
                     isAccessibilityEnabled = ShieldStore.isAccessibilityServiceEnabled(this@MainActivity)
@@ -260,9 +275,9 @@ class MainActivity : ComponentActivity() {
                         if (!showSetupScreen) {
                             NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                                 val itemColors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                                    selectedIconColor = MaterialTheme.colorScheme.onSurface,
+                                    selectedTextColor = MaterialTheme.colorScheme.onSurface,
+                                    indicatorColor = MaterialTheme.colorScheme.surfaceVariant,
                                     unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
                                     unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -324,7 +339,7 @@ class MainActivity : ComponentActivity() {
                                     isAccessibilityEnabled = isAccessibilityEnabled,
                                     isShieldPaused = isShieldPaused,
                                     totalSecretsBlocked = totalSecretsBlocked,
-                                    guardedAppCount = guardedAppsState.count { it.value },
+                                    guardedAppCount = guardedAppCount,
                                     onEnableAccessibility = ::openAccessibilitySettingsSafely,
                                     onResumeShield = {
                                         ShieldStore.setShieldPaused(this@MainActivity, false)
@@ -335,6 +350,7 @@ class MainActivity : ComponentActivity() {
                                         vm.setProtectionLevel(level)
                                         refreshLocalShieldState()
                                     },
+                                    onScanSandbox = { rawText -> vm.scanSandbox(rawText) },
                                     onScrubSandbox = { rawText, _, spans, engineUsed ->
                                         vm.updateTitle("Quick Sandbox")
                                         vm.updateRawText(rawText)
@@ -370,6 +386,8 @@ class MainActivity : ComponentActivity() {
                                     protectionLevel = state.protectionLevel,
                                     themeMode = themeMode,
                                     nanoStatus = state.nanoStatus,
+                                    nanoDownload = state.nanoDownload,
+                                    nanoModelName = state.nanoModelName,
                                     onOpenAccessibilitySettings = ::openAccessibilitySettingsSafely,
                                     onToggleShieldPaused = { paused ->
                                         ShieldStore.setShieldPaused(this@MainActivity, paused)

@@ -135,13 +135,13 @@ const DETERMINISTIC_REGEX_RULES: RegexRule[] = [
     // Indian PAN: 5 letters (4th is the assessee type), 4 digits, 1 letter.
     category: "PAN_ID",
     detector: "REGEX_FIREWALL",
-    pattern: /\b[A-Z]{3}[PCHFATBLJG][A-Z](?!0000)\d{4}[A-Z]\b/g,
+    pattern: /\b[A-Z]{3}[PCHFATBLJG][A-Z](?!0000)\d{4}[A-Z]\b/gi,
   },
   {
     // Indian IFSC: 4 bank letters, a literal 0, then the branch code.
     category: "IFSC",
     detector: "REGEX_FIREWALL",
-    pattern: /\b[A-Z]{4}0[A-Z0-9]{6}\b/g,
+    pattern: /\b[A-Z]{4}0[A-Z0-9]{6}\b/gi,
   },
   {
     category: "CARD_EXPIRY",
@@ -300,7 +300,7 @@ const ADDRESS_INDICATOR_REGEX =
 // A door/plot/block identifier. The leading lookbehind stops the match starting inside a
 // version string ("v2.1/A") or an identifier ("INV-2026-0042").
 const ADDRESS_DOOR_REGEX =
-  /(?<![\w.])(?:\d{1,5}[A-Za-z]?[/-][A-Za-z0-9]{1,4}|#\s?\d{1,5}[A-Za-z]?|[A-Z]-\d{1,4}|(?:plot|flat|door|house)(?!\s*(?:no\.?|number|#))\s*[A-Z]?\d{1,5}[A-Za-z]?|(?:block|unit|apt|apartment)\s*(?:no\.?|#)?\s*[A-Z]?\d{1,5}[A-Za-z]?)(?![\w/])/i;
+  /(?<![\w.])(?:\d{1,5}[A-Za-z]?[/-][A-Za-z0-9]{1,4}|#\s?\d{1,5}[A-Za-z]?|[A-Z]-\d{1,4}|(?:plot|flat|door|house)(?!\s*(?:no\.?|number|#))\s*[A-Z]?\d{1,5}[A-Za-z]?|(?:block|unit|apt|apartment|suite)\s*(?:no\.?|#)?\s*[A-Z]?\d{1,5}[A-Za-z]?)(?![\w/])/i;
 
 const ADDRESS_LOCALITY_REGEX =
   /\b(?:main|cross|layout|nagar|colony|phase|sector|block|enclave|extension|marg|gali|street|st\.?|avenue|ave\.?|road|rd\.?|boulevard|blvd\.?|lane|ln\.?|drive|dr\.?|way|highway|hwy\.?|parkway|pkwy\.?|court|ct\.?|place|terrace|apartments?|flats?|residency|vihar|pura|bagh|chowk)\b/i;
@@ -339,6 +339,39 @@ const ORG_IDIOM_BLOCKLIST = new Set([
   "home", "night", "remote", "shift", "me", "you", "us", "now", "free", "fine", "well", "scale",
 ]);
 
+/**
+ * Words that follow "I am", "this is" or "call me" far more often than a real name does.
+ * The weak cues only fire on a capitalised token outside this set, which is what keeps
+ * "i am ready", "i am testing" and "this is fine" out of the PERSON bucket.
+ */
+const NAME_STOPWORDS = new Set([
+  "ready", "testing", "test", "done", "here", "there", "going", "working", "fine", "good",
+  "great", "bad", "ok", "okay", "sure", "sorry", "busy", "happy", "tired", "new", "back",
+  "out", "in", "on", "up", "not", "no", "yes", "still", "also", "just", "very", "really",
+  "the", "a", "an", "this", "that", "it", "he", "she", "they", "we", "you", "i",
+  "afraid", "glad", "sad", "angry", "late", "early", "free", "available", "online",
+  "offline", "using", "trying", "looking", "writing", "reading", "learning", "building",
+  "running", "waiting", "checking", "asking", "curious", "confused", "stuck", "blocked",
+  "hungry", "sleepy", "wrong", "correct", "right", "important", "possible", "clear",
+  "unclear", "awesome", "amazing", "terrible", "broken", "fixed", "live", "dead",
+  "production", "staging", "development", "deploying", "merging", "pushing", "reviewing",
+  "updating", "migrating", "debugging", "coding", "shipping", "releasing", "investigating",
+  "monitoring", "restarting", "responding", "reporting", "sending", "joining", "leaving",
+  "finished", "complete", "completed", "starting", "stopping", "installing",
+]);
+
+function looksLikePersonName(m: string): boolean {
+  const text = m.trim();
+  if (!text) return false;
+  return !NAME_STOPWORDS.has(text.split(" ")[0].toLowerCase());
+}
+
+function looksLikeWeakPersonName(m: string): boolean {
+  const text = m.trim();
+  if (!text || !/^[A-Z]/.test(text)) return false;
+  return looksLikePersonName(text);
+}
+
 const CONTEXTUAL_HEURISTIC_RULES: RegexRule[] = [
   {
     category: "PERSON",
@@ -347,6 +380,28 @@ const CONTEXTUAL_HEURISTIC_RULES: RegexRule[] = [
     minLevel: "medium",
     pattern:
       /\b(?:my\s+name\s+is|i\s+am\s+called|patient\s+name(?:\s+is)?|customer\s+name(?:\s+is)?|full\s+name(?:\s+is)?|name\s*[:=])\s+([A-Za-z][A-Za-z'-]{1,24}(?:\s+(?!(?:and|is|was|from|at|in|who|with|but|so|to|for|on|please|can|will|working|living)\b)[A-Za-z][A-Za-z'-]{1,24}){0,2})/gi,
+  },
+  {
+    // Weak self-introduction cues. The name must start with a capital, so "i am ready" never
+    // reaches the validator, and the stopword list catches "I am Testing the build".
+    category: "PERSON",
+    detector: "HEURISTIC_GUARD",
+    captureGroup: 1,
+    minLevel: "medium",
+    pattern:
+      /\b(?:i\s+am|i'm|call\s+me|this\s+is)\s+([A-Za-z][A-Za-z'-]{1,24}(?:\s+(?!(?:and|is|was|from|at|in|who|with|but|so|to|for|on|please|can|will|working|living|the|a|an)\b)[A-Za-z][A-Za-z'-]{1,24}){0,2})/gi,
+    validator: looksLikeWeakPersonName,
+  },
+  {
+    // KYC forms sign off with a name after "Signature:"; without this the block's last line
+    // survives while the address above it is redacted.
+    category: "PERSON",
+    detector: "HEURISTIC_GUARD",
+    captureGroup: 1,
+    minLevel: "medium",
+    pattern:
+      /\b(?:signature|signed\s+by|authorised\s+signatory|authorized\s+signatory)\s*[:=]?\s*([A-Za-z][A-Za-z.'-]{1,24}(?:\s+[A-Za-z][A-Za-z.'-]{1,24}){0,3})/gi,
+    validator: looksLikePersonName,
   },
   {
     category: "ORG_TERM",
@@ -396,8 +451,18 @@ const CONTEXTUAL_HEURISTIC_RULES: RegexRule[] = [
     captureGroup: 1,
     minLevel: "medium",
     pattern:
-      /(?<![\w.])((?:\d{1,5}[A-Za-z]?[/-][A-Za-z0-9]{1,4}|#\s?\d{1,5}[A-Za-z]?|[A-Z]-\d{1,4}|(?:plot|flat|door|house)(?!\s*(?:no\.?|number|#))\s*[A-Z]?\d{1,5}[A-Za-z]?|(?:block|unit|apt|apartment)\s*(?:no\.?|#)?\s*[A-Z]?\d{1,5}[A-Za-z]?)(?:(?![.;!?](?:\s|$))[^\n\[\]\u0000]){0,80}?)(?=\s*(?:[;|!?](?:\s|$)|\n|$|\.(?=\s+[A-Z]|\s*$)|(?:card|upi|pan|ifsc|cvv|cvc|cid|csc|exp|expiry|account|acct|iban|vpa)\b))/gi,
+      /(?<![\w.])((?:\d{1,5}[A-Za-z]?[/-][A-Za-z0-9]{1,4}|#\s?\d{1,5}[A-Za-z]?|[A-Z]-\d{1,4}|(?:plot|flat|door|house)(?!\s*(?:no\.?|number|#))\s*[A-Z]?\d{1,5}[A-Za-z]?|(?:block|unit|apt|apartment|suite)\s*(?:no\.?|#)?\s*[A-Z]?\d{1,5}[A-Za-z]?)(?:(?![.;!?](?:\s|$))[^\n\[\]\u0000]){0,80}?)(?=\s*(?:[;|!?](?:\s|$)|\n|$|\.(?=\s+[A-Z]|\s*$)|(?:card|upi|pan|ifsc|cvv|cvc|cid|csc|exp|expiry|account|acct|iban|vpa)\b))/gi,
     validator: looksLikeStandaloneAddress,
+  },
+  {
+    // Secondary address line: "Apt 4B", "Suite 200", "Flat 302". Unambiguous unit words only,
+    // so "unit 5 failed" in a test log stays prose.
+    category: "ADDRESS",
+    detector: "HEURISTIC_GUARD",
+    captureGroup: 1,
+    minLevel: "medium",
+    pattern:
+      /(?<![\w.])((?:apt|apartment|suite|ste|flat)\.?\s*[A-Z]?\d{1,5}[A-Za-z]?(?:\s*[,·]\s*[A-Za-z0-9 .'-]{2,30})?)/gi,
   },
   {
     category: "POSTAL_CODE",

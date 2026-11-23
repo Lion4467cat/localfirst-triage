@@ -1,7 +1,6 @@
 package com.localfirst.triage.ui.screens
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,7 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DeleteOutline
@@ -314,7 +312,7 @@ private fun EmptyHistoryCard() {
 private fun HistoryRow(entry: BlockHistoryEntry, timestamp: String) {
     val tokens = LocalFirstThemeTokens.colors
     val isOverride = entry.actionType == BlockHistoryEntry.ACTION_OVERRIDE
-    val accent = if (isOverride) tokens.warnText else tokens.safeText
+    val accent = if (isOverride) tokens.warnText else MaterialTheme.colorScheme.onSurface
 
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -330,18 +328,11 @@ private fun HistoryRow(entry: BlockHistoryEntry, timestamp: String) {
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(7.dp)
-                        .background(accent, CircleShape),
-                )
                 Icon(
                     imageVector = Icons.Default.Shield,
                     contentDescription = null,
-                    tint = accent,
-                    modifier = Modifier
-                        .padding(start = 6.dp)
-                        .size(14.dp),
+                    tint = if (isOverride) tokens.warnText else tokens.textMuted,
+                    modifier = Modifier.size(14.dp),
                 )
                 Text(
                     text = entry.appName,
@@ -360,8 +351,8 @@ private fun HistoryRow(entry: BlockHistoryEntry, timestamp: String) {
                 )
                 Spacer(Modifier.weight(1f))
                 Surface(
-                    color = if (isOverride) tokens.warnBg else tokens.safeBg,
-                    border = BorderStroke(1.dp, if (isOverride) tokens.warnBorder else tokens.safeBorder),
+                    color = tokens.warnBg,
+                    border = BorderStroke(1.dp, tokens.warnBorder),
                     shape = RoundedCornerShape(50),
                 ) {
                     Text(
@@ -369,7 +360,7 @@ private fun HistoryRow(entry: BlockHistoryEntry, timestamp: String) {
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                         fontSize = 9.5.sp,
-                        color = accent,
+                        color = tokens.warnText,
                         modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
                     )
                 }

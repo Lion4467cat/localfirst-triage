@@ -1,8 +1,8 @@
-# Cordon (`v4.5.0`) — #BuildHybridAI 2026 Submission
+# Cordon (`v4.6.0`) — #BuildHybridAI 2026 Submission
 
 - **Live Web PWA:** [`https://para-1-2e22b.web.app/`](https://para-1-2e22b.web.app/)
 - **Public GitHub Repository:** [`https://github.com/Lion4467cat/localfirst-triage`](https://github.com/Lion4467cat/localfirst-triage)
-- **Releases (Extension ZIP + Android APK `v4.5.0`):** [`github.com/Lion4467cat/localfirst-triage/releases`](https://github.com/Lion4467cat/localfirst-triage/releases)
+- **Releases (Extension ZIP + Android APK `v4.6.0`):** [`github.com/Lion4467cat/localfirst-triage/releases`](https://github.com/Lion4467cat/localfirst-triage/releases)
 - **Demo video (≤3 min, YouTube, public):** `<!-- VIDEO_URL: add the public YouTube link here before submitting -->`
 
 ---
@@ -39,7 +39,7 @@ Engineers and support teams paste raw production stack traces, crash logs, and c
 
 - **Web (30 s):** open the live PWA → **Sign in as Guest** → **Run Privacy Firewall** on any scenario.
 - **Chrome extension (1 min):** download the ZIP from Releases → unzip → `chrome://extensions` → Developer mode → **Load unpacked** → pick the folder → click the Cordon icon → open ChatGPT and paste a key.
-- **Android (2 min):** install `cordon-android-v4.5.0.apk` from Releases → open Cordon → **Enable Background Shield** → turn on **Cordon** in Accessibility settings → open ChatGPT, type a secret, tap Send.
+- **Android (2 min):** install `cordon-android-v4.6.0.apk` from Releases → open Cordon → **Enable Background Shield** → turn on **Cordon** in Accessibility settings → open ChatGPT, type a secret, tap Send.
 
 Each surface shows exactly one confirmation on Send (**Scrub & Send** / **Send anyway**) and never interrupts typing.
 
@@ -105,6 +105,18 @@ Reproduce: `node scripts/benchmark-third-party.mjs --out=benchmarks/third-party-
 
 Every category scored 100%: `ADDRESS`, `API_KEY`, `AWS_ACCESS_KEY`, `AWS_SECRET_KEY`, `BEARER_OR_JWT`, `CARD_EXPIRY`, `CREDIT_CARD`, `CVV`, `DB_CONNECTION_URI`, `EMAIL`, `GOV_ID`, `HIGH_ENTROPY_SECRET`, `IBAN`, `IFSC`, `PAN_ID`, `PASSWORD`, `PEM_PRIVATE_KEY`, `PHONE`, `UPI_ID`, `US_SSN`. The Chrome extension scores 80 positives / 48 benign at 100% recall and 0% false positives across 26 categories.
 
+### Gemini Nano 4 verified on a Samsung Galaxy S26 Ultra
+
+| Metric | S26 Ultra (Hybrid `ON_DEVICE`) | Moto G82 5G (Fail-Closed Deterministic) |
+| :--- | :---: | :---: |
+| AICore status | `AVAILABLE` → `NanoStatus.READY` | `UNAVAILABLE` |
+| "Cover for Maya… oncology clinic in Indiranagar" | **3/3 semantic spans** (person, PHI, neighbourhood) | 0/3 — fail-closed |
+| Sandbox pass: sentence + card + Stripe key, Airplane Mode | **6 spans, 2,513 ms** | 6 spans, ~1.4 ms |
+| Deterministic recall / FP | 100% / 0% | **100% (81/81)** / **0% (0/46)** |
+| Raw PII left device | **0** | **0** |
+
+The app offered a real download (`DOWNLOADABLE` → `DOWNLOADING` with live bytes, MB/s and ETA → `AVAILABLE`), then ran stage 1 with Wi-Fi off and rendered the `ON_DEVICE` badge next to `Scrubbed · 6 blocked · 0 Leaked`. Logcat: `sandbox status=READY model=… semantic=5 spans=6 latency=2513ms`.
+
 Reproduce: `cd android && ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.localfirst.triage.OnDeviceFirewallBenchmarkTest`, then `adb logcat -d | grep CordonBench`.
 
 ---
@@ -117,7 +129,7 @@ Reproduce: `cd android && ./gradlew connectedDebugAndroidTest -Pandroid.testInst
 | 0:25–1:05 | Hybrid airgap | Web Workbench → paste a multi-secret prompt → Stage 1 scrubs locally → Approve → Stage 2 answers via Firebase AI Logic, with `inferenceSource` and App Check visible |
 | 1:05–1:55 | Multi-surface sweep | Android Chrome omnibox lock + scrub, Settings guard-any-app, Quick Sandbox; then the extension blocking Send on a real ChatGPT DOM and the `#handoff=` bridge |
 | 1:55–2:30 | Hard proof | `CordonBench` table: 100.0% recall (81/81), 0.0% false positives (0/46), 1.42 ms p50, and fail-closed `ONLY_ON_DEVICE` on devices without AICore |
-| 2:30–2:55 | Close | Apache-2.0 repo, v4.5.0 release assets, one line: sensitive data never leaves the device; cloud AI only ever sees redacted intent |
+| 2:30–2:55 | Close | Apache-2.0 repo, v4.6.0 release assets, one line: sensitive data never leaves the device; cloud AI only ever sees redacted intent |
 
 ---
 

@@ -34,12 +34,9 @@ import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PauseCircle
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -57,6 +54,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,14 +65,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.localfirst.triage.ai.SandboxScan
 import com.localfirst.triage.data.ShieldStore
-import com.localfirst.triage.firewall.LocalFirewallEngine
 import com.localfirst.triage.model.NanoStatus
 import com.localfirst.triage.model.ProtectionLevel
 import com.localfirst.triage.model.RedactionSpan
 import com.localfirst.triage.ui.MainUiState
 import com.localfirst.triage.ui.protectionLevelExplanation
 import com.localfirst.triage.ui.theme.LocalFirstThemeTokens
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -87,18 +86,21 @@ fun ShieldScreen(
     onEnableAccessibility: () -> Unit,
     onResumeShield: () -> Unit,
     onSelectProtectionLevel: (ProtectionLevel) -> Unit,
+    onScanSandbox: suspend (rawText: String) -> SandboxScan,
     onScrubSandbox: (rawText: String, sanitizedText: String, spans: List<RedactionSpan>, engineUsed: String) -> Unit,
     onSendScrubbedToCloud: (sanitizedText: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val nanoReady = state.nanoStatus == NanoStatus.READY
-    val engineName = if (nanoReady) ShieldStore.ENGINE_NANO else ShieldStore.ENGINE_ON_DEVICE
+    val scope = rememberCoroutineScope()
 
     var sandboxExpanded by remember { mutableStateOf(true) }
     var sandboxInput by remember { mutableStateOf("") }
     var lastSanitized by remember { mutableStateOf<String?>(null) }
     var lastSpans by remember { mutableStateOf<List<RedactionSpan>>(emptyList()) }
+    var lastScan by remember { mutableStateOf<SandboxScan?>(null) }
+    var isScanning by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier
@@ -122,7 +124,10 @@ fun ShieldScreen(
             onSelect = onSelectProtectionLevel,
         )
 
-        ThreeStepFlowStrip()
+        StatusCaption(
+            isActive = isAccessibilityEnabled && !isShieldPaused,
+            nanoReady = nanoReady,
+        )
 
         SandboxCard(
             expanded = sandboxExpanded,
@@ -131,18 +136,29 @@ fun ShieldScreen(
             onInputChange = { sandboxInput = it },
             sanitizedOutput = lastSanitized,
             spans = lastSpans,
+            scan = lastScan,
+            isScanning = isScanning,
             onLoadSample = {
-                sandboxInput = "My Stripe key is " + "sk_live_" + "51NxMockSecret9988776655 and call +1-415-555-0199"
+                sandboxInput = "Hey team, cover for Maya while she is at the oncology clinic in Indiranagar next Tuesday. Her card 4111 1111 1111 1111 expires 04/29 and the Stripe key is " + "sk_live_" + "51NxMockSecret9988776655"
             },
             onScrub = {
-                if (sandboxInput.isBlank()) return@SandboxCard
-                val (sanitized, spans) = LocalFirewallEngine.scrub(
-                    rawText = sandboxInput,
-                    protectionLevel = state.protectionLevel,
-                )
-                lastSanitized = sanitized
-                lastSpans = spans
-                onScrubSandbox(sandboxInput, sanitized, spans, engineName)
+                if (sandboxInput.isBlank() || isScanning) return@SandboxCard
+                val submitted = sandboxInput
+                scope.launch {
+                    isScanning = true
+                    val scan = runCatching { onScanSandbox(submitted) }.getOrNull()
+                    isScanning = false
+                    if (scan == null) return@launch
+                    lastScan = scan
+                    lastSanitized = scan.sanitizedText
+                    lastSpans = scan.spans
+                    onScrubSandbox(
+                        submitted,
+                        scan.sanitizedText,
+                        scan.spans,
+                        if (scan.usedNano) ShieldStore.ENGINE_NANO else ShieldStore.ENGINE_ON_DEVICE,
+                    )
+                }
             },
             onChooseApp = { scrubbed ->
                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
@@ -434,7 +450,7 @@ private fun ProtectionDialStrip(
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
                     fontSize = 10.sp,
-                    color = tokens.safeText,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             Row(
@@ -445,9 +461,13 @@ private fun ProtectionDialStrip(
                     val isSelected = level == selected
                     Surface(
                         onClick = { onSelect(level) },
-                        color = if (isSelected) tokens.safeBg else tokens.subtleSurface,
-                        contentColor = if (isSelected) tokens.safeText else MaterialTheme.colorScheme.onSurfaceVariant,
-                        border = BorderStroke(1.dp, if (isSelected) tokens.safeBorder else tokens.borderSubtle),
+                        color = if (isSelected) tokens.subtleSurface else Color.Transparent,
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                        border = BorderStroke(
+                            1.dp,
+                            if (isSelected) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                            else tokens.borderSubtle,
+                        ),
                         shape = RoundedCornerShape(50),
                         modifier = Modifier.weight(1f),
                     ) {
@@ -472,67 +492,19 @@ private fun ProtectionDialStrip(
 }
 
 @Composable
-private fun ThreeStepFlowStrip() {
-    val tokens = LocalFirstThemeTokens.colors
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        FlowStepPill(
-            step = "1",
-            label = "Detect",
-            icon = { tint -> Icon(Icons.Default.Search, contentDescription = null, tint = tint, modifier = Modifier.size(14.dp)) },
-            tint = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f),
-        )
-        FlowStepPill(
-            step = "2",
-            label = "Lock & Scrub",
-            icon = { tint -> Icon(Icons.Default.Lock, contentDescription = null, tint = tint, modifier = Modifier.size(14.dp)) },
-            tint = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f),
-        )
-        FlowStepPill(
-            step = "3",
-            label = "Zero-PII",
-            icon = { tint -> Icon(Icons.Default.VerifiedUser, contentDescription = null, tint = tint, modifier = Modifier.size(14.dp)) },
-            tint = tokens.safeText,
-            modifier = Modifier.weight(1f),
-        )
+private fun StatusCaption(isActive: Boolean, nanoReady: Boolean) {
+    val caption = when {
+        isActive && nanoReady -> "Watching message fields · on-device model active · nothing leaves the phone"
+        isActive -> "Watching message fields · deterministic rules · nothing leaves the phone"
+        else -> "Turn the shield on to scrub secrets before they leave the phone"
     }
-}
-
-@Composable
-private fun FlowStepPill(
-    step: String,
-    label: String,
-    icon: @Composable (Color) -> Unit,
-    tint: Color,
-    modifier: Modifier = Modifier,
-) {
-    val tokens = LocalFirstThemeTokens.colors
-    Surface(
-        color = tokens.subtleSurface,
-        border = BorderStroke(1.dp, tokens.borderSubtle),
-        shape = RoundedCornerShape(10.dp),
-        modifier = modifier,
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 9.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center,
-        ) {
-            icon(tint)
-            Text(
-                text = "$step $label",
-                fontSize = 10.5.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = tint,
-                maxLines = 1,
-                modifier = Modifier.padding(start = 5.dp),
-            )
-        }
-    }
+    Text(
+        text = caption,
+        fontSize = 11.sp,
+        lineHeight = 15.sp,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 4.dp),
+    )
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -544,6 +516,8 @@ private fun SandboxCard(
     onInputChange: (String) -> Unit,
     sanitizedOutput: String?,
     spans: List<RedactionSpan>,
+    scan: SandboxScan?,
+    isScanning: Boolean,
     onLoadSample: () -> Unit,
     onScrub: () -> Unit,
     onChooseApp: (String) -> Unit,
@@ -622,7 +596,7 @@ private fun SandboxCard(
                         }
                         Button(
                             onClick = onScrub,
-                            enabled = input.isNotBlank(),
+                            enabled = input.isNotBlank() && !isScanning,
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.primary,
@@ -632,9 +606,17 @@ private fun SandboxCard(
                                 .weight(1f)
                                 .heightIn(min = 40.dp),
                         ) {
-                            Icon(Icons.Default.Shield, contentDescription = null, modifier = Modifier.size(16.dp))
+                            if (isScanning) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                )
+                            } else {
+                                Icon(Icons.Default.Shield, contentDescription = null, modifier = Modifier.size(16.dp))
+                            }
                             Text(
-                                text = "Scrub Locally",
+                                text = if (isScanning) "Scanning on-device…" else "Scrub Locally",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.padding(start = 6.dp),
@@ -653,7 +635,10 @@ private fun SandboxCard(
                                 modifier = Modifier.padding(12.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
                                     Icon(
                                         Icons.Default.CheckCircle,
                                         contentDescription = null,
@@ -661,10 +646,26 @@ private fun SandboxCard(
                                         modifier = Modifier.size(15.dp),
                                     )
                                     Text(
-                                        text = " Scrubbed · ${ShieldStore.categoryCounts(spans).values.sum()} blocked · 0 Leaked",
+                                        text = if (spans.isEmpty()) {
+                                            " Clean · nothing sensitive found"
+                                        } else {
+                                            " Scrubbed · ${ShieldStore.categoryCounts(spans).values.sum()} blocked · 0 Leaked"
+                                        },
                                         color = tokens.safeText,
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 11.5.sp,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    if (scan != null) {
+                                        SandboxEngineBadge(scan = scan)
+                                    }
+                                }
+                                if (scan != null && scan.usedNano) {
+                                    Text(
+                                        text = "Gemini Nano on-device · ${scan.semanticPhraseCount} semantic span(s) · ${scan.latencyMs} ms · 0 raw PII left device",
+                                        fontSize = 9.5.sp,
+                                        lineHeight = 13.sp,
+                                        color = tokens.infoText,
                                     )
                                 }
                                 Text(
@@ -759,6 +760,25 @@ private fun SandboxCard(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SandboxEngineBadge(scan: SandboxScan) {
+    val tokens = LocalFirstThemeTokens.colors
+    val onDevice = scan.usedNano
+    Surface(
+        color = if (onDevice) tokens.infoBg else tokens.subtleSurface,
+        border = BorderStroke(1.dp, if (onDevice) tokens.infoBorder else tokens.borderSubtle),
+        shape = RoundedCornerShape(6.dp),
+    ) {
+        Text(
+            text = scan.inferenceSource.name,
+            fontSize = 9.5.sp,
+            fontWeight = FontWeight.Bold,
+            color = if (onDevice) tokens.infoText else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+        )
     }
 }
 

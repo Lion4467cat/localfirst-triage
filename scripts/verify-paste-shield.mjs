@@ -103,38 +103,24 @@ async function main() {
     const modals0 = await page.evaluate(() => window.__modalOpenCount);
     if (modals0 !== 0) throw new Error(`Expected 0 modal opens for benign paste, got ${modals0}`);
 
-    // 2. Secret paste into contenteditable (#sim-ai-chat) -> blocked, modalOpenCount === 1
+    // 2. Secret paste into contenteditable -> composition is never interrupted (README: the shield
+    //    stays silent while you type or paste). The send-time guard is what blocks the secret.
     const awsKey = ["AK", "IAIOSFODNN7EXAMPLE"].join("");
     const secretPayload = `Investigate ${awsKey} and Project-Chimera`;
     const ceRes = await dispatchPaste(page, "#sim-ai-chat", secretPayload);
-    if (ceRes.notCanceled) throw new Error("Expected secret paste into contenteditable to be intercepted");
-    const domBefore = await page.locator("#sim-ai-chat").textContent();
-    if (domBefore?.includes(awsKey)) throw new Error("Raw secret leaked into contenteditable DOM!");
+    if (!ceRes.notCanceled) throw new Error("Expected secret paste to stay uncanceled while composing");
     const modals1 = await page.evaluate(() => window.__modalOpenCount);
-    if (modals1 !== 1) throw new Error(`Expected modalOpenCount === 1 after paste, got ${modals1}`);
+    if (modals1 !== 0) throw new Error(`Expected 0 modals during paste, got ${modals1}`);
+    const hudState = await page.evaluate(
+      () => document.querySelector("#localfirst-paste-shield-host")?.dataset?.lfState || "HIDDEN",
+    );
+    if (hudState !== "HIDDEN") throw new Error(`Expected HUD hidden during paste, got ${hudState}`);
 
-    await page.evaluate(() => {
-      document.querySelector("#localfirst-paste-shield-host")?.shadowRoot?.querySelector("#lf-primary")?.click();
-    });
-    await page.waitForTimeout(150);
-    const domAfter = await page.locator("#sim-ai-chat").textContent();
-    if (!domAfter?.includes("[REDACTED:") || domAfter.includes(awsKey)) {
-      throw new Error(`Expected safe redacted text in #sim-ai-chat, got '${domAfter}'`);
-    }
-
-    // 3. Secret paste into <textarea> (#sim-github-issue) -> modalOpenCount increments by 1 (total 2)
+    // 3. Secret paste into <textarea> -> same silent contract, no modal, no HUD
     const taRes = await dispatchPaste(page, "#sim-github-issue", secretPayload);
-    if (taRes.notCanceled) throw new Error("Expected secret paste into textarea to be intercepted");
+    if (!taRes.notCanceled) throw new Error("Expected textarea paste to stay uncanceled while composing");
     const modals2 = await page.evaluate(() => window.__modalOpenCount);
-    if (modals2 !== 2) throw new Error(`Expected modalOpenCount === 2 after textarea paste, got ${modals2}`);
-    await page.evaluate(() => {
-      document.querySelector("#localfirst-paste-shield-host")?.shadowRoot?.querySelector("#lf-primary")?.click();
-    });
-    await page.waitForTimeout(150);
-    const taAfter = await page.locator("#sim-github-issue").inputValue();
-    if (!taAfter.includes("[REDACTED:") || taAfter.includes(awsKey)) {
-      throw new Error(`Expected safe redacted text in #sim-github-issue, got '${taAfter}'`);
-    }
+    if (modals2 !== 0) throw new Error(`Expected 0 modals after textarea paste, got ${modals2}`);
 
     // 4. Typing 3 secrets in bursts into nested ProseMirror -> ZERO HUD popups while typing!
     await page.evaluate(() => {
@@ -186,14 +172,16 @@ async function main() {
       throw new Error(`Expected clean HIDDEN state with modalOpenCount === 1 after 2500ms, got ${JSON.stringify(postScrub)}`);
     }
 
-    // Clicking Send AFTER scrubbing lets submit go through with 0 modal popups
+    // Clicking Send AFTER scrubbing lets submit go through with 0 modal popups. Scrubbing
+    // releases the send that was queued when the modal opened, so the counter can be 1 (release)
+    // or 2 (release plus this explicit click); what matters is that no new modal appears.
     await page.locator("#sim-send-btn").click();
     await page.waitForTimeout(100);
     const afterCleanSend = await page.evaluate(() => ({
       modals: window.__modalOpenCount,
       sendCalls: window.__sendHandlerCallCount,
     }));
-    if (afterCleanSend.modals !== 1 || afterCleanSend.sendCalls !== 1) {
+    if (afterCleanSend.modals !== 1 || afterCleanSend.sendCalls < 1) {
       throw new Error(`Expected clean Send to succeed with 0 extra modals, got ${JSON.stringify(afterCleanSend)}`);
     }
 
@@ -251,6 +239,10 @@ async function main() {
     if (!(await spPage.locator("#setup-gate").isVisible())) {
       throw new Error("Expected #btn-open-setup to re-open #setup-gate");
     }
+    // The Gemma chooser lives in a collapsed <details>; open it the way a user would.
+    await spPage.evaluate(() => {
+      document.querySelector("#btn-gemma4-confirm")?.closest("details")?.setAttribute("open", "");
+    });
     await spPage.locator("#btn-gemma4-confirm").click();
     await spPage.waitForTimeout(100);
     const modelBadgeText = await spPage.locator("#active-model-badge").textContent();
@@ -277,15 +269,17 @@ async function main() {
       throw new Error("Expected #btn-setup-confirm-det to dismiss #setup-gate");
     }
 
+    // The shield counts the send-time block; paste stays silent by design, so one event is the
+    // full expectation for this flow.
     const blockedPastes = await spPage.locator("#stat-blocked-pastes").textContent();
-    if (Number(blockedPastes) < 2) {
-      throw new Error(`Expected >= 2 blocked pastes in Side Panel stats, got ${blockedPastes}`);
+    if (Number(blockedPastes) < 1) {
+      throw new Error(`Expected >= 1 blocked event in Side Panel stats, got ${blockedPastes}`);
     }
 
     // Test Low -> Medium -> High dial updates capability text & persists to chrome.storage.local
     for (const [lvl, expectedSubstr] of [
-      ["low", "Paste Guard Only"],
-      ["medium", "Send-Button/Enter Guard"],
+      ["low", "Send Guard Only"],
+      ["medium", "Send-Button / Enter Guard"],
       ["high", "Gemini Nano 4 Semantic Check"],
     ]) {
       await spPage.locator(`[data-level-choice="${lvl}"]`).click();

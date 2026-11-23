@@ -73,6 +73,7 @@ import com.localfirst.triage.BuildConfig
 import com.localfirst.triage.data.InstalledApp
 import com.localfirst.triage.data.InstalledAppCatalog
 import com.localfirst.triage.data.ShieldStore
+import com.localfirst.triage.ai.NanoDownloadState
 import com.localfirst.triage.model.NanoStatus
 import com.localfirst.triage.model.ProtectionLevel
 import com.localfirst.triage.ui.protectionLevelExplanation
@@ -82,10 +83,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /** User-facing wording for the on-device model state; never the raw enum name. */
-private fun nanoStatusSentence(status: NanoStatus): String = when (status) {
-    NanoStatus.READY -> "Gemini Nano (AICore) is ready"
+private fun nanoStatusSentence(
+    status: NanoStatus,
+    download: NanoDownloadState?,
+    modelName: String?,
+): String = when (status) {
+    NanoStatus.READY -> (modelName ?: download?.modelName)?.let { "Gemini Nano (AICore) ready · $it" }
+        ?: "Gemini Nano (AICore) is ready"
     NanoStatus.DOWNLOADABLE -> "On-device AI is available to download"
-    NanoStatus.MODEL_DOWNLOADING -> "AI model downloading…"
+    NanoStatus.MODEL_DOWNLOADING -> download?.detailLabel ?: "AI model downloading…"
     NanoStatus.UNAVAILABLE -> "On-device AI unavailable — using deterministic rules"
 }
 
@@ -97,6 +103,8 @@ fun SettingsScreen(
     protectionLevel: ProtectionLevel,
     themeMode: AppThemeMode,
     nanoStatus: NanoStatus,
+    nanoDownload: NanoDownloadState? = null,
+    nanoModelName: String? = null,
     onOpenAccessibilitySettings: () -> Unit,
     onToggleShieldPaused: (Boolean) -> Unit,
     onToggleGuardedApp: (packageName: String, enabled: Boolean) -> Unit,
@@ -116,10 +124,11 @@ fun SettingsScreen(
     }
 
     val apps = installedApps.orEmpty()
-    val visibleApps = remember(apps, query) {
-        InstalledAppCatalog.filter(apps, query)
+    val visibleApps = remember(apps, query, guardedAppsState) {
+        InstalledAppCatalog.filter(apps, query) { guardedAppsState[it] == true }
     }
-    val enabledCount = guardedAppsState.count { it.value }
+    // Only installed apps count: a default entry for an app the user does not have is not guarded.
+    val enabledCount = apps.count { guardedAppsState[it.packageName] == true }
 
     Column(
         modifier = modifier
@@ -156,7 +165,12 @@ fun SettingsScreen(
 
         AppearanceCard(themeMode = themeMode, onSelect = onSelectThemeMode)
 
-        ModelSetupCard(nanoStatus = nanoStatus, onOpenModelSetup = onOpenModelSetup)
+        ModelSetupCard(
+            nanoStatus = nanoStatus,
+            nanoDownload = nanoDownload,
+            nanoModelName = nanoModelName,
+            onOpenModelSetup = onOpenModelSetup,
+        )
 
         AboutCard()
     }
@@ -342,7 +356,7 @@ private fun GuardedAppsCard(
                     shape = RoundedCornerShape(50),
                 ) {
                     Text(
-                        text = "$enabledCount guarded",
+                        text = if (appsLoaded && totalApps > 0) "$enabledCount of $totalApps guarded" else "$enabledCount guarded",
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                         fontSize = 10.sp,
@@ -633,7 +647,12 @@ private fun AppearanceCard(
 }
 
 @Composable
-private fun ModelSetupCard(nanoStatus: NanoStatus, onOpenModelSetup: () -> Unit) {
+private fun ModelSetupCard(
+    nanoStatus: NanoStatus,
+    nanoDownload: NanoDownloadState?,
+    nanoModelName: String?,
+    onOpenModelSetup: () -> Unit,
+) {
     val tokens = LocalFirstThemeTokens.colors
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -655,7 +674,7 @@ private fun ModelSetupCard(nanoStatus: NanoStatus, onOpenModelSetup: () -> Unit)
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
-                        text = nanoStatusSentence(nanoStatus),
+                        text = nanoStatusSentence(nanoStatus, nanoDownload, nanoModelName),
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

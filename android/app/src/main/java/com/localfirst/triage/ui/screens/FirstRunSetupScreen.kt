@@ -167,7 +167,8 @@ fun FirstRunSetupScreen(
                     Text(
                         text = when (state.nanoStatus) {
                             NanoStatus.DOWNLOADABLE -> "Download Gemini Nano for higher contextual accuracy on unstructured PII."
-                            NanoStatus.MODEL_DOWNLOADING -> "Downloading on-device model (${state.downloadProgress ?: 0}%)…"
+                            NanoStatus.MODEL_DOWNLOADING ->
+                                state.nanoDownload?.detailLabel ?: "Contacting AICore…"
                             else -> "On-device AI is not available on this device. Cordon can run in Deterministic-Only mode."
                         },
                         fontSize = 12.sp,
@@ -175,13 +176,31 @@ fun FirstRunSetupScreen(
                     )
 
                     if (state.nanoStatus == NanoStatus.MODEL_DOWNLOADING) {
+                        val download = state.nanoDownload
                         LinearProgressIndicator(
-                            progress = { (state.downloadProgress ?: 15).coerceIn(5, 100) / 100f },
+                            progress = { (download?.percent ?: 0).coerceIn(0, 100) / 100f },
                             modifier = Modifier.fillMaxWidth(),
                         )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(
+                                text = "${download?.percent ?: 0}%",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            if (download != null && download.totalBytes > 0L) {
+                                Text(
+                                    text = download.sizeLabel,
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
                     }
 
-                    if (state.nanoStatus == NanoStatus.DOWNLOADABLE) {
+                    if (state.nanoStatus == NanoStatus.DOWNLOADABLE || state.nanoDownload?.failed == true) {
                         Button(
                             onClick = {
                                 if (view.isHapticFeedbackEnabled) {
@@ -198,7 +217,11 @@ fun FirstRunSetupScreen(
                                 .height(46.dp),
                         ) {
                             Icon(Icons.Default.Download, contentDescription = null)
-                            Text("Download On-Device Model", fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 6.dp))
+                            Text(
+                                text = if (state.nanoDownload?.failed == true) "Retry Download" else "Download On-Device Model",
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(start = 6.dp),
+                            )
                         }
                     } else if (state.nanoStatus == NanoStatus.UNAVAILABLE) {
                         OutlinedButton(

@@ -1,4 +1,4 @@
-# Cordon (`v4.5.0`)
+# Cordon (`v4.6.0`)
 
 **Unified 3-surface on-device hybrid AI privacy firewall across Chrome Extension (MV3), Native Android, and Web PWA.**
 
@@ -112,6 +112,22 @@ Reproduce: `cd android && ./gradlew connectedDebugAndroidTest -Pandroid.testInst
 
 The Chrome extension scores `80` positives / `48` benign at `100%` recall and `0%` false positives across 26 categories (`npm test`, `tests/extensionBenchmark.test.ts`).
 
+### Hybrid benchmark (Samsung Galaxy S26 Ultra, Gemini Nano 4 `ON_DEVICE`)
+
+Retail AICore ships Gemini Nano on the S26 Ultra, so the same APK runs the hybrid path with no developer preview:
+
+| Metric | S26 Ultra (Hybrid) | Moto G82 5G (Fail-Closed Deterministic) |
+| :--- | :---: | :---: |
+| **Stage 1 engine** | `ON_DEVICE` (Nano 4 via AICore) + deterministic union | `HEURISTIC_GUARD` + deterministic |
+| **AICore status** | `AVAILABLE` → `NanoStatus.READY` | `UNAVAILABLE` |
+| **Demo sentence** ("cover for Maya… oncology clinic in Indiranagar") | **`3/3` semantic spans** (person, PHI, neighbourhood) | **`0/3`** semantic, fail-closed |
+| **Sandbox hybrid pass** (sentence + card + Stripe key, Airplane Mode) | **`6` spans in `2,513 ms`** | `6` spans, `~1.4 ms` |
+| **Deterministic recall / FP** | `100%` / `0%` (same rules) | **`100%` (81/81)** / **`0%` (0/46)** |
+| **Latency p50 / p95 / max** | `2.5 s` Nano pass (one-time per message) | **`1.42 ms` / `4.01 ms` / `6.94 ms`** |
+| **Raw PII left device** | **`0`** | **`0`** |
+
+Measured with Wi-Fi off. `adb logcat -s CordonNano` on the S26 shows `probe option=preview status=READY` and `sandbox status=READY model=… semantic=5 spans=6 latency=2513ms`; the result card renders the `ON_DEVICE` badge next to `Scrubbed · 6 blocked · 0 Leaked`. The full 81-case `CordonBench` numbers above are the deterministic floor both devices share.
+
 ---
 
 ## Use Cordon (no coding needed)
@@ -133,7 +149,7 @@ You will see exactly **one** confirmation: **Scrub & Send** (safe version goes o
 
 ### C. Android app — 2 minutes
 
-1. On the phone, open the [Releases page](https://github.com/Lion4467cat/localfirst-triage/releases) and download `cordon-android-v4.5.0.apk`, then tap it to install (allow "install unknown apps" when Android asks).
+1. On the phone, open the [Releases page](https://github.com/Lion4467cat/localfirst-triage/releases) and download `cordon-android-v4.6.0.apk`, then tap it to install (allow "install unknown apps" when Android asks).
 2. Open **Cordon**. On the **Shield** tab, tap **Enable Background Shield**.
 3. Android opens Accessibility settings: tap **Cordon**, then switch it **on** and confirm.
 4. Go back to Cordon. The Shield tab now says the shield is on. Open ChatGPT (or any listed app), type a secret, and tap **Send**.

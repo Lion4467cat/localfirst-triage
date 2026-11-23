@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Cordon — On-Device AI Privacy Shield",
   "short_name": "Cordon",
-  "version": "4.5.0",
+  "version": "4.6.0",
   "description": "Live Browser Paste Shield & Side Panel Firewall. Blocks secrets on-device before ChatGPT, Claude, Gemini, GitHub, Slack, or Discord sees a single byte.",
   "icons": {
     "16": "icons/icon-16.png",

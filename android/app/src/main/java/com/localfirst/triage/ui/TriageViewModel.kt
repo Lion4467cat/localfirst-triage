@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.localfirst.triage.AppCheckInitializer
 import com.localfirst.triage.ai.HybridAiClient
+import com.localfirst.triage.ai.NanoDownloadState
+import com.localfirst.triage.ai.SandboxScan
 import com.localfirst.triage.data.FirestoreSyncRepository
 import com.localfirst.triage.data.RemoteConfigRepository
 import com.localfirst.triage.firewall.LocalFirewallEngine
@@ -36,7 +38,8 @@ data class MainUiState(
     val isGeneratingBrief: Boolean = false,
     val isRefreshingPolicy: Boolean = false,
     val nanoStatus: NanoStatus = NanoStatus.UNAVAILABLE,
-    val downloadProgress: Int? = null,
+    val nanoModelName: String? = null,
+    val nanoDownload: NanoDownloadState? = null,
     val runtimeConfig: RuntimeConfigValues = RuntimeConfigValues(),
     val policy: PrivacyPolicy = PrivacyPolicy(),
     val runbooks: List<CustomRunbook> = LocalFirewallEngine.DEFAULT_RUNBOOKS,
@@ -57,6 +60,7 @@ class TriageViewModel(
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MainUiState())
+    private var downloadJob: Job? = null
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
 
     private val volatileRawMap = HashMap<String, TriageResult>()
@@ -148,28 +152,51 @@ class TriageViewModel(
     fun refreshNanoStatus() {
         viewModelScope.launch {
             val status = aiClient.checkNanoStatus(_uiState.value.runtimeConfig)
-            _uiState.update { it.copy(nanoStatus = status) }
+            val modelName = if (status == NanoStatus.READY) aiClient.nanoModelName(_uiState.value.runtimeConfig) else null
+            _uiState.update { it.copy(nanoStatus = status, nanoModelName = modelName) }
+            // A download AICore already started keeps running across launches; attach to it so
+            // the card shows live bytes instead of sitting at 0% until the user taps something.
+            if (status == NanoStatus.MODEL_DOWNLOADING) startNanoDownload()
         }
     }
 
-    fun downloadAndWarmUpNano() {
-        viewModelScope.launch {
-            _uiState.update { it.copy(nanoStatus = NanoStatus.MODEL_DOWNLOADING, downloadProgress = 5) }
+    /** Collects the SDK's byte stream once; tab switches do not restart it because it lives here. */
+    fun startNanoDownload() {
+        if (downloadJob?.isActive == true) return
+        downloadJob = viewModelScope.launch {
+            _uiState.update {
+                it.copy(nanoStatus = NanoStatus.MODEL_DOWNLOADING, nanoDownload = NanoDownloadState())
+            }
             runCatching {
-                aiClient.warmUpOnDevice(_uiState.value.runtimeConfig).collect { pct ->
+                aiClient.warmUpOnDevice(_uiState.value.runtimeConfig).collect { state ->
                     _uiState.update {
                         it.copy(
-                            nanoStatus = if (pct >= 100) NanoStatus.READY else NanoStatus.MODEL_DOWNLOADING,
-                            downloadProgress = pct,
+                            nanoStatus = if (state.completed) NanoStatus.READY else NanoStatus.MODEL_DOWNLOADING,
+                            nanoDownload = state,
                         )
                     }
                 }
             }.onFailure {
-                _uiState.update { it.copy(downloadProgress = null) }
+                _uiState.update {
+                    it.copy(nanoDownload = it.nanoDownload?.copy(failed = true, stalled = false))
+                }
             }
             refreshNanoStatus()
         }
     }
+
+    fun downloadAndWarmUpNano() = startNanoDownload()
+
+    /**
+     * Quick Sandbox entry point. The sandbox runs the same stage-1 path as a real ticket, so the
+     * on-device model is exercised instead of only the deterministic rules.
+     */
+    suspend fun scanSandbox(rawText: String): SandboxScan = aiClient.scanSandbox(
+        rawText = rawText,
+        protectionLevel = _uiState.value.protectionLevel,
+        policy = _uiState.value.policy,
+        runtimeConfig = _uiState.value.runtimeConfig,
+    )
 
     fun refreshRemoteConfig(force: Boolean) {
         viewModelScope.launch {

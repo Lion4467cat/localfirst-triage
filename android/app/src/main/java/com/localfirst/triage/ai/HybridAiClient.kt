@@ -15,6 +15,8 @@ import com.google.firebase.ai.type.GenerativeBackend
 import com.google.firebase.ai.type.PublicPreviewAPI
 import com.google.firebase.ai.type.content
 import com.google.firebase.ai.type.generationConfig
+import android.os.SystemClock
+import android.util.Log
 import com.localfirst.triage.firewall.LocalFirewallEngine
 import com.localfirst.triage.model.CustomRunbook
 import com.localfirst.triage.model.HybridBriefResult
@@ -30,16 +32,21 @@ import com.localfirst.triage.model.Severity
 import com.localfirst.triage.model.SourcePlatform
 import com.localfirst.triage.model.Stage2Source
 import com.localfirst.triage.model.TriageResult
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.produceIn
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeoutOrNull
 
 interface HybridAiTransport {
     suspend fun checkOnDeviceStatus(cloudModelName: String): NanoStatus
-    fun downloadOnDeviceModel(cloudModelName: String): Flow<Int>
+    suspend fun onDeviceModelName(cloudModelName: String): String?
+    fun downloadOnDeviceModel(cloudModelName: String): Flow<NanoDownloadState>
     suspend fun generateOnDeviceOnly(prompt: String, cloudModelName: String): Pair<String, InferenceSource>
     fun streamCloudEscalation(
         prompt: String,
@@ -57,6 +64,17 @@ interface HybridAiTransport {
 }
 
 class FirebaseHybridAiTransport : HybridAiTransport {
+    private companion object {
+        const val TAG = "CordonNano"
+
+        /** AICore emits nothing while it waits for unmetered Wi-Fi, so this drives the stalled state. */
+        const val STALL_TIMEOUT_MS = 10_000L
+    }
+
+    /** Set by the first probe that finds a usable model, so download and inference agree on it. */
+    @Volatile
+    private var resolvedOption: OnDeviceModelOption? = null
+
     private fun backend() = Firebase.ai(backend = GenerativeBackend.googleAI())
 
     /**
@@ -86,40 +104,130 @@ class FirebaseHybridAiTransport : HybridAiTransport {
         else -> NanoStatus.UNAVAILABLE
     }
 
-    override suspend fun checkOnDeviceStatus(cloudModelName: String): NanoStatus = runCatching {
-        val model = backend().generativeModel(
+    private fun onDeviceModel(cloudModelName: String, option: OnDeviceModelOption) =
+        backend().generativeModel(
             modelName = cloudModelName,
             onDeviceConfig = OnDeviceConfig(
                 mode = InferenceMode.ONLY_ON_DEVICE,
-                modelOption = OnDeviceModelOption.PREVIEW,
+                modelOption = option,
             ),
         )
-        mapOnDeviceStatus(model.onDeviceExtension?.checkStatus())
-    }.getOrDefault(NanoStatus.UNAVAILABLE)
 
-    override fun downloadOnDeviceModel(cloudModelName: String): Flow<Int> = flow {
-        val model = backend().generativeModel(
-            modelName = cloudModelName,
-            onDeviceConfig = OnDeviceConfig(
-                mode = InferenceMode.ONLY_ON_DEVICE,
-                modelOption = OnDeviceModelOption.PREVIEW,
-            ),
-        )
-        val ext = model.onDeviceExtension ?: error("OnDeviceExtension unavailable on this device")
-        var pct = 5
-        emit(pct)
-        ext.download().collect { status ->
-            when (status) {
-                is DownloadStatus.DownloadInProgress -> {
-                    pct = (pct + 10).coerceAtMost(95)
-                    emit(pct)
+    /**
+     * The stable Nano build is what a retail phone ships; the preview build only exists once the
+     * AICore Developer Preview is enrolled. Probing stable first is what lets a fresh install offer
+     * a download instead of reporting "not supported" on a device that can run Nano fine.
+     */
+    private suspend fun probeOnDevice(cloudModelName: String): Pair<OnDeviceModelOption, NanoStatus> {
+        var bestOption: OnDeviceModelOption? = null
+        var bestStatus = NanoStatus.UNAVAILABLE
+        for (option in listOf(OnDeviceModelOption.STABLE, OnDeviceModelOption.PREVIEW)) {
+            val status = try {
+                val extension = onDeviceModel(cloudModelName, option).onDeviceExtension
+                if (extension == null) {
+                    Log.w(TAG, "onDeviceExtension is null option=$option model=$cloudModelName")
+                    NanoStatus.UNAVAILABLE
+                } else {
+                    mapOnDeviceStatus(extension.checkStatus())
                 }
-                is DownloadStatus.DownloadCompleted -> {
-                    ext.warmUp()
-                    emit(100)
+            } catch (err: Throwable) {
+                // Swallowing this used to turn "needs a download" into "not supported".
+                Log.w(TAG, "checkStatus failed option=$option model=$cloudModelName: ${err.javaClass.simpleName}: ${err.message}")
+                NanoStatus.UNAVAILABLE
+            }
+            Log.i(TAG, "probe option=$option status=$status")
+            if (status == NanoStatus.READY) return option to status
+            if (status != NanoStatus.UNAVAILABLE && bestOption == null) {
+                bestOption = option
+                bestStatus = status
+            }
+        }
+        return (bestOption ?: OnDeviceModelOption.STABLE) to bestStatus
+    }
+
+    override suspend fun checkOnDeviceStatus(cloudModelName: String): NanoStatus {
+        val (option, status) = probeOnDevice(cloudModelName)
+        if (status != NanoStatus.UNAVAILABLE) resolvedOption = option
+        return status
+    }
+
+    /** The AICore build string, so the UI can name the exact model instead of guessing. */
+    override suspend fun onDeviceModelName(cloudModelName: String): String? {
+        val option = resolvedOption ?: probeOnDevice(cloudModelName).first
+        val extension = onDeviceModel(cloudModelName, option).onDeviceExtension ?: return null
+        return runCatching { extension.getModelName() }.getOrNull().also {
+            Log.i(TAG, "onDevice modelName=$it option=$option")
+        }
+    }
+
+    override fun downloadOnDeviceModel(cloudModelName: String): Flow<NanoDownloadState> = flow {
+        val option = resolvedOption ?: probeOnDevice(cloudModelName).also { probe ->
+            if (probe.second != NanoStatus.UNAVAILABLE) resolvedOption = probe.first
+        }.first
+        val extension = onDeviceModel(cloudModelName, option).onDeviceExtension
+            ?: error("OnDeviceExtension unavailable on this device")
+        val modelName = runCatching { extension.getModelName() }.getOrNull()
+        Log.i(TAG, "download start option=$option model=$modelName")
+
+        var totalBytes = 0L
+        var downloaded = 0L
+        val meter = TransferRateMeter()
+        emit(NanoDownloadState(modelName = modelName))
+
+        coroutineScope {
+            val channel = extension.download().produceIn(this)
+            while (isActive) {
+                val status = withTimeoutOrNull(STALL_TIMEOUT_MS) {
+                    channel.receiveCatching().getOrNull()
                 }
-                is DownloadStatus.DownloadFailed -> {
-                    throw status.exception
+                if (status == null) {
+                    if (channel.isClosedForReceive) break
+                    // No byte moved for the whole window: AICore is waiting on Wi-Fi or charging.
+                    emit(
+                        NanoDownloadState(
+                            modelName = modelName,
+                            bytesDownloaded = downloaded,
+                            totalBytes = totalBytes,
+                            stalled = true,
+                        ),
+                    )
+                    continue
+                }
+                when (status) {
+                    is DownloadStatus.DownloadStarted -> {
+                        totalBytes = status.bytesToDownload
+                        Log.i(TAG, "download started bytes=$totalBytes")
+                        emit(NanoDownloadState(modelName, downloaded, totalBytes))
+                    }
+
+                    is DownloadStatus.DownloadInProgress -> {
+                        downloaded = status.totalBytesDownloaded
+                        val speed = meter.sample(SystemClock.elapsedRealtime(), downloaded)
+                        val remaining = (totalBytes - downloaded).coerceAtLeast(0L)
+                        val eta = if (speed > 0L && totalBytes > 0L) remaining / speed else null
+                        emit(NanoDownloadState(modelName, downloaded, totalBytes, speed, eta))
+                    }
+
+                    is DownloadStatus.DownloadCompleted -> {
+                        Log.i(TAG, "download completed bytes=$downloaded")
+                        extension.warmUp()
+                        resolvedOption = option
+                        emit(
+                            NanoDownloadState(
+                                modelName = modelName,
+                                bytesDownloaded = totalBytes.coerceAtLeast(downloaded),
+                                totalBytes = totalBytes.coerceAtLeast(downloaded),
+                                completed = true,
+                            ),
+                        )
+                        channel.cancel()
+                        break
+                    }
+
+                    is DownloadStatus.DownloadFailed -> {
+                        Log.w(TAG, "download failed option=$option", status.exception)
+                        throw status.exception
+                    }
                 }
             }
         }
@@ -129,6 +237,7 @@ class FirebaseHybridAiTransport : HybridAiTransport {
         prompt: String,
         cloudModelName: String,
     ): Pair<String, InferenceSource> {
+        val option = resolvedOption ?: probeOnDevice(cloudModelName).first
         val model = backend().generativeModel(
             modelName = cloudModelName,
             generationConfig = generationConfig {
@@ -139,7 +248,7 @@ class FirebaseHybridAiTransport : HybridAiTransport {
                 mode = InferenceMode.ONLY_ON_DEVICE,
                 temperature = 0.1f,
                 maxOutputTokens = 512,
-                modelOption = OnDeviceModelOption.PREVIEW,
+                modelOption = option,
             ),
         )
         val response = model.generateContent(prompt)
@@ -199,7 +308,10 @@ class HybridAiClient(
     suspend fun checkNanoStatus(runtimeConfig: RuntimeConfigValues = RuntimeConfigValues()): NanoStatus =
         transport.checkOnDeviceStatus(runtimeConfig.cloudModel)
 
-    fun warmUpOnDevice(runtimeConfig: RuntimeConfigValues = RuntimeConfigValues()): Flow<Int> =
+    suspend fun nanoModelName(runtimeConfig: RuntimeConfigValues = RuntimeConfigValues()): String? =
+        runCatching { transport.onDeviceModelName(runtimeConfig.cloudModel) }.getOrNull()
+
+    fun warmUpOnDevice(runtimeConfig: RuntimeConfigValues = RuntimeConfigValues()): Flow<NanoDownloadState> =
         transport.downloadOnDeviceModel(runtimeConfig.cloudModel)
 
     suspend fun runStage1AndTriage(
@@ -418,6 +530,69 @@ class HybridAiClient(
             offlineMode = false,
             onStreamChunk = onStreamChunk,
         )
+    }
+
+    /**
+     * Quick Sandbox pass. Runs Gemini Nano stage-1 extraction when the model is ready, then unions
+     * the semantic spans with the deterministic rules so the sandbox shows what the shield would
+     * actually do to the same text in a real app.
+     */
+    suspend fun scanSandbox(
+        rawText: String,
+        protectionLevel: ProtectionLevel = ProtectionLevel.MEDIUM,
+        policy: PrivacyPolicy = PrivacyPolicy(),
+        runtimeConfig: RuntimeConfigValues = RuntimeConfigValues(),
+    ): SandboxScan {
+        val startedNs = System.nanoTime()
+        val nanoStatus = transport.checkOnDeviceStatus(runtimeConfig.cloudModel)
+
+        val semanticItems = mutableListOf<SemanticExtractionItem>()
+        var modelLabel: String? = null
+        if (nanoStatus == NanoStatus.READY) {
+            val attempt = runCatching {
+                transport.generateOnDeviceOnly(buildSandboxExtractionPrompt(rawText), runtimeConfig.cloudModel)
+            }.getOrNull()
+            if (attempt != null && attempt.first.isNotBlank()) {
+                modelLabel = nanoModelName(runtimeConfig)
+                parseSandboxPhrases(attempt.first, semanticItems)
+            }
+        }
+
+        val semanticSpans =
+            if (semanticItems.isNotEmpty()) LocalFirewallEngine.buildSemanticSpans(rawText, semanticItems)
+            else emptyList()
+
+        val (sanitizedText, mergedSpans) = LocalFirewallEngine.scanAndRedactLocal(
+            rawText = rawText,
+            options = LocalFirewallEngine.ScanOptions(
+                protectionLevel = protectionLevel,
+                includeHeuristics = true,
+                enableEntropyScanner = policy.enableEntropyScanner,
+                entropyThreshold = when (protectionLevel) {
+                    ProtectionLevel.LOW -> 3.8
+                    ProtectionLevel.HIGH -> 2.9
+                    ProtectionLevel.MEDIUM -> runtimeConfig.entropyThreshold
+                },
+                customTerms = policy.customTerms,
+                remoteBlockedTerms = runtimeConfig.enterpriseBlockedTerms,
+                extraSpans = if (protectionLevel == ProtectionLevel.LOW) emptyList() else semanticSpans,
+            ),
+        )
+
+        return SandboxScan(
+            rawText = rawText,
+            sanitizedText = sanitizedText,
+            spans = mergedSpans,
+            inferenceSource = if (modelLabel != null) InferenceSource.ON_DEVICE else InferenceSource.LOCAL_REGEX_FALLBACK,
+            modelName = modelLabel,
+            semanticPhraseCount = semanticItems.size,
+            latencyMs = maxOf(1L, (System.nanoTime() - startedNs) / 1_000_000L),
+        ).also { scan ->
+            Log.i(
+                CLIENT_TAG,
+                "sandbox status=$nanoStatus model=$modelLabel semantic=${scan.semanticPhraseCount} spans=${scan.spans.size} latency=${scan.latencyMs}ms",
+            )
+        }
     }
 
     suspend fun escalateApprovedTicket(
@@ -649,6 +824,36 @@ class HybridAiClient(
         }
     }
 
+    private fun buildSandboxExtractionPrompt(rawText: String): String = listOf(
+        "You extract sensitive spans from text so a firewall can redact them.",
+        "Reply with ONE line per span, formatted PHRASE|CATEGORY.",
+        "PHRASE must be copied verbatim from the text, 2-60 characters, no quotes and no commentary.",
+        "CATEGORY is exactly one of: PERSON_PII, CONTEXTUAL_PHI, NATURAL_SECRET, M_AND_A_SECRET, ADDRESS, CREDIT_CARD, ACCOUNT_NUMBER, UPI_ID, PAN_ID, IFSC.",
+        "Extract every person name, medical condition, clinic or hospital, street address, and neighbourhood or city that reveals where a named person will be.",
+        "Use CREDIT_CARD for a card number even when it is grouped with spaces.",
+        "If nothing is sensitive reply exactly NONE.",
+        "Text:\n${rawText.take(2000)}",
+    ).joinToString("\n")
+
+    /**
+     * Tolerant reader for the sandbox prompt. The model sometimes prefixes a header line or wraps
+     * phrases in quotes, and a strict parser would silently drop every span it produced.
+     */
+    private fun parseSandboxPhrases(raw: String, itemsOut: MutableList<SemanticExtractionItem>) {
+        for (line in raw.lines()) {
+            val trimmed = line.trim().trimStart('-', '*', '•').trim()
+            if (trimmed.isEmpty() || trimmed.equals("NONE", ignoreCase = true)) continue
+            val parts = trimmed.split("|")
+            if (parts.size < 2) continue
+            val phrase = parts[0].trim().trim('"', '\'', '`')
+            val category = parts[1].trim().substringBefore(' ').uppercase()
+            if (phrase.length < 3 || category.isEmpty()) continue
+            if (itemsOut.none { it.phrase.equals(phrase, ignoreCase = true) }) {
+                itemsOut.add(SemanticExtractionItem(phrase, category))
+            }
+        }
+    }
+
     private fun buildStage1ExtractionPrompt(rawText: String, runbooks: List<CustomRunbook>): String {
         val rbList = runbooks.joinToString(", ") { it.id }
         return listOf(
@@ -681,6 +886,7 @@ class HybridAiClient(
     }
 
     companion object {
+        const val CLIENT_TAG = "CordonNano"
         const val SRE_SYSTEM_INSTRUCTION =
             "You are a Principal SRE Incident Triage Assistant. Produce concise Markdown with sections: ### Root Cause Hypothesis, ### Immediate Mitigation, and ### Verification Checklist. Never ask for or echo redacted PII. Preserve exact [REDACTED:...] tokens verbatim and omit horizontal --- rules."
         const val BRIEF_SYSTEM_INSTRUCTION =
