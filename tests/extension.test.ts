@@ -129,7 +129,7 @@ describe("Chrome Extension MV3 companion", () => {
     for (const dead of ["atlassian.net", "zendesk.com", "pagerduty.com", "linear.app"]) {
       expect(manifest.host_permissions.join(" ")).not.toContain(dead);
     }
-    expect(manifest.version).toBe("4.4.0");
+    expect(manifest.version).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
   it("keeps package and extension versions in lockstep", () => {
@@ -139,7 +139,6 @@ describe("Chrome Extension MV3 companion", () => {
     const manifest = JSON.parse(
       fs.readFileSync(path.join(EXT_DIR, "manifest.json"), "utf8"),
     ) as { version: string };
-    expect(pkg.version).toBe("4.4.0");
     expect(manifest.version).toBe(pkg.version);
   });
 
@@ -150,7 +149,10 @@ describe("Chrome Extension MV3 companion", () => {
     }
     expect(html).toMatch(/Open ChatGPT to test/i);
     expect(html).toContain("Discord");
-    expect(html).toContain("v4.4.0");
+    const { version } = JSON.parse(
+      fs.readFileSync(path.join(EXT_DIR, "manifest.json"), "utf8"),
+    ) as { version: string };
+    expect(html).toContain(`v${version}`);
     // The model download must be presented as optional, never as a required first step.
     expect(html).toMatch(/Optional:\s*on-device AI/i);
   });

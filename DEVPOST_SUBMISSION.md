@@ -1,8 +1,8 @@
-# Cordon (`v4.4.0`) — #BuildHybridAI 2026 Submission
+# Cordon (`v4.5.0`) — #BuildHybridAI 2026 Submission
 
 - **Live Web PWA:** [`https://para-1-2e22b.web.app/`](https://para-1-2e22b.web.app/)
 - **Public GitHub Repository:** [`https://github.com/Lion4467cat/localfirst-triage`](https://github.com/Lion4467cat/localfirst-triage)
-- **Releases (Extension ZIP + Android APK `v4.4.0`):** [`github.com/Lion4467cat/localfirst-triage/releases`](https://github.com/Lion4467cat/localfirst-triage/releases)
+- **Releases (Extension ZIP + Android APK `v4.5.0`):** [`github.com/Lion4467cat/localfirst-triage/releases`](https://github.com/Lion4467cat/localfirst-triage/releases)
 - **Demo video (≤3 min, YouTube, public):** `<!-- VIDEO_URL: add the public YouTube link here before submitting -->`
 
 ---
@@ -39,7 +39,7 @@ Engineers and support teams paste raw production stack traces, crash logs, and c
 
 - **Web (30 s):** open the live PWA → **Sign in as Guest** → **Run Privacy Firewall** on any scenario.
 - **Chrome extension (1 min):** download the ZIP from Releases → unzip → `chrome://extensions` → Developer mode → **Load unpacked** → pick the folder → click the Cordon icon → open ChatGPT and paste a key.
-- **Android (2 min):** install `cordon-android-v4.4.0.apk` from Releases → open Cordon → **Enable Background Shield** → turn on **Cordon** in Accessibility settings → open ChatGPT, type a secret, tap Send.
+- **Android (2 min):** install `cordon-android-v4.5.0.apk` from Releases → open Cordon → **Enable Background Shield** → turn on **Cordon** in Accessibility settings → open ChatGPT, type a secret, tap Send.
 
 Each surface shows exactly one confirmation on Send (**Scrub & Send** / **Send anyway**) and never interrupts typing.
 
@@ -47,9 +47,27 @@ Each surface shows exactly one confirmation on Send (**Scrub & Send** / **Send a
 
 ## How Firebase AI Logic Is Used (runtime, not just imported)
 
-- **Web:** `src/config/firebase.ts` builds `getAI(app, { backend: GoogleAIBackend })` and three models — `ONLY_ON_DEVICE`, `PREFER_ON_DEVICE`, `PREFER_IN_CLOUD` — called by `src/firewall/pipeline.ts` on every triage.
-- **Android:** `ai/HybridAiClient.kt` calls `firebase-ai` with on-device params and cloud fallback; `AppCheckInitializer` installs Play Integrity in release and the Debug provider in debug.
-- **App Check:** reCAPTCHA Enterprise/V3 on web, Play Integrity on Android. Debug tokens accepted for judging.
+Every row below is a call site in tracked source, verified on the connected device and in a real Chromium run.
+
+| Surface | Runtime call | Where |
+| :--- | :--- | :--- |
+| Web | `initializeAppCheck` + `getAI(app, { backend: GoogleAIBackend })` | `src/config/firebase.ts:179`, `:197` |
+| Web | Three models: `ONLY_ON_DEVICE`, `PREFER_ON_DEVICE`, `PREFER_IN_CLOUD` | `src/config/firebase.ts:219`, `:229`, `:245` |
+| Web | Stage 2 cloud call on every escalation | `src/firewall/pipeline.ts:145` |
+| Web | `loadRuntimeConfig()` — startup + manual refresh, 3.5 s deadline | `src/App.tsx:243`, `:219` |
+| Android | `Firebase.ai(backend = GenerativeBackend.googleAI())` | `ai/HybridAiClient.kt:60` |
+| Android | `ONLY_ON_DEVICE` status probe, download, semantic pass — fails closed to `LocalFirewallEngine` | `ai/HybridAiClient.kt:93`, `:104`, `:139` |
+| Android | `ONLY_IN_CLOUD` Stage 2 escalation (stream + unary) | `ai/HybridAiClient.kt:158`, `:174` |
+| Android | `PREFER_ON_DEVICE` stakeholder brief | `ai/HybridAiClient.kt:187` |
+| Android | App Check: Play Integrity (release) / Debug provider (debug) | `src/release|debug/…/AppCheckInitializer.kt:11` |
+| Android | `loadRuntimeConfig()` on ViewModel init, 3.5 s deadline | `ui/TriageViewModel.kt:72` → `data/RemoteConfigRepository.kt:18` |
+| Extension | Chrome built-in `LanguageModel` semantic pass | `extension/firewall-core.js:672`, `:690` |
+
+**The extension does not call AI Logic directly.** An MV3 content script runs under the page CSP plus the extension CSP, and a service worker cannot load the remote reCAPTCHA script `ReCaptchaEnterpriseProvider` needs. The extension keeps the deterministic floor plus Chrome's built-in model locally and hands cloud escalation to the App Check–protected Web Workbench through `#handoff=` — a stated platform constraint, not a hidden gap.
+
+**Why no Firestore or Auth on the hot path.** The scrub-and-escalate path never opens a database and never needs an identity; Stage 2 rides the anonymous session AI Logic mints for its own auth token (`HybridAiClient.kt:68-70`). Firestore serves only opt-in sync of already-sanitized records, gated twice: `buildZeroPiiTicketPayload` refuses the write when `verifyZeroLeakage()` finds a surviving span (`FirestoreSyncRepository.kt:293-298`), and `firestore.rules` rejects `rawText`/`matchedText`/`constituentTexts` server-side. The database therefore never holds the data the product exists to protect.
+
+**Remote Config is read-only and fail-closed.** Five knobs (`cloud_primary_model`, `cloud_fallback_model`, `enable_cloud_escalation`, `entropy_threshold`, `enterprise_blocked_terms`) load at startup; every failure path returns compiled defaults, the threshold is clamped to `[2.0, 5.5]`, and the term list is capped at 200. A bad remote value degrades the firewall, it does not disarm it.
 
 ---
 
@@ -99,7 +117,7 @@ Reproduce: `cd android && ./gradlew connectedDebugAndroidTest -Pandroid.testInst
 | 0:25–1:05 | Hybrid airgap | Web Workbench → paste a multi-secret prompt → Stage 1 scrubs locally → Approve → Stage 2 answers via Firebase AI Logic, with `inferenceSource` and App Check visible |
 | 1:05–1:55 | Multi-surface sweep | Android Chrome omnibox lock + scrub, Settings guard-any-app, Quick Sandbox; then the extension blocking Send on a real ChatGPT DOM and the `#handoff=` bridge |
 | 1:55–2:30 | Hard proof | `CordonBench` table: 100.0% recall (65/65), 0.0% false positives (0/35), 1.02 ms p50, and fail-closed `ONLY_ON_DEVICE` on devices without AICore |
-| 2:30–2:55 | Close | Apache-2.0 repo, v4.3.1 release assets, one line: sensitive data never leaves the device; cloud AI only ever sees redacted intent |
+| 2:30–2:55 | Close | Apache-2.0 repo, v4.5.0 release assets, one line: sensitive data never leaves the device; cloud AI only ever sees redacted intent |
 
 ---
 
