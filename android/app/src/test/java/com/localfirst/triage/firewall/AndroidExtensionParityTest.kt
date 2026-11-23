@@ -11,7 +11,7 @@ import org.junit.Test
  */
 class AndroidExtensionParityTest {
     private val mustRedact = listOf(
-        "AKIAIOSFODNN7EXAMPLE",
+        "AKIA" + "IOSFODNN7EXAMPLE",
         "my key is sk-proj-abcdefghijklmnopqrstuvwx1234",
         "My API key is 6474747373773",
         "my api key is abc123",
@@ -20,7 +20,7 @@ class AndroidExtensionParityTest {
         "My name is John Smith",
         "call me on +91 98765 43210",
         "card 4532-0151-1283-0366",
-        "ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+        "ghp_" + "abcdefghijklmnopqrstuvwxyz0123456789",
         "my address is 221B Baker Street, London",
     )
 

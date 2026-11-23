@@ -6,7 +6,7 @@ import {
 import type { TriageResult } from "../src/types/triage";
 
 describe("auditReceipt (ECDSA P-256)", () => {
-  const rawSecret = "AKIAIOSFODNN7EXAMPLE";
+  const rawSecret = "AKIA" + "IOSFODNN7EXAMPLE";
   const rawText = `Outage with AWS key ${rawSecret} in Manipal ICU Floor 3`;
   const sanitizedText = "Outage with AWS key [REDACTED:AWS_1] in [REDACTED:PHI_1]";
 

@@ -167,6 +167,7 @@ fun ShieldScreen(
             },
             onSendToCloud = onSendScrubbedToCloud,
             cloudResult = state.currentResult?.resolution,
+            inferenceSource = state.currentResult?.inferenceSource?.name,
             isRunning = state.isRunning,
             offlineMode = state.offlineMode,
         )
@@ -547,6 +548,7 @@ private fun SandboxCard(
     onChooseApp: (String) -> Unit,
     onSendToCloud: (String) -> Unit,
     cloudResult: String?,
+    inferenceSource: String?,
     isRunning: Boolean,
     offlineMode: Boolean,
 ) {
@@ -745,7 +747,7 @@ private fun SandboxCard(
                         }
 
                         if (cloudResult != null && cloudResult.isNotBlank()) {
-                            CloudResponseCard(text = cloudResult)
+                            CloudResponseCard(text = cloudResult, inferenceSource = inferenceSource)
                         }
                     }
                 }
@@ -755,7 +757,7 @@ private fun SandboxCard(
 }
 
 @Composable
-private fun CloudResponseCard(text: String) {
+private fun CloudResponseCard(text: String, inferenceSource: String?) {
     val tokens = LocalFirstThemeTokens.colors
     Surface(
         color = tokens.infoBg,
@@ -767,12 +769,35 @@ private fun CloudResponseCard(text: String) {
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
-            Text(
-                text = "Cloud AI Response · 0 raw PII bytes left device",
-                fontWeight = FontWeight.Bold,
-                fontSize = 11.sp,
-                color = tokens.infoText,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = "Cloud AI Response · 0 raw PII left device",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp,
+                    color = tokens.infoText,
+                    modifier = Modifier.weight(1f),
+                )
+                if (inferenceSource != null) {
+                    val servedInCloud = inferenceSource == "IN_CLOUD"
+                    Surface(
+                        color = if (servedInCloud) tokens.infoBg else tokens.safeBg,
+                        border = BorderStroke(1.dp, if (servedInCloud) tokens.infoBorder else tokens.safeBorder),
+                        shape = RoundedCornerShape(6.dp),
+                    ) {
+                        Text(
+                            text = inferenceSource,
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (servedInCloud) tokens.infoText else tokens.safeText,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        )
+                    }
+                }
+            }
             Column(
                 modifier = Modifier
                     .fillMaxWidth()

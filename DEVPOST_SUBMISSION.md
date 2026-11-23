@@ -58,7 +58,7 @@ Each surface shows exactly one confirmation on Send (**Scrub & Send** / **Send a
 - **Defense-in-depth was necessary, not decorative.** On real hardware, Nano 4 sometimes extracted only the first person name (`John`); gating the heuristic guard off when Nano was "ready" let clinical PHI and M&A terms through. Stage 1 is now an always-on union.
 - **Boundary bugs found in production text.** Apostrophe boundaries (`dog's name`) and parenthesis overruns in `NATURAL_SECRET` / `CONTEXTUAL_PHI` were fixed identically across Web, Extension, and Android.
 - **Deterministic storage rules.** Identical TypeScript and Kotlin serializers strip `rawText`, `matchedText`, `constituentTexts`, and `spans`; `firestore.rules` rejects those fields and blocks unredacted AWS/Google/PEM/JWT/Stripe/Slack/GitHub shapes with RE2.
-- **Android send interception, rebuilt around what the platform actually allows.** Matching the Send node failed on unlabelled arrow buttons, so placement is now pure geometry: the trailing 34% of the composer row, clamped to the screen, to 132 dp of height and to the top of the keyboard (read from the IME window). Hardware Enter is swallowed through `flagRequestFilterKeyEvents` before the app sees it. A soft keyboard's own arrow cannot be pre-empted — Android delivers no KeyEvents for IME presses and the IME window sits above any overlay — so that path is covered by the composer shield and, if it still escapes, proven by finding the secret in the transcript and reported with a "Sent unredacted" screen. The overlay itself is `TYPE_ACCESSIBILITY_OVERLAY` with `LAYOUT_IN_SCREEN | LAYOUT_NO_LIMITS`, `fitInsetsTypes = 0`, cutout mode `ALWAYS`, verified at runtime against the target bounds, and torn down immediately on clean text with a 450 ms debounce only for transient node misses.
+- **Android send interception, rebuilt around what the platform actually allows.** The first design hunted the Send node and failed on unlabelled arrow buttons. It was replaced by a full-screen `TYPE_ACCESSIBILITY_OVERLAY` decision modal covering `[0,0][1080,2400]` with `BLOCK_UNTRUSTED` occlusion: while it is up, no control in the app underneath — including its Send button — can be tapped, and the keyboard's own Send arrow is covered by the same window. Measured on a Moto G82 5G: with no modal, one tap on the keyboard action key at `(996,2154)` navigates Chrome to `about:blank`; with the modal up, the identical tap leaves the omnibox intact, the page unchanged, and the screen byte-identical. `onKeyEvent` filtering is still configured via `canRequestFilterKeyEvents`, but this device has no evdev node that emits `KEY_ENTER` and `adb shell input keyevent` injects below the accessibility input filter, so we do not claim a hardware-Enter proof we could not run. Trigger policy is a 250 ms debounce for open-ended PII still growing at the end of the buffer and immediate lock for anything structured or terminated, which measured `elapsedMs=25–38` typed and `34` pasted.
 
 ---
 
@@ -74,6 +74,32 @@ Each surface shows exactly one confirmation on Send (**Scrub & Send** / **Send a
 | 3-pass idempotency failures | 0 | **0** |
 
 Reproduce: `node scripts/benchmark-third-party.mjs --out=benchmarks/third-party-optimized.json`.
+
+### On-device benchmark (`CordonBench`, Moto G82 5G, API 33, arm64)
+
+| Metric | Result |
+| :--- | :---: |
+| Recall, 65 synthetic secrets/PII across 15 categories | **100.0% (65/65)** |
+| False positives, 35 benign developer & everyday prompts | **0.0% (0/35)** |
+| Latency p50 / p95 / max | **1.02 ms / 1.69 ms / 2.19 ms** |
+| Raw secret substrings persisted in `ShieldStore` | **0** |
+| Raw values surviving the scrub in output | **0** |
+
+Every category scored 100%: `ADDRESS`, `API_KEY`, `AWS_ACCESS_KEY`, `AWS_SECRET_KEY`, `BEARER_OR_JWT`, `CREDIT_CARD`, `DB_CONNECTION_URI`, `EMAIL`, `GOV_ID`, `HIGH_ENTROPY_SECRET`, `IBAN`, `PASSWORD`, `PEM_PRIVATE_KEY`, `PHONE`, `US_SSN`. The Chrome extension scores 67 positives / 37 benign at 100% recall and 0% false positives.
+
+Reproduce: `cd android && ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.localfirst.triage.OnDeviceFirewallBenchmarkTest`, then `adb logcat -d | grep CordonBench`.
+
+---
+
+## 3-Minute Demo (hard cap)
+
+| Time | Beat | On screen |
+| :--- | :--- | :--- |
+| 0:00–0:25 | Hook | Paste a key + PII into ChatGPT on Android → full-screen lock in 34 ms → Scrub in Field → redaction token in the composer, nothing sent |
+| 0:25–1:05 | Hybrid airgap | Web Workbench → paste a multi-secret prompt → Stage 1 scrubs locally → Approve → Stage 2 answers via Firebase AI Logic, with `inferenceSource` and App Check visible |
+| 1:05–1:55 | Multi-surface sweep | Android Chrome omnibox lock + scrub, Settings guard-any-app, Quick Sandbox; then the extension blocking Send on a real ChatGPT DOM and the `#handoff=` bridge |
+| 1:55–2:30 | Hard proof | `CordonBench` table: 100.0% recall (65/65), 0.0% false positives (0/35), 1.02 ms p50, and fail-closed `ONLY_ON_DEVICE` on devices without AICore |
+| 2:30–2:55 | Close | Apache-2.0 repo, v4.3.1 release assets, one line: sensitive data never leaves the device; cloud AI only ever sees redacted intent |
 
 ---
 

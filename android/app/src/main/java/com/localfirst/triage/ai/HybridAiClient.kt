@@ -140,7 +140,7 @@ class FirebaseHybridAiTransport : HybridAiTransport {
         val model = backend().generativeModel(
             modelName = modelName,
             systemInstruction = content("system") { text(systemInstruction) },
-            onDeviceConfig = OnDeviceConfig(mode = InferenceMode.PREFER_IN_CLOUD),
+            onDeviceConfig = OnDeviceConfig(mode = InferenceMode.ONLY_IN_CLOUD),
         )
         return model.generateContentStream(prompt).map { chunk ->
             (chunk.text ?: "") to mapInferenceSource(chunk.inferenceSource, InferenceSource.IN_CLOUD)
@@ -155,7 +155,7 @@ class FirebaseHybridAiTransport : HybridAiTransport {
         val model = backend().generativeModel(
             modelName = modelName,
             systemInstruction = content("system") { text(systemInstruction) },
-            onDeviceConfig = OnDeviceConfig(mode = InferenceMode.PREFER_IN_CLOUD),
+            onDeviceConfig = OnDeviceConfig(mode = InferenceMode.ONLY_IN_CLOUD),
         )
         val response = model.generateContent(prompt)
         return (response.text ?: "") to mapInferenceSource(response.inferenceSource, InferenceSource.IN_CLOUD)

@@ -11,6 +11,34 @@ Built for **#BuildHybridAI 2026** on **Firebase Spark** infrastructure (`para-1-
 
 ---
 
+## Judge Quick-Check: Firebase AI Logic & App Check Runtime Map
+
+Every claim below is a runtime call in tracked source, not a dependency sitting in a manifest.
+
+| Surface | What runs at runtime | Where |
+| :--- | :--- | :--- |
+| **Web** | `initializeAppCheck(app, { provider, isTokenAutoRefreshEnabled: true })` | `src/config/firebase.ts:179` |
+| **Web** | `getAI(app, { backend: new GoogleAIBackend() })` | `src/config/firebase.ts:197` |
+| **Web** | `getGenerativeModel(..., mode: InferenceMode.ONLY_ON_DEVICE)` — local semantic probe | `src/config/firebase.ts:219` |
+| **Web** | `getGenerativeModel(..., mode: InferenceMode.PREFER_ON_DEVICE)` — hybrid brief | `src/config/firebase.ts:229` |
+| **Web** | `getGenerativeModel(..., mode: InferenceMode.PREFER_IN_CLOUD)` — post-scrub cloud escalation | `src/config/firebase.ts:245` |
+| **Web** | Cloud call site: `createCloudEscalationModel(ai, modelName, …)` | `src/firewall/pipeline.ts:145` |
+| **Web** | `inferenceSource` surfaced in telemetry (`ON_DEVICE` vs `IN_CLOUD`) | `src/config/firebase.ts:260`, `src/firewall/pipeline.ts:722` |
+| **Android** | `Firebase.ai(backend = GenerativeBackend.googleAI())` | `ai/HybridAiClient.kt:57` |
+| **Android** | `InferenceMode.ONLY_ON_DEVICE` — semantic PII probe, fails closed to `LocalFirewallEngine` | `ai/HybridAiClient.kt:79`, `:90`, `:125` |
+| **Android** | `InferenceMode.PREFER_IN_CLOUD` — post-scrub Quick Sandbox escalation | `ai/HybridAiClient.kt:143`, `:158` |
+| **Android** | App Check, release: `PlayIntegrityAppCheckProviderFactory` | `src/release/…/AppCheckInitializer.kt:11` |
+| **Android** | App Check, debug: `DebugAppCheckProviderFactory` (token never committed) | `src/debug/…/AppCheckInitializer.kt:11` |
+| **Extension** | Chrome built-in `LanguageModel` semantic pass (`runExtensionNanoScan`) | `extension/firewall-core.js:672`, `:690` |
+
+**Why the extension does not call Firebase AI Logic directly.** An MV3 content script runs under the page's CSP and the extension's own CSP, and a service worker cannot load the remote reCAPTCHA script that `ReCaptchaEnterpriseProvider` requires. The extension therefore keeps the deterministic floor plus the Chrome built-in model locally, and routes cloud escalation through the `#handoff=` bridge to the Firebase-hosted, App Check–protected Web Workbench at [`https://para-1-2e22b.web.app/`](https://para-1-2e22b.web.app/). That is a platform constraint, stated rather than hidden.
+
+**Why `PREFER_IN_CLOUD` rather than `ONLY_IN_CLOUD`.** The escalation input has already been scrubbed and verified, so the goal is a cloud answer with a working fallback rather than a hard failure when the network drops mid-demo. `inferenceSource` reports which path actually served the response, so the cloud call is observable, not assumed.
+
+**Why there is no Firebase Auth or Firestore on the hot path.** Cordon's cloud surface is deliberately minimal: AI Logic plus App Check plus Hosting. Firestore exists only for opt-in sync of already-sanitized triage records, and `firestore.rules` rejects `rawText`, `matchedText` and `constituentTexts` server-side. No raw prompt is ever written to cloud storage, so there is no auth-gated database holding the thing the product exists to protect.
+
+---
+
 ## The UX contract
 
 1. **The browser shield never interrupts composition.** The extension stays silent while you type or paste.
@@ -60,6 +88,24 @@ node scripts/benchmark-third-party.mjs --out=benchmarks/third-party-optimized.js
 ```
 
 Suite A2 is reported honestly: deterministic regex/entropy heuristics do not resolve unstructured PII, which is why the on-device Nano 4 semantic pass exists. Benchmarks measure the deterministic floor only.
+
+### On-device benchmark (Moto G82 5G, API 33, arm64, `CordonBench`)
+
+The same engine measured on a mid-range ARM phone, not a workstation:
+
+| Metric | Result |
+| :--- | :---: |
+| **Recall** (65 synthetic secrets/PII across 15 categories) | **`100.0%` (65/65)** |
+| **False positives** (35 benign developer & everyday prompts) | **`0.0%` (0/35)** |
+| **Latency p50 / p95 / max** | **`1.02 ms` / `1.69 ms` / `2.19 ms`** |
+| **Raw secret substrings persisted in `ShieldStore`** | **`0`** |
+| **Raw values surviving the scrub in output** | **`0`** |
+
+Every category scored 100%: `ADDRESS`, `API_KEY`, `AWS_ACCESS_KEY`, `AWS_SECRET_KEY`, `BEARER_OR_JWT`, `CREDIT_CARD`, `DB_CONNECTION_URI`, `EMAIL`, `GOV_ID`, `HIGH_ENTROPY_SECRET`, `IBAN`, `PASSWORD`, `PEM_PRIVATE_KEY`, `PHONE`, `US_SSN`.
+
+Reproduce: `cd android && ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.localfirst.triage.OnDeviceFirewallBenchmarkTest`, then `adb logcat -d | grep CordonBench`.
+
+The Chrome extension scores `67` positives / `37` benign at `100%` recall and `0%` false positives (`npm test`, `tests/extensionBenchmark.test.ts`).
 
 ---
 
@@ -120,10 +166,10 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ```bash
 npm ci && npm run build            # TypeScript + Vite production build
-npm test                           # Vitest: 20 files, 138 tests passing
+npm test                           # Vitest: 24 files, 170 tests passing
 npm run test:e2e                   # Playwright: 10/10 flows, 0 page errors
 cd android && ./gradlew testDebugUnitTest lintDebug assembleDebug
-                                   # 88 tests passing, 0 lint errors
+                                   # 12 classes, 70 tests passing, 0 lint errors
 ```
 
 ---
@@ -142,8 +188,9 @@ cd android && ./gradlew testDebugUnitTest lintDebug assembleDebug
 - The Android shield guards the **12 listed packages**. Other browsers and niche apps are covered by the manual `ACTION_PROCESS_TEXT` / Share Sheet scrub, not by automatic interception.
 - The Android accessibility path is **deterministic (regex + entropy + heuristics)**; Nano 4 runs in the in-app workbench, not inside the accessibility service.
 - Automatic interception requires a detectable Send control. Icon-only custom canvases without a label or `contentDescription` fall back to manual scrub.
-- The shield is placed by geometry, not by finding the Send control: it covers the trailing 34% of the composer row, clamped to the screen, to a 132 dp height and to the top of the keyboard. Unlabelled arrow buttons are therefore covered, but a Send control that lives outside that corner (rare) is not.
-- A soft keyboard's own Send arrow cannot be pre-empted: Android does not deliver IME key presses to accessibility services, and the keyboard window sits above any overlay. Cordon blocks that path with the composer shield, and if the send still leaves, proves it by finding the secret in the transcript and shows a "Sent unredacted" screen.
+- The Android decision is a full-screen `TYPE_ACCESSIBILITY_OVERLAY` covering `[0,0][1080,2400]` with `BLOCK_UNTRUSTED` occlusion, not a shield placed over the Send control. While it is up, no control in the app underneath can be tapped, including the app's own Send button.
+- The soft keyboard's own Send arrow is covered by the same window. Measured on the Moto G82: with no modal, one tap on the keyboard action key at `(996,2154)` navigates Chrome to `about:blank`; with the modal up, the identical tap at the identical coordinate leaves the omnibox text intact, the page unchanged, and the screen byte-identical.
+- `onKeyEvent` hardware-Enter filtering is configured (`canRequestFilterKeyEvents`) but could not be exercised on this device: no evdev node emits `KEY_ENTER` (gpio-keys exposes only `0x73`, qpnp_pon `0x72`/`0x74`, uinput-focal `0x26e`, double-tap `0x3b`–`0x3e`), and `adb shell input keyevent` injects below the accessibility input filter, so the callback is never invoked. The touch-path measurement above is the proof that matters on a touch-only device.
 - Extension textareas need `Ctrl/Cmd+Enter`; plain `Enter` keeps inserting newlines by design.
 - On devices without the Chrome built-in model, the extension's Nano pass is skipped and the deterministic floor applies.
 

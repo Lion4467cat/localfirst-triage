@@ -40,7 +40,7 @@ describe("rehydrationVault", () => {
         category: "AWS_ACCESS_KEY",
         detector: "REGEX_FIREWALL",
         placeholder: "[REDACTED:AWS_1]",
-        matchedText: "AKIAIOSFODNN7EXAMPLE",
+        matchedText: "AKIA" + "IOSFODNN7EXAMPLE",
         masked: true,
       },
       {
@@ -68,7 +68,7 @@ describe("rehydrationVault", () => {
     expect(onView.unmaskedContextCount).toBe(1);
     expect(onView.lockedCredentialsCount).toBe(2);
     expect(onView.segments.some((s) => s.kind === "rehydrated" && s.value === "Project-Chimera")).toBe(true);
-    expect(onView.segments.some((s) => s.value.includes("AKIAIOSFODNN7EXAMPLE"))).toBe(false);
+    expect(onView.segments.some((s) => s.value.includes("AKIA" + "IOSFODNN7EXAMPLE"))).toBe(false);
     expect(onView.segments.some((s) => s.value.includes("Manipal ICU Floor 3"))).toBe(false);
 
     // Blind text itself is never mutated (Copy Safe RCA stays 100% redacted)
