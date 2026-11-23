@@ -155,6 +155,8 @@ export function App() {
   const inFlightRef = useRef(false);
   const runGenerationRef = useRef(0);
   const policyCreatedAtRef = useRef<number>(Date.now());
+  /** Set on the first local policy edit so a slow hydration or remote snapshot cannot undo it. */
+  const policyEditedRef = useRef(false);
   const runbookCreatedAtRef = useRef<Map<string, number>>(new Map());
   const customRunbookIdsRef = useRef<Set<string>>(new Set());
 
@@ -245,7 +247,8 @@ export function App() {
 
       setHistory(saved);
       setRunbooks(loadedRunbooks);
-      setPolicy(loadedPolicy);
+      // A slow hydration must never clobber a policy the user edited while it was in flight.
+      if (!policyEditedRef.current) setPolicy(loadedPolicy);
       setRuntimeConfig(runtimeCfg);
       for (const rb of loadedRunbooks) {
         if (!rb.builtIn) customRunbookIdsRef.current.add(rb.id);
@@ -363,8 +366,10 @@ export function App() {
       },
       onPolicy: (remotePolicy, createdAt) => {
         policyCreatedAtRef.current = createdAt;
-        setPolicy(remotePolicy);
-        void savePrivacyPolicy(remotePolicy);
+        if (!policyEditedRef.current) {
+          setPolicy(remotePolicy);
+          void savePrivacyPolicy(remotePolicy);
+        }
       },
       onRunbooks: (remoteCustomRunbooks, createdAtMap) => {
         runbookCreatedAtRef.current = createdAtMap;
@@ -692,6 +697,7 @@ export function App() {
   };
 
   const handleSavePolicy = (updated: PrivacyPolicy) => {
+    policyEditedRef.current = true;
     setPolicy(updated);
     void savePrivacyPolicy(updated);
     if (authUidRef.current && !offlineModeRef.current) {
