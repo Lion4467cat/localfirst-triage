@@ -14,6 +14,7 @@ import android.text.InputType
 import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
@@ -21,8 +22,11 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import android.widget.Button
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.localfirst.triage.R
 import com.localfirst.triage.data.ShieldStore
 import com.localfirst.triage.firewall.LocalFirewallEngine
 import com.localfirst.triage.model.ProtectionLevel
@@ -561,29 +565,6 @@ object PromptPlacement {
         (anchorTop - promptHeight - gapPx).coerceAtLeast(minTopPx)
 }
 
-/**
- * Last-resort target when the Send control is not exposed in the node tree (Compose often
- * drops it while the composer is being re-measured). The Send button always sits at the
- * right edge of the composer row, so a square there still catches the tap.
- */
-object ShieldFallbackAnchor {
-    fun forComposer(
-        editable: ShieldGeometry.ShieldRect,
-        screen: ShieldGeometry.ShieldRect,
-        widthPx: Int,
-        extraBottomPx: Int,
-        edgeMarginPx: Int = 0,
-    ): ShieldGeometry.ShieldRect? {
-        if (editable.width <= 0 || editable.height <= 0 || widthPx <= 0) return null
-        val right = (screen.right - edgeMarginPx).coerceAtMost(screen.right)
-        val left = (right - widthPx).coerceAtLeast(screen.left)
-        val top = editable.top.coerceAtLeast(screen.top)
-        val bottom = (editable.bottom + extraBottomPx).coerceAtMost(screen.bottom)
-        if (right <= left || bottom <= top) return null
-        return ShieldGeometry.ShieldRect(left, top, right, bottom)
-    }
-}
-
 class CordonAccessibilityService : AccessibilityService() {
     companion object {
         private const val TAG = "CordonA11y"
@@ -593,7 +574,16 @@ class CordonAccessibilityService : AccessibilityService() {
         private const val EDITABLE_SEARCH_BUDGET = 1500
         private const val REFRESH_COALESCE_MS = 100L
         private const val SHIELD_REMOVE_GRACE_MS = 450L
-        private const val SHIELD_TOUCH_PADDING_DP = 6
+        /** The trailing share of the composer row where every chat UI puts its Send control. */
+        private const val SHIELD_WIDTH_FRACTION = 0.34f
+        /** A little slack below the composer row for controls that hang off its bottom edge. */
+        private const val SHIELD_EXTRA_BOTTOM_DP = 10
+        /** Never cover more than this much of a tall editor (a full-page field would be unusable). */
+        private const val SHIELD_MAX_HEIGHT_DP = 132
+        private const val TYPING_HINT_HEIGHT_DP = 34
+        private const val TYPING_HINT_GAP_DP = 10
+        private const val TYPING_HINT_EDGE_DP = 10
+        private const val TRANSCRIPT_SCAN_NODES = 600
         /** Placement drift above this many pixels is corrected once (split-screen, insets, folds). */
         private const val SHIELD_DRIFT_TOLERANCE_PX = 24
         private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
@@ -604,6 +594,11 @@ class CordonAccessibilityService : AccessibilityService() {
     private var touchShieldView: View? = null
     private var touchShieldBounds: Rect? = null
     private var promptOverlayView: View? = null
+    private var typingHintView: View? = null
+    private var typingHintLabel: TextView? = null
+    private var typingHintBounds: Rect? = null
+    /** True while the blocker is reporting a send that already left; it must not self-dismiss. */
+    private var promptIsEscaped = false
 
     private val stateMachine = SendPromptStateMachine()
     private var heldInputNode: AccessibilityNodeInfo? = null
@@ -682,6 +677,30 @@ class CordonAccessibilityService : AccessibilityService() {
             AccessibilityEvent.TYPE_VIEW_SCROLLED,
             -> scheduleCoalescedRefresh(pkg)
         }
+    }
+
+    /**
+     * The one send path that can be stopped *before* the app sees it.
+     *
+     * With `flagRequestFilterKeyEvents` a hardware Enter arrives here first, so a physical
+     * keyboard or a TV remote can never bypass the guard. Soft keyboards are deliberately not
+     * handled here: the platform does not guarantee KeyEvents from an IME, so that path is
+     * covered by the composer shield and, failing that, by the post-send blocker.
+     */
+    override fun onKeyEvent(event: KeyEvent): Boolean {
+        val pkg = activePackage
+        if (pkg == null || ShieldStore.isShieldPaused(this)) return super.onKeyEvent(event)
+        val risky = stateMachine.shouldHoldShield(pkg)
+        if (!EnterKeyPolicy.shouldConsume(event.keyCode, event.action, risky)) {
+            return super.onKeyEvent(event)
+        }
+        if (event.action == KeyEvent.ACTION_DOWN && !stateMachine.isPromptVisible) {
+            val prompt = stateMachine.onSendClicked(pkg)
+            Log.d(TAG, "enterKeyConsumed pkg=$pkg keyCode=${event.keyCode} prompt=${prompt != null}")
+            if (prompt != null) showSendPromptOverlay(prompt)
+        }
+        // Swallow both the down and the up, or the app sees a dangling key-up.
+        return true
     }
 
     /** Events from other apps / our own UI / paused shield: only manage overlay lifecycle. */
@@ -790,12 +809,21 @@ class CordonAccessibilityService : AccessibilityService() {
             consecutiveBlankObservations = 0
         }
 
+        val riskyBeforeClear = if (resolvedText.isBlank()) stateMachine.trackedState else null
+
         stateMachine.onFieldTextObserved(
             pkg = pkg,
             appName = ShieldStore.appDisplayNameForPackage(pkg),
             rawText = resolvedText,
             protectionLevel = ShieldStore.getProtectionLevel(this),
         )
+
+        // The composer emptied while it held a secret: either the user deleted it, or the
+        // message left through a path Android gives us no hook for (the soft keyboard's own
+        // Send arrow). Only a transcript that now contains the secret proves the latter.
+        if (riskyBeforeClear != null) {
+            reportEscapedSendIfProven(pkg, riskyBeforeClear, root)
+        }
 
         val armed = stateMachine.shouldHoldShield(pkg)
         if (armed != lastLoggedArmed) {
@@ -807,11 +835,60 @@ class CordonAccessibilityService : AccessibilityService() {
         }
 
         // User edited the secret away while the prompt was open: nothing left to protect.
-        if (stateMachine.isPromptVisible && stateMachine.trackedState == null) {
+        // An escaped-send report is exempt: it describes a send that already happened, so the
+        // empty composer must not dismiss it.
+        if (!promptIsEscaped && stateMachine.isPromptVisible && stateMachine.trackedState == null) {
             Log.d(TAG, "promptDismissed reason=textNoLongerRisky pkg=$pkg")
             stateMachine.dismissPrompt()
             dismissPromptOverlayInternal()
         }
+    }
+
+    /**
+     * Shows the stern "this already left" screen, but only on proof: the secret must reappear
+     * in the conversation tree. Deleting a draft also empties the composer, and accusing that
+     * user would destroy trust in every other warning.
+     */
+    private fun reportEscapedSendIfProven(
+        pkg: String,
+        before: PendingSendPromptState,
+        root: AccessibilityNodeInfo?,
+    ) {
+        if (stateMachine.isPromptVisible || promptIsEscaped) return
+        if (before.rawText.hashCode() == stateMachine.overriddenTextHash) return
+        val transcript = collectVisibleTexts(root, TRANSCRIPT_SCAN_NODES)
+        val leaked = EscapedSendDetector.isPresent(
+            secretTexts = before.spans.map { it.matchedText },
+            visibleTexts = transcript,
+        )
+        if (!leaked) {
+            Log.d(TAG, "draftClearedWithoutSend pkg=$pkg summary=${before.summaryText}")
+            return
+        }
+        Log.w(TAG, "sendEscaped pkg=$pkg summary=${before.summaryText}")
+        // Deliberately not recorded as a block: nothing was blocked, and a "Blocked" entry in
+        // History would be a lie about what happened.
+        stateMachine.dismissPrompt()
+        showSendPromptOverlay(before, escaped = true)
+    }
+
+    /** Text of every node in the tree, used only to prove a secret reached the transcript. */
+    private fun collectVisibleTexts(root: AccessibilityNodeInfo?, limit: Int): List<String> {
+        val out = ArrayList<String>()
+        root ?: return out
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(root)
+        var visited = 0
+        while (queue.isNotEmpty() && visited < limit) {
+            val node = queue.removeFirst()
+            visited++
+            node.text?.toString()?.takeIf { it.isNotBlank() }?.let { out.add(it) }
+            node.contentDescription?.toString()?.takeIf { it.isNotBlank() }?.let { out.add(it) }
+            for (i in 0 until node.childCount) {
+                node.getChild(i)?.let { queue.add(it) }
+            }
+        }
+        return out
     }
 
     /** Real screen bounds (status bar / cutout included) matching getBoundsInScreen space. */
@@ -846,58 +923,72 @@ class CordonAccessibilityService : AccessibilityService() {
 
         val editable = heldInputNode?.takeIf { runCatching { it.refresh() }.getOrDefault(false) }
             ?: findActiveEditableNode(root)
+        // The node tree is only used to *click* Send after a scrub. Placement never depends on
+        // finding the control: an arrow-shaped or unlabelled button is invisible to the tree,
+        // which is exactly what made node matching unreliable across devices.
         val target = locateSendTarget(root, editable)
-        if (target == null) {
-            Log.d(TAG, "shieldNoTarget pkg=$pkg")
-            // The node tree can drop the Send control while the composer is re-measured.
-            // Fall back to the right edge of the composer row rather than leaving a gap.
-            val fallback = fallbackShieldRect(editable)
-            if (fallback != null) {
-                Log.d(
-                    TAG,
-                    "shieldFallback pkg=$pkg rect=[${fallback.left},${fallback.top},${fallback.right},${fallback.bottom}]",
-                )
-                cancelArmRetry()
-                armedSendNode = null
-                showOrRepositionTouchShield(pkg, fallback, labelStrength = 0)
-                return
-            }
-            // Debounced removal: don't remove immediately if we still have a valid target
+        val composer = composerRect(editable, target)
+        if (composer == null) {
+            Log.d(TAG, "shieldNoComposer pkg=$pkg")
             scheduleArmRetry(pkg, rootAvailable = true, targetAvailable = false)
-            scheduleShieldRemoval("noTarget")
+            scheduleShieldRemoval("noComposer")
             return
         }
 
-        val c = target.candidate
-        val shieldRect = Rect(c.left, c.top, c.right, c.bottom)
-        if (shieldRect.isEmpty) {
+        val region = shieldRegionFor(composer)
+        if (region == null) {
+            Log.d(TAG, "shieldNoRegion pkg=$pkg")
             scheduleArmRetry(pkg, rootAvailable = true, targetAvailable = false)
             scheduleShieldRemoval("rectEmpty")
             return
         }
 
         cancelArmRetry()
-        armedSendNode = target.node
-        showOrRepositionTouchShield(pkg, shieldRect, c.labelStrength)
+        armedSendNode = target?.node
+        showOrRepositionTouchShield(pkg, region.toRect(), target?.candidate?.labelStrength ?: 0)
+        syncTypingHint(pkg, composer)
     }
 
     private class SendTarget(val node: AccessibilityNodeInfo, val candidate: ClickableBoundsCandidate)
 
-    /** Right-edge square of the composer row, used when no Send node can be resolved. */
-    private fun fallbackShieldRect(editable: AccessibilityNodeInfo?): Rect? {
-        val node = editable ?: return null
+    /** The composer row the guard is anchored to: the editable itself, else the Send control. */
+    private fun composerRect(editable: AccessibilityNodeInfo?, target: SendTarget?): Rect? {
         val r = Rect()
-        node.getBoundsInScreen(r)
-        if (r.isEmpty) return null
+        if (editable != null) {
+            editable.getBoundsInScreen(r)
+            if (!r.isEmpty) return r
+        }
+        val c = target?.candidate ?: return null
+        return Rect(c.left, c.top, c.right, c.bottom).takeIf { !it.isEmpty }
+    }
+
+    /**
+     * The corner of the composer that holds Send, clamped to the screen, to a sane height and
+     * to the top of the keyboard so no key is ever covered.
+     */
+    private fun shieldRegionFor(composer: Rect): ShieldGeometry.ShieldRect? {
         val screen = screenBounds()
-        val anchor = ShieldFallbackAnchor.forComposer(
-            editable = ShieldGeometry.ShieldRect(r.left, r.top, r.right, r.bottom),
+        return ComposerTrailingRegion.forComposer(
+            composer = ShieldGeometry.ShieldRect(composer.left, composer.top, composer.right, composer.bottom),
             screen = ShieldGeometry.ShieldRect(screen.left, screen.top, screen.right, screen.bottom),
-            widthPx = dp(56),
-            extraBottomPx = dp(28),
-            edgeMarginPx = dp(6),
-        ) ?: return null
-        return anchor.toRect()
+            widthFraction = SHIELD_WIDTH_FRACTION,
+            extraBottomPx = dp(SHIELD_EXTRA_BOTTOM_DP),
+            edgeMarginPx = dp(2),
+            maxHeightPx = dp(SHIELD_MAX_HEIGHT_DP),
+            bottomLimitPx = keyboardTopOr(screen.bottom),
+        )
+    }
+
+    /** Top of the soft keyboard when it is up, so the shield can never cover a key. */
+    private fun keyboardTopOr(fallback: Int): Int {
+        val list = runCatching { windows }.getOrNull() ?: return fallback
+        for (window in list) {
+            if (window.type != AccessibilityWindowInfo.TYPE_INPUT_METHOD) continue
+            val r = Rect()
+            window.getBoundsInScreen(r)
+            if (!r.isEmpty) return r.top
+        }
+        return fallback
     }
 
     private class ScanLevel(
@@ -1112,23 +1203,17 @@ class CordonAccessibilityService : AccessibilityService() {
         cancelShieldRemoval()
         val existing = touchShieldView
 
-        // Touch padding around the send button, clamped to screen and clipped so the shield
-        // NEVER overlaps the active editable input box.
-        val editable = heldInputNode?.takeIf { runCatching { it.refresh() }.getOrDefault(false) }
-            ?: findActiveEditableNode(guardedRoot(pkg))
-        val editableRect = editable?.let {
-            val r = Rect()
-            it.getBoundsInScreen(r)
-            if (r.isEmpty) null else ShieldGeometry.ShieldRect(r.left, r.top, r.right, r.bottom)
-        }
+        // The region already covers the Send corner of the composer and is clamped to the
+        // screen, the keyboard top and a sane height, so it is used as-is: only a minimum
+        // touch target is enforced here.
         val screen = screenBounds()
         val expandedRect = ShieldGeometry.expandAndClip(
             send = ShieldGeometry.ShieldRect(rect.left, rect.top, rect.right, rect.bottom),
-            editable = editableRect,
+            editable = null,
             screen = ShieldGeometry.ShieldRect(screen.left, screen.top, screen.right, screen.bottom),
-            paddingPx = dp(SHIELD_TOUCH_PADDING_DP),
-            minWidthPx = dp(36),
-            minHeightPx = dp(36),
+            paddingPx = 0,
+            minWidthPx = dp(44),
+            minHeightPx = dp(44),
         ).toRect()
 
         val params = WindowManager.LayoutParams(
@@ -1208,6 +1293,123 @@ class CordonAccessibilityService : AccessibilityService() {
         }.onFailure { err ->
             Log.e(TAG, "shieldAddViewFailed pkg=$pkg err=${err.message}")
         }
+    }
+
+    /**
+     * Suggestion while typing: a small non-touchable banner in the gap above the composer.
+     *
+     * It is `FLAG_NOT_TOUCHABLE`, so it can never eat a keystroke, a cursor placement or a
+     * scroll — it only informs, exactly as the brief requires. The shield over Send does the
+     * stern part.
+     */
+    private fun syncTypingHint(pkg: String, composer: Rect) {
+        val state = stateMachine.trackedState
+        if (state == null || state.packageName != pkg || stateMachine.isPromptVisible) {
+            removeTypingHint()
+            return
+        }
+        val wm = windowManager ?: return
+        val screen = screenBounds()
+        val hintHeight = dp(TYPING_HINT_HEIGHT_DP)
+        val top = TypingHintPlacement.topFor(
+            composerTop = composer.top,
+            hintHeight = hintHeight,
+            gapPx = dp(TYPING_HINT_GAP_DP),
+            screenTopPx = screen.top,
+        )
+        val edge = dp(TYPING_HINT_EDGE_DP)
+        val bounds = Rect(0, top, screen.width(), top + hintHeight)
+        val text = TypingHintCopy.text(state.summaryText)
+
+        typingHintView?.let { existing ->
+            typingHintLabel?.text = text
+            if (typingHintBounds != bounds) {
+                typingHintBounds = Rect(bounds)
+                val params = hintLayoutParams(bounds, hintHeight, edge)
+                runCatching { wm.updateViewLayout(existing, params) }
+                    .onFailure { err -> Log.e(TAG, "typingHintUpdateFailed err=${err.message}") }
+            }
+            return
+        }
+
+        val label = TextView(this).apply {
+            this.text = text
+            setTextColor(Color.parseColor("#FBBF24"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            maxWidth = screen.width() - dp(72)
+        }
+        val pill = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(10), 0, dp(12), 0)
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#11141B"))
+                setStroke(dp(1), Color.argb(200, 245, 158, 11))
+                cornerRadius = dp(17).toFloat()
+            }
+            addView(
+                ImageView(this@CordonAccessibilityService).apply {
+                    setImageResource(R.drawable.ic_brand_logo)
+                    contentDescription = null
+                },
+                LinearLayout.LayoutParams(dp(16), dp(16)),
+            )
+            addView(
+                label,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ).apply { marginStart = dp(6) },
+            )
+        }
+
+        val params = hintLayoutParams(bounds, hintHeight, edge)
+        runCatching {
+            wm.addView(pill, params)
+            typingHintView = pill
+            typingHintLabel = label
+            typingHintBounds = Rect(bounds)
+            Log.d(TAG, "typingHintShown pkg=$pkg summary=${state.summaryText}")
+        }.onFailure { err ->
+            Log.e(TAG, "typingHintAddFailed err=${err.message}")
+            typingHintView = null
+            typingHintLabel = null
+        }
+    }
+
+    private fun hintLayoutParams(bounds: Rect, height: Int, edge: Int): WindowManager.LayoutParams =
+        WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            height,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            // NOT_TOUCHABLE is the whole point: the banner must never intercept typing.
+            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT,
+        ).apply {
+            gravity = Gravity.TOP or Gravity.END
+            x = edge
+            y = bounds.top
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                fitInsetsTypes = 0
+            }
+        }
+
+    private fun removeTypingHint() {
+        val current = typingHintView ?: return
+        typingHintView = null
+        typingHintLabel = null
+        typingHintBounds = null
+        runCatching { windowManager?.removeView(current) }
+            .onFailure { err -> Log.e(TAG, "typingHintRemoveFailed err=${err.message}") }
     }
 
     private fun verifyShieldPlacement(
@@ -1290,52 +1492,106 @@ class CordonAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun showSendPromptOverlay(promptState: PendingSendPromptState) {
+    private fun showSendPromptOverlay(promptState: PendingSendPromptState, escaped: Boolean = false) {
         dismissPromptOverlayInternal()
+        // The full-screen blocker replaces the typing suggestion; it is re-added on the next
+        // sync if the user goes back to editing.
+        removeTypingHint()
+        promptIsEscaped = escaped
         val wm = windowManager ?: return
 
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(14), dp(16), dp(14))
+            setPadding(dp(20), dp(18), dp(20), dp(16))
             background = GradientDrawable().apply {
                 setColor(Color.parseColor("#11141B"))
                 setStroke(dp(2), Color.parseColor("#F59E0B"))
-                cornerRadius = dp(16).toFloat()
+                cornerRadius = dp(18).toFloat()
             }
             elevation = dp(12).toFloat()
         }
 
+        // Brand row: the logo makes the interruption legible at a glance, the way a system
+        // blocker does, instead of a anonymous floating card.
+        val brandRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val logo = ImageView(this).apply {
+            setImageResource(R.drawable.ic_brand_logo)
+            contentDescription = null
+        }
+        brandRow.addView(logo, LinearLayout.LayoutParams(dp(26), dp(26)))
+        brandRow.addView(
+            TextView(this).apply {
+                text = "CORDON"
+                setTextColor(Color.parseColor("#94A3B8"))
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+                letterSpacing = 0.12f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+            },
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { marginStart = dp(8) },
+        )
+        container.addView(brandRow)
+
         val title = TextView(this).apply {
-            text = "Are you sure? Use the scrub instead"
+            text = if (escaped) {
+                BlockerCopy.escapedHeadline(promptState.summaryText)
+            } else {
+                BlockerCopy.headline(promptState.summaryText)
+            }
             setTextColor(Color.parseColor("#FBBF24"))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, dp(10), 0, 0)
         }
 
         val subtitle = TextView(this).apply {
-            text = "${promptState.summaryText} found in ${promptState.appName}"
+            text = if (escaped) {
+                BlockerCopy.escapedSubtitle(promptState.appName)
+            } else {
+                BlockerCopy.subtitle(promptState.appName)
+            }
             setTextColor(Color.parseColor("#E2E8F0"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-            setPadding(0, dp(4), 0, dp(12))
+            setPadding(0, dp(4), 0, dp(10))
+        }
+
+        val preview = TextView(this).apply {
+            text = promptState.sanitizedText.take(140)
+            setTextColor(Color.parseColor("#00E5A3"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            setTypeface(android.graphics.Typeface.MONOSPACE)
+            setBackgroundColor(Color.parseColor("#0B0E13"))
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            maxLines = 4
+            ellipsize = android.text.TextUtils.TruncateAt.END
         }
 
         val actionsRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.END
-            // Keep both actions off the card's inner edges instead of crushing the reject
-            // label against the left edge of the row.
-            setPadding(dp(6), dp(4), dp(6), 0)
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(0, dp(6), 0, 0)
         }
 
         val rejectBtn = Button(this).apply {
-            text = "Reject & Send Anyway"
-            setTextColor(Color.parseColor("#FDA4AF"))
-            setBackgroundColor(Color.TRANSPARENT)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
+            text = BlockerCopy.SECONDARY
+            setTextColor(Color.parseColor("#E2E8F0"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#1B202A"))
+                setStroke(dp(1), Color.parseColor("#475569"))
+                cornerRadius = dp(12).toFloat()
+            }
+            stateListAnimator = null
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-            ).apply { marginEnd = dp(6) }
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(46),
+            ).apply { topMargin = dp(8) }
             setOnClickListener {
                 val rejected = stateMachine.rejectAndSendAnyway()
                 dismissPromptOverlayInternal()
@@ -1363,15 +1619,19 @@ class CordonAccessibilityService : AccessibilityService() {
         }
 
         val acceptBtn = Button(this).apply {
-            text = "Use Scrub & Send"
+            text = BlockerCopy.PRIMARY
             setTextColor(Color.parseColor("#07090D"))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             setTypeface(typeface, android.graphics.Typeface.BOLD)
-            setPadding(dp(14), dp(6), dp(14), dp(6))
             background = GradientDrawable().apply {
                 setColor(Color.parseColor("#00E5A3"))
-                cornerRadius = dp(10).toFloat()
+                cornerRadius = dp(12).toFloat()
             }
+            stateListAnimator = null
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(50),
+            )
             setOnClickListener {
                 val accepted = stateMachine.acceptScrub()
                 if (accepted == null) {
@@ -1419,78 +1679,111 @@ class CordonAccessibilityService : AccessibilityService() {
             }
         }
 
-        actionsRow.addView(rejectBtn)
-        actionsRow.addView(acceptBtn)
-        container.addView(title)
-        container.addView(subtitle)
-        container.addView(actionsRow)
-
-        // Tap outside the card dismisses the prompt; the shield stays held so nothing can leak.
-        container.setOnTouchListener { _, event ->
-            if (event.actionMasked == MotionEvent.ACTION_OUTSIDE) {
-                Log.d(TAG, "promptDismissed reason=outsideTap pkg=${promptState.packageName}")
+        val keepEditing = TextView(this).apply {
+            text = BlockerCopy.CANCEL
+            setTextColor(Color.parseColor("#94A3B8"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(14), 0, 0)
+            isClickable = true
+            setOnClickListener {
+                Log.d(TAG, "promptDismissed reason=keepEditing pkg=${promptState.packageName}")
                 stateMachine.dismissPrompt()
                 dismissPromptOverlayInternal()
-                true
-            } else {
-                false
+                syncTouchShieldWithActiveWindow(promptState.packageName)
             }
         }
 
+        actionsRow.addView(acceptBtn)
+        actionsRow.addView(rejectBtn)
+        container.addView(title)
+        container.addView(subtitle)
+        if (!escaped) container.addView(preview)
+        if (escaped) {
+            // Nothing to send and nothing to scrub: the message is already out. The only
+            // honest action is to acknowledge it.
+            val gotIt = Button(this).apply {
+                text = BlockerCopy.ESCAPED_DISMISS
+                setTextColor(Color.parseColor("#07090D"))
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#00E5A3"))
+                    cornerRadius = dp(12).toFloat()
+                }
+                stateListAnimator = null
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    dp(50),
+                )
+                setOnClickListener {
+                    Log.d(TAG, "promptDismissed reason=escapedAcknowledged pkg=${promptState.packageName}")
+                    promptIsEscaped = false
+                    dismissPromptOverlayInternal()
+                    removeTouchShieldInternal()
+                }
+            }
+            actionsRow.removeAllViews()
+            actionsRow.addView(gotIt)
+        }
+        container.addView(actionsRow)
+        if (!escaped) container.addView(keepEditing)
+
+        // Full-screen scrim: a stern interruption, not a card the user can tap past. The
+        // composer underneath stays shielded until an explicit choice is made.
+        val scrim = FrameLayout(this).apply {
+            setBackgroundColor(Color.argb(165, 0, 0, 0))
+            isClickable = true
+            addView(
+                container,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    Gravity.CENTER,
+                ).apply {
+                    marginStart = dp(18)
+                    marginEnd = dp(18)
+                },
+            )
+        }
+
         val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT,
         ).apply {
-            gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
-            y = dp(72)
+            gravity = Gravity.TOP or Gravity.START
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                fitInsetsTypes = 0
+            }
         }
 
         runCatching {
-            wm.addView(container, params)
-            promptOverlayView = container
-            Log.d(TAG, "promptShown pkg=${promptState.packageName} summary=${promptState.summaryText}")
-            container.post {
-                // Once measured, move the dialog next to the Send control it is guarding.
-                // Anchor above the whole composer row so the text being sent stays readable.
-                val composerTop = heldInputNode?.let { node ->
-                    if (runCatching { node.refresh() }.getOrDefault(false)) {
-                        val r = Rect()
-                        node.getBoundsInScreen(r)
-                        if (r.isEmpty) null else r.top
-                    } else {
-                        null
-                    }
-                }
-                val anchorTop = listOfNotNull(touchShieldBounds?.top, composerTop).minOrNull() ?: 0
-                val height = container.height
-                if (height > 0) {
-                    val targetY = PromptPlacement.topFor(
-                        anchorTop = anchorTop,
-                        promptHeight = height,
-                        gapPx = dp(10),
-                        minTopPx = dp(64),
+            wm.addView(scrim, params)
+            promptOverlayView = scrim
+            Log.d(TAG, "promptShown pkg=${promptState.packageName} summary=${promptState.summaryText} escaped=$escaped")
+            if (!escaped) {
+                scrim.post {
+                    val acceptLoc = IntArray(2)
+                    val rejectLoc = IntArray(2)
+                    acceptBtn.getLocationOnScreen(acceptLoc)
+                    rejectBtn.getLocationOnScreen(rejectLoc)
+                    Log.d(
+                        TAG,
+                        "promptButtons accept=[${acceptLoc[0]},${acceptLoc[1]},${acceptLoc[0] + acceptBtn.width},${acceptLoc[1] + acceptBtn.height}] reject=[${rejectLoc[0]},${rejectLoc[1]},${rejectLoc[0] + rejectBtn.width},${rejectLoc[1] + rejectBtn.height}]",
                     )
-                    if (targetY != params.y) {
-                        params.y = targetY
-                        runCatching { wm.updateViewLayout(container, params) }
-                            .onFailure { err -> Log.e(TAG, "promptMoveFailed err=${err.message}") }
-                    }
                 }
-                val acceptLoc = IntArray(2)
-                val rejectLoc = IntArray(2)
-                acceptBtn.getLocationOnScreen(acceptLoc)
-                rejectBtn.getLocationOnScreen(rejectLoc)
-                Log.d(
-                    TAG,
-                    "promptButtons accept=[${acceptLoc[0]},${acceptLoc[1]},${acceptLoc[0] + acceptBtn.width},${acceptLoc[1] + acceptBtn.height}] reject=[${rejectLoc[0]},${rejectLoc[1]},${rejectLoc[0] + rejectBtn.width},${rejectLoc[1] + rejectBtn.height}]",
-                )
             }
         }.onFailure { err ->
             // Never leave the state machine believing a prompt is up when it is not.
             Log.e(TAG, "promptAddViewFailed err=${err.message}")
+            promptIsEscaped = false
             stateMachine.dismissPrompt()
         }
     }
@@ -1545,6 +1838,7 @@ class CordonAccessibilityService : AccessibilityService() {
 
     private fun removeTouchShieldInternal() {
         cancelShieldRemoval()
+        removeTypingHint()
         val current = touchShieldView ?: return
         touchShieldView = null
         touchShieldBounds = null
@@ -1553,6 +1847,7 @@ class CordonAccessibilityService : AccessibilityService() {
     }
 
     private fun dismissPromptOverlayInternal() {
+        promptIsEscaped = false
         val current = promptOverlayView ?: return
         promptOverlayView = null
         runCatching { windowManager?.removeView(current) }

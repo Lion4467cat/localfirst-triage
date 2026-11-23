@@ -340,46 +340,167 @@ class SendInterceptionTest {
         )
     }
 
-    // --- Geometric fallback: keep the shield over Send when the node tree hides it ------------
+    // --- Hardware keyboard: Enter must never bypass the guard ---------------------------------
 
     @Test
-    fun `fallback anchor covers the send corner of the composer row`() {
+    fun `hardware enter is consumed while a risky draft is present`() {
+        assertTrue(EnterKeyPolicy.shouldConsume(KEY_ENTER, ACTION_DOWN, riskyDraftPresent = true))
+        assertTrue(EnterKeyPolicy.shouldConsume(KEY_NUMPAD_ENTER, ACTION_DOWN, riskyDraftPresent = true))
+        // Releasing the key must be swallowed too, or the app sees a dangling key-up.
+        assertTrue(EnterKeyPolicy.shouldConsume(KEY_ENTER, ACTION_UP, riskyDraftPresent = true))
+    }
+
+    @Test
+    fun `hardware enter passes through when the draft is clean`() {
+        assertFalse(EnterKeyPolicy.shouldConsume(KEY_ENTER, ACTION_DOWN, riskyDraftPresent = false))
+        assertFalse(EnterKeyPolicy.shouldConsume(KEY_ENTER, ACTION_UP, riskyDraftPresent = false))
+    }
+
+    @Test
+    fun `other hardware keys are never swallowed`() {
+        assertFalse(EnterKeyPolicy.shouldConsume(KEY_A, ACTION_DOWN, riskyDraftPresent = true))
+        assertFalse(EnterKeyPolicy.shouldConsume(KEY_BACKSPACE, ACTION_DOWN, riskyDraftPresent = true))
+        assertFalse(EnterKeyPolicy.shouldConsume(KEY_SHIFT_LEFT, ACTION_DOWN, riskyDraftPresent = true))
+    }
+
+    // --- Blocker copy: branded, specific, honest about what has happened -----------------------
+
+    @Test
+    fun `blocker headline names what was found`() {
+        assertEquals("Cordon found 1 AWS Key", BlockerCopy.headline("1 AWS Key"))
+        assertEquals("Cordon found 2 AWS Key · 1 Email", BlockerCopy.headline("2 AWS Key · 1 Email"))
+    }
+
+    @Test
+    fun `blocker subtitle states that nothing has been sent`() {
+        assertEquals("in ChatGPT · nothing has been sent", BlockerCopy.subtitle("ChatGPT"))
+    }
+
+    @Test
+    fun `typing hint promises the scrub instead of interrupting`() {
+        assertEquals(
+            "Cordon found 1 AWS Key · Send will be scrubbed",
+            TypingHintCopy.text("1 AWS Key"),
+        )
+    }
+
+    // --- Composer trailing region: device-agnostic target for an arrow-shaped Send ------------
+
+    @Test
+    fun `trailing region covers the send corner regardless of the button shape`() {
         val composer = ShieldGeometry.ShieldRect(70, 1145, 1010, 1265)
         val screen = ShieldGeometry.ShieldRect(0, 0, 1080, 2400)
-        val anchor = ShieldFallbackAnchor.forComposer(
-            editable = composer,
+        val region = ComposerTrailingRegion.forComposer(
+            composer = composer,
             screen = screen,
-            widthPx = 150,
-            extraBottomPx = 60,
+            widthFraction = 0.34f,
+            extraBottomPx = 126,
+            edgeMarginPx = 16,
         )!!
-        assertEquals(930, anchor.left)
-        assertEquals(1080, anchor.right)
-        assertEquals(1145, anchor.top)
-        // Reaches past the text field: the Send control sits on the row's bottom edge.
-        assertEquals(1325, anchor.bottom)
+        assertEquals(691, region.left)
+        assertEquals(1064, region.right)
+        assertEquals(1145, region.top)
+        assertEquals(1391, region.bottom)
     }
 
     @Test
-    fun `fallback anchor is clamped inside the screen`() {
-        val composer = ShieldGeometry.ShieldRect(0, 20, 1080, 90)
+    fun `trailing region is clamped inside the screen`() {
+        val composer = ShieldGeometry.ShieldRect(0, 20, 300, 90)
         val screen = ShieldGeometry.ShieldRect(0, 0, 1080, 2400)
-        val anchor = ShieldFallbackAnchor.forComposer(
-            editable = composer,
+        val region = ComposerTrailingRegion.forComposer(
+            composer = composer,
             screen = screen,
-            widthPx = 150,
-            extraBottomPx = 60,
+            widthFraction = 0.34f,
+            extraBottomPx = 126,
+            edgeMarginPx = 16,
         )!!
-        assertEquals(20, anchor.top)
-        assertTrue(anchor.bottom <= screen.bottom)
-        assertTrue(anchor.right <= screen.right)
+        assertTrue(region.left >= screen.left)
+        assertTrue(region.right <= screen.right)
+        assertTrue(region.bottom <= screen.bottom)
     }
 
     @Test
-    fun `fallback anchor refuses an unreadable composer`() {
+    fun `trailing region refuses an unreadable composer`() {
         val empty = ShieldGeometry.ShieldRect(0, 0, 0, 0)
         val screen = ShieldGeometry.ShieldRect(0, 0, 1080, 2400)
         assertNull(
-            ShieldFallbackAnchor.forComposer(empty, screen, widthPx = 150, extraBottomPx = 60),
+            ComposerTrailingRegion.forComposer(empty, screen, 0.34f, 126, 16),
         )
+    }
+
+    @Test
+    fun `trailing region never swallows a full-screen editor`() {
+        // A note app whose editable spans the whole page: only the bottom strip where a
+        // send control can live may be covered, or the user cannot type anywhere.
+        val composer = ShieldGeometry.ShieldRect(0, 100, 1080, 2300)
+        val screen = ShieldGeometry.ShieldRect(0, 0, 1080, 2400)
+        val region = ComposerTrailingRegion.forComposer(
+            composer = composer,
+            screen = screen,
+            widthFraction = 0.34f,
+            extraBottomPx = 8,
+            edgeMarginPx = 2,
+            maxHeightPx = 420,
+        )!!
+        assertEquals(2308, region.bottom)
+        assertEquals(420, region.height)
+    }
+
+    @Test
+    fun `trailing region stops above the keyboard so keys stay tappable`() {
+        // Composer sits directly above the IME; the extra bottom must be cut at the IME top
+        // instead of covering the top row of keys.
+        val composer = ShieldGeometry.ShieldRect(70, 1145, 1010, 1265)
+        val screen = ShieldGeometry.ShieldRect(0, 0, 1080, 2400)
+        val region = ComposerTrailingRegion.forComposer(
+            composer = composer,
+            screen = screen,
+            widthFraction = 0.34f,
+            extraBottomPx = 126,
+            edgeMarginPx = 16,
+            bottomLimitPx = 1280,
+        )!!
+        assertEquals(1280, region.bottom)
+    }
+
+    // --- Escaped send: the soft-keyboard arrow can only be caught after the fact ---------------
+
+    @Test
+    fun `escaped send copy is honest instead of claiming nothing was sent`() {
+        assertEquals("Sent unredacted · 1 AWS Key", BlockerCopy.escapedHeadline("1 AWS Key"))
+        assertTrue(BlockerCopy.escapedSubtitle("ChatGPT").contains("ChatGPT"))
+        assertTrue(BlockerCopy.escapedSubtitle("ChatGPT").contains("delete"))
+    }
+
+    @Test
+    fun `a secret that reappears in the transcript proves the send escaped`() {
+        val key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+        assertTrue(EscapedSendDetector.isPresent(listOf(key), listOf("hi", "my key $key ok")))
+        // Transcript bubbles truncate long values: a distinctive prefix still proves it.
+        assertTrue(EscapedSendDetector.isPresent(listOf(key), listOf("my key wJalrXUtnFEMI…")))
+    }
+
+    @Test
+    fun `deleting the draft is not mistaken for a send`() {
+        val key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+        assertFalse(EscapedSendDetector.isPresent(listOf(key), listOf("ChatGPT", "Message")))
+        assertFalse(EscapedSendDetector.isPresent(listOf(""), listOf("anything")))
+    }
+
+    @Test
+    fun `typing hint sits just above the composer`() {
+        assertEquals(1100, TypingHintPlacement.topFor(composerTop = 1145, hintHeight = 34, gapPx = 11, screenTopPx = 0))
+        // Never off the top of the screen on a short window.
+        assertEquals(0, TypingHintPlacement.topFor(composerTop = 10, hintHeight = 34, gapPx = 11, screenTopPx = 0))
+    }
+
+    private companion object {
+        const val KEY_ENTER = 66
+        const val KEY_NUMPAD_ENTER = 160
+        const val KEY_A = 29
+        const val KEY_BACKSPACE = 67
+        const val KEY_SHIFT_LEFT = 59
+        const val ACTION_DOWN = 0
+        const val ACTION_UP = 1
     }
 }

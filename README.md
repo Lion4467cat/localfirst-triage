@@ -26,7 +26,7 @@ Every surface enforces the same rule: a secret is masked locally before any byte
 | Surface | Role & Capabilities | Core Engine |
 | :--- | :--- | :--- |
 | **Chrome Extension (`extension/`)** | Capture-phase Paste shield + Send interception on `chatgpt.com`, `claude.ai`, `gemini.google.com`, `github.com`, `app.slack.com`, `discord.com`; Side Panel control center (`Low` / `Medium` / `High`, 0-PII stats, `#handoff=` bridge) | `firewall-core.js` + Chrome `LanguageModel` (Nano 4 semantic pass at Medium & High) |
-| **Native Android (`android/`)** | Accessibility send-button shield across 12 guarded apps (6 chat surfaces + 6 browsers), `Scrub with Cordon` text action (`ACTION_PROCESS_TEXT`), Share Sheet (`ACTION_SEND`), offline 6-runbook resolution, Zero-PII Firestore sync | `LocalFirewallEngine.kt` + `firebase-ai` (`18.2.0`) & `firebase-ai-ondevice` (`16.0.0-beta08`) |
+| **Native Android (`android/`)** | Layered accessibility send guard across 12 guarded apps (6 chat surfaces + 6 browsers): a device-agnostic composer-corner shield (no Send-button matching), hardware-Enter key filtering, a non-touchable typing banner, and a full-screen post-send blocker for soft-keyboard sends; plus `Scrub with Cordon` text action (`ACTION_PROCESS_TEXT`), Share Sheet (`ACTION_SEND`), offline 6-runbook resolution, Zero-PII Firestore sync | `LocalFirewallEngine.kt` + `firebase-ai` (`18.2.0`) & `firebase-ai-ondevice` (`16.0.0-beta08`) |
 | **Web PWA (`src/`)** | Hybrid Workbench (`ONLY_ON_DEVICE`, `PREFER_ON_DEVICE`, `PREFER_IN_CLOUD`), `<5ms` IndexedDB dedup cache, RAM-only rehydration vault, ECDSA P-256 audit receipts (public key embedded, independently verifiable), lazy-loaded Firestore sync | `src/firewall/` + `firebase/ai` (`firebase@13.3.0`) |
 
 ### Android guarded apps (12)
@@ -123,7 +123,7 @@ npm ci && npm run build            # TypeScript + Vite production build
 npm test                           # Vitest: 20 files, 138 tests passing
 npm run test:e2e                   # Playwright: 10/10 flows, 0 page errors
 cd android && ./gradlew testDebugUnitTest lintDebug assembleDebug
-                                   # 76 tests passing, 0 lint errors
+                                   # 88 tests passing, 0 lint errors
 ```
 
 ---
@@ -142,6 +142,8 @@ cd android && ./gradlew testDebugUnitTest lintDebug assembleDebug
 - The Android shield guards the **12 listed packages**. Other browsers and niche apps are covered by the manual `ACTION_PROCESS_TEXT` / Share Sheet scrub, not by automatic interception.
 - The Android accessibility path is **deterministic (regex + entropy + heuristics)**; Nano 4 runs in the in-app workbench, not inside the accessibility service.
 - Automatic interception requires a detectable Send control. Icon-only custom canvases without a label or `contentDescription` fall back to manual scrub.
+- The shield is placed by geometry, not by finding the Send control: it covers the trailing 34% of the composer row, clamped to the screen, to a 132 dp height and to the top of the keyboard. Unlabelled arrow buttons are therefore covered, but a Send control that lives outside that corner (rare) is not.
+- A soft keyboard's own Send arrow cannot be pre-empted: Android does not deliver IME key presses to accessibility services, and the keyboard window sits above any overlay. Cordon blocks that path with the composer shield, and if the send still leaves, proves it by finding the secret in the transcript and shows a "Sent unredacted" screen.
 - Extension textareas need `Ctrl/Cmd+Enter`; plain `Enter` keeps inserting newlines by design.
 - On devices without the Chrome built-in model, the extension's Nano pass is skipped and the deterministic floor applies.
 

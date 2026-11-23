@@ -31,7 +31,7 @@ Engineers and support teams paste raw production stack traces, crash logs, and c
 5. **Three surfaces, one contract.**
    - **Web PWA:** lazy-loaded Firestore (549 kB chunk) after Guest/Google sign-in, App Check, Zero-PII rules, ECDSA P-256 receipts with the public key embedded so anyone can re-verify them.
    - **Chrome Extension (MV3):** capture-phase paste shield and Send interception on ChatGPT, Claude, Gemini, GitHub, Slack, and Discord; side panel control center; sanitized-only `#handoff=` bridge.
-   - **Native Android:** Jetpack Compose **Shield · History · Settings**, accessibility send-button shield across 12 guarded apps (6 chat + 6 browsers), `ACTION_PROCESS_TEXT` ("Scrub with Cordon"), Share Sheet, and Zero-PII sync.
+   - **Native Android:** Jetpack Compose **Shield · History · Settings**, a layered accessibility send guard across 12 guarded apps (6 chat + 6 browsers) — composer-corner shield, hardware-Enter filter, typing banner, post-send blocker — plus `ACTION_PROCESS_TEXT` ("Scrub with Cordon"), Share Sheet, and Zero-PII sync.
 
 ---
 
@@ -58,7 +58,7 @@ Each surface shows exactly one confirmation on Send (**Scrub & Send** / **Send a
 - **Defense-in-depth was necessary, not decorative.** On real hardware, Nano 4 sometimes extracted only the first person name (`John`); gating the heuristic guard off when Nano was "ready" let clinical PHI and M&A terms through. Stage 1 is now an always-on union.
 - **Boundary bugs found in production text.** Apostrophe boundaries (`dog's name`) and parenthesis overruns in `NATURAL_SECRET` / `CONTEXTUAL_PHI` were fixed identically across Web, Extension, and Android.
 - **Deterministic storage rules.** Identical TypeScript and Kotlin serializers strip `rawText`, `matchedText`, `constituentTexts`, and `spans`; `firestore.rules` rejects those fields and blocks unredacted AWS/Google/PEM/JWT/Stripe/Slack/GitHub shapes with RE2.
-- **Android send interception.** `getBoundsInScreen` is screen-space; the touch shield is placed with `TYPE_ACCESSIBILITY_OVERLAY`, `LAYOUT_IN_SCREEN | LAYOUT_NO_LIMITS`, `fitInsetsTypes = 0`, cutout mode `ALWAYS`, verified at runtime against target bounds (0 px drift on device), and torn down immediately on clean text with a 450 ms debounce only for transient node misses.
+- **Android send interception, rebuilt around what the platform actually allows.** Matching the Send node failed on unlabelled arrow buttons, so placement is now pure geometry: the trailing 34% of the composer row, clamped to the screen, to 132 dp of height and to the top of the keyboard (read from the IME window). Hardware Enter is swallowed through `flagRequestFilterKeyEvents` before the app sees it. A soft keyboard's own arrow cannot be pre-empted — Android delivers no KeyEvents for IME presses and the IME window sits above any overlay — so that path is covered by the composer shield and, if it still escapes, proven by finding the secret in the transcript and reported with a "Sent unredacted" screen. The overlay itself is `TYPE_ACCESSIBILITY_OVERLAY` with `LAYOUT_IN_SCREEN | LAYOUT_NO_LIMITS`, `fitInsetsTypes = 0`, cutout mode `ALWAYS`, verified at runtime against the target bounds, and torn down immediately on clean text with a 450 ms debounce only for transient node misses.
 
 ---
 
@@ -82,7 +82,7 @@ Reproduce: `node scripts/benchmark-third-party.mjs --out=benchmarks/third-party-
 - **Firebase:** AI Logic (`firebase/ai`, `firebase-ai:18.2.0`, `firebase-ai-ondevice:16.0.0-beta08`), Firestore (Zero-PII rules + indexes), Auth (Anonymous + Google), Remote Config, App Check (reCAPTCHA Enterprise + Play Integrity + Debug), Hosting — **Spark tier**
 - **Web & Extension:** React 19, TypeScript 5, Tailwind CSS 4, Vite 6, IndexedDB, MV3
 - **Android:** Kotlin, Jetpack Compose Material 3, `compileSdk`/`targetSdk` 36, `minSdk` 26, Gradle 9.8.0 / AGP 9.4.1
-- **Verification:** Vitest **20 files / 138 tests**, Playwright **10/10 flows**, Android JUnit **76 tests**, Gradle Lint **0 errors**
+- **Verification:** Vitest **20 files / 138 tests**, Playwright **10/10 flows**, Android JUnit **88 tests**, Gradle Lint **0 errors**
 
 ---
 
@@ -92,4 +92,4 @@ Reproduce: `node scripts/benchmark-third-party.mjs --out=benchmarks/third-party-
 
 **Built during the submission period (2026-11-11 → 2026-11-30).** The Chrome MV3 extension (paste shield, send interception, side panel, `#handoff=` bridge), the three-surface Zero-PII sync model and `firestore.rules`, the hybrid Nano 4 defense-in-depth pipeline, ECDSA audit receipts with embedded public keys, the Android accessibility send-button shield, the 3-tab Compose UI, the third-party benchmark harness, and all test suites were built during the submission period.
 
-**Known limits (stated up front).** The Android shield covers the 12 listed packages; other apps are covered by the manual text-action and Share Sheet scrub. The accessibility path is deterministic — Nano 4 runs in the in-app workbench. Automatic interception needs a detectable Send control; icon-only canvases without labels fall back to manual scrub.
+**Known limits (stated up front).** The Android shield covers the 12 listed packages; other apps are covered by the manual text-action and Share Sheet scrub. The accessibility path is deterministic — Nano 4 runs in the in-app workbench. Shield placement no longer needs a detectable Send control (it is geometric), but a Send control outside the composer's trailing corner is not covered, and a soft keyboard's own Send arrow can only be caught after the fact.
