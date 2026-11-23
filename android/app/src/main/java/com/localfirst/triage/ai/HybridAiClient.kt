@@ -4,6 +4,7 @@ package com.localfirst.triage.ai
 
 import com.google.firebase.Firebase
 import com.google.firebase.ai.DownloadStatus
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.ai.InferenceMode
 import com.google.firebase.ai.InferenceSource as SdkInferenceSource
 import com.google.firebase.ai.OnDeviceConfig
@@ -31,8 +32,10 @@ import com.localfirst.triage.model.Stage2Source
 import com.localfirst.triage.model.TriageResult
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.tasks.await
 
 interface HybridAiTransport {
     suspend fun checkOnDeviceStatus(cloudModelName: String): NanoStatus
@@ -55,6 +58,17 @@ interface HybridAiTransport {
 
 class FirebaseHybridAiTransport : HybridAiTransport {
     private fun backend() = Firebase.ai(backend = GenerativeBackend.googleAI())
+
+    /**
+     * Firebase AI Logic attaches an auth token to every cloud request, so an anonymous session
+     * must exist before the first call. Without it the SDK throws
+     * FirebaseNoSignedInUserException and escalation fails even when App Check is valid.
+     */
+    private suspend fun ensureAuth() {
+        val auth = runCatching { FirebaseAuth.getInstance() }.getOrNull() ?: return
+        if (auth.currentUser != null) return
+        runCatching { auth.signInAnonymously().await() }
+    }
 
     private fun mapInferenceSource(
         raw: SdkInferenceSource?,
@@ -136,14 +150,15 @@ class FirebaseHybridAiTransport : HybridAiTransport {
         prompt: String,
         modelName: String,
         systemInstruction: String,
-    ): Flow<Pair<String, InferenceSource>> {
+    ): Flow<Pair<String, InferenceSource>> = flow {
+        ensureAuth()
         val model = backend().generativeModel(
             modelName = modelName,
             systemInstruction = content("system") { text(systemInstruction) },
             onDeviceConfig = OnDeviceConfig(mode = InferenceMode.ONLY_IN_CLOUD),
         )
-        return model.generateContentStream(prompt).map { chunk ->
-            (chunk.text ?: "") to mapInferenceSource(chunk.inferenceSource, InferenceSource.IN_CLOUD)
+        model.generateContentStream(prompt).collect { chunk ->
+            emit((chunk.text ?: "") to mapInferenceSource(chunk.inferenceSource, InferenceSource.IN_CLOUD))
         }
     }
 
@@ -152,6 +167,7 @@ class FirebaseHybridAiTransport : HybridAiTransport {
         modelName: String,
         systemInstruction: String,
     ): Pair<String, InferenceSource> {
+        ensureAuth()
         val model = backend().generativeModel(
             modelName = modelName,
             systemInstruction = content("system") { text(systemInstruction) },
@@ -615,7 +631,7 @@ class HybridAiClient(
         "### Root Cause Hypothesis (Local Deterministic SRE Fallback)",
         "- **Zero-Leakage Guarantee Held:** Stage 1 scrubbed all secrets locally (`0` raw PII bytes left device).",
         "- **Cloud Status:** Outbound Cloud Gemini call reported `$errorReason`.",
-        "- **Sideload / Debug APK Tip:** If Cloud Gemini fails with App Check/403 on a sideloaded debug APK, copy the UUID printed in Logcat (`DebugAppCheckProvider`) and register it in Firebase Console -> App Check -> Apps -> Android -> Manage debug tokens.",
+        "- **Sideload / Debug APK Tip:** App Check binds debug builds to tokens registered for your own Firebase project, so a freshly sideloaded APK can be refused by the cloud while every on-device feature keeps working offline with no setup. To register this build, copy the UUID printed in Logcat (`DebugAppCheckProvider`) into Firebase Console -> App Check -> Apps -> Android -> Manage debug tokens. For a zero-setup cloud demo, open https://para-1-2e22b.web.app.",
         "### Immediate Mitigation",
         "1. Rotate any exposed API keys, tokens, or private keys flagged by Stage 1.",
         "2. Verify network & App Check connectivity, then tap Retry Cloud Escalation.",
