@@ -11,7 +11,7 @@ Built for **#BuildHybridAI 2026** on **Firebase Spark** infrastructure (`para-1-
 
 ---
 
-## Judge Quick-Check: Firebase AI Logic & App Check Runtime Map
+## Judge Quick-Check: Firebase AI Logic, App Check & Remote Config Runtime Map
 
 Every claim below is a runtime call in tracked source, not a dependency sitting in a manifest.
 
@@ -36,7 +36,7 @@ Every claim below is a runtime call in tracked source, not a dependency sitting 
 
 **Why the extension does not call Firebase AI Logic directly.** An MV3 content script runs under the page's CSP and the extension's own CSP, and a service worker cannot load the remote reCAPTCHA script that `ReCaptchaEnterpriseProvider` requires. The extension therefore keeps the deterministic floor plus the Chrome built-in model locally, and routes cloud escalation through the `#handoff=` bridge to the Firebase-hosted, App Check–protected Web Workbench at [`https://para-1-2e22b.web.app/`](https://para-1-2e22b.web.app/). That is a platform constraint, stated rather than hidden.
 
-**Why `PREFER_IN_CLOUD` rather than `ONLY_IN_CLOUD`.** The escalation input has already been scrubbed and verified, so the goal is a cloud answer with a working fallback rather than a hard failure when the network drops mid-demo. `inferenceSource` reports which path actually served the response, so the cloud call is observable, not assumed.
+**Why the two escalation modes differ.** The Web Workbench uses `PREFER_IN_CLOUD`: it already holds a warmed on-device model, so a dropped network can be served locally instead of failing. Android uses `ONLY_IN_CLOUD`: the escalation input has been scrubbed and verified, and if the cloud cannot answer the app must say so rather than quietly substitute a different model. That failure is visible — `inferenceSource = CLOUD_ERROR` renders the amber `LOCAL FALLBACK` card with the reason, and `inferenceSource` reports which path actually served every successful response.
 
 **Why Remote Config, and why it cannot break the demo.** Five non-sensitive knobs are fetched at startup on Web and Android: `cloud_primary_model` (with `cloud_model` kept as a legacy alias), `cloud_fallback_model`, `enable_cloud_escalation`, `entropy_threshold`, `enterprise_blocked_terms`. Every read is bounded by a 3.5 s `withTimeoutOrNull` and every failure path — offline, unconfigured Firebase, timeout, malformed JSON — returns `DEFAULT_FALLBACK` with the same values compiled into the binary (`RemoteConfigRepository.kt:23-27`, `:69-70`; `src/config/firebase.ts:371-375`). The entropy threshold is clamped to `[2.0, 5.5]` and the term list is length-capped at 200, so a bad remote value degrades rather than disarms the firewall. No PII is ever sent to Remote Config; it is read-only configuration.
 
