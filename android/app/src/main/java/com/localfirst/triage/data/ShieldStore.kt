@@ -26,6 +26,8 @@ data class BlockHistoryEntry(
     val engineUsed: String,
     val actionType: String = ACTION_SCRUBBED,
 ) {
+    val usedNanoEngine: Boolean get() = engineUsed == ShieldStore.ENGINE_NANO
+
     companion object {
         const val ACTION_SCRUBBED = "scrubbed"
         const val ACTION_OVERRIDE = "override"
@@ -33,13 +35,10 @@ data class BlockHistoryEntry(
 
     fun formatSummary(): String {
         val statusSuffix = if (actionType == ACTION_OVERRIDE) "Unsafe Override" else "0 Leaked"
-        if (categoryCounts.isEmpty()) {
+        val parts = ShieldStore.chipLine(categoryCounts)
+        if (parts.isEmpty()) {
             return "$totalBlocked ${Pluralize.of(totalBlocked, "Secret")} · $statusSuffix"
         }
-        val parts = categoryCounts.entries
-            .sortedByDescending { it.value }
-            .take(3)
-            .map { (category, count) -> ShieldStore.categoryChip(category, count) }
         return (parts + statusSuffix).joinToString(" · ")
     }
 }
@@ -51,6 +50,9 @@ object ShieldStore {
     private const val KEY_SHIELD_PAUSED = "cordon_background_shield_paused"
     private const val KEY_GUARDED_PREFIX = "cordon_guarded_"
     private const val MAX_HISTORY_ENTRIES = 100
+
+    const val ENGINE_ON_DEVICE = "On-Device Rules"
+    const val ENGINE_NANO = "Gemini Nano (AICore)"
 
     val DEFAULT_GUARDED_APPS = listOf(
         GuardedAppSpec("com.openai.chatgpt", "ChatGPT", true),
@@ -101,9 +103,6 @@ object ShieldStore {
         }
     }
 
-    fun isBackgroundShieldActive(context: Context): Boolean =
-        isAccessibilityServiceEnabled(context) && !isShieldPaused(context)
-
     fun getGuardedAppsState(context: Context): Map<String, Boolean> {
         val p = prefs(context)
         val state = LinkedHashMap<String, Boolean>()
@@ -119,8 +118,6 @@ object ShieldStore {
         }
         return state
     }
-
-    fun getEnabledGuardedCount(context: Context): Int = getGuardedAppsState(context).count { it.value }
 
     fun setGuardedAppEnabled(context: Context, packageName: String, enabled: Boolean) {
         prefs(context).edit().putBoolean("$KEY_GUARDED_PREFIX$packageName", enabled).apply()
@@ -312,4 +309,22 @@ object ShieldStore {
     /** "1 AWS Key" / "2 AWS Keys" - the chip copy used by the modal and History. */
     fun categoryChip(category: String, count: Int): String =
         "$count ${Pluralize.of(count, friendlyCategoryName(category))}"
+
+    /** Counts only masked spans, so a span the engine kept never inflates a "blocked" number. */
+    fun categoryCounts(spans: List<RedactionSpan>): Map<String, Int> {
+        val counts = LinkedHashMap<String, Int>()
+        for (span in spans) {
+            if (span.masked) counts[span.category] = (counts[span.category] ?: 0) + 1
+        }
+        return counts
+    }
+
+    /** Most frequent first, ties alphabetical. Every chip row uses this one ordering. */
+    fun orderedCategories(counts: Map<String, Int>): List<Pair<String, Int>> =
+        counts.entries
+            .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
+            .map { it.key to it.value }
+
+    fun chipLine(counts: Map<String, Int>, limit: Int = 3): List<String> =
+        orderedCategories(counts).take(limit).map { (category, count) -> categoryChip(category, count) }
 }

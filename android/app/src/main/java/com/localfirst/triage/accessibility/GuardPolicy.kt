@@ -13,7 +13,7 @@ import com.localfirst.triage.model.RedactionSpan
 object GuardExclusions {
     const val SELF_PACKAGE = "com.localfirst.triage"
 
-    private val EXACT_PACKAGES = setOf(
+    val EXACT_PACKAGES = setOf(
         SELF_PACKAGE,
         "android",
         "com.android.systemui",
@@ -49,24 +49,24 @@ object GuardExclusions {
 /**
  * When to show the full-screen decision modal.
  *
- * Two timings, both deliberate:
- * - a paste (or any jump of [PASTE_BURST_CHARS] characters in one event) is unambiguous, so the
- *   modal appears immediately;
- * - manual typing is debounced by [TYPING_DEBOUNCE_MS] so a user typing a sentence is never
- *   interrupted mid-word, and the field is re-read before locking.
+ * A paste (or any jump of [PASTE_BURST_CHARS] characters in one event) is unambiguous, so the
+ * modal appears immediately. Manual typing is debounced by [TYPING_DEBOUNCE_MS] so a user typing
+ * a sentence is never interrupted mid-word, and the field is re-read before locking.
  */
 object GuardTriggerPolicy {
     const val PASTE_BURST_CHARS = 8
     const val TYPING_DEBOUNCE_MS = 500L
 
+    enum class Trigger { IGNORE, LOCK_NOW, DEBOUNCE }
+
     fun isPasteBurst(previousLength: Int, currentLength: Int): Boolean =
         currentLength - previousLength >= PASTE_BURST_CHARS
 
-    fun shouldShowImmediately(isBurst: Boolean, findingCount: Int): Boolean =
-        isBurst && findingCount > 0
-
-    fun shouldDebounce(isBurst: Boolean, findingCount: Int): Boolean =
-        !isBurst && findingCount > 0
+    fun trigger(isBurst: Boolean, findingCount: Int): Trigger = when {
+        findingCount <= 0 -> Trigger.IGNORE
+        isBurst -> Trigger.LOCK_NOW
+        else -> Trigger.DEBOUNCE
+    }
 
     /**
      * The debounced rescan only fires while the field still holds the exact secret that was
@@ -103,8 +103,6 @@ object GuardTriggerPolicy {
 class OverrideMemory {
     private var packageName: String? = null
     private var textHash: Int? = null
-
-    val isActive: Boolean get() = textHash != null
 
     fun remember(pkg: String, rawText: String) {
         packageName = pkg
@@ -157,7 +155,7 @@ object ModalCopy {
     const val PRIMARY = "Scrub in Field"
     const val SECONDARY = "Allow Once (Unsafe)"
     const val CLIPBOARD_TOAST = "Scrubbed text copied — paste to replace"
-    const val ENGINE_LABEL = "Deterministic Rules"
+    const val ENGINE_LABEL = ShieldStore.ENGINE_ON_DEVICE
 
     fun subtext(appName: String): String =
         "Sensitive data detected in $appName. Scrub it before it leaves your device."
@@ -166,13 +164,7 @@ object ModalCopy {
 /** Zero-PII category chips: counts only, never the matched value. */
 object FindingChips {
     fun chips(spans: List<RedactionSpan>, limit: Int = 3): List<String> {
-        val counts = LinkedHashMap<String, Int>()
-        for (span in spans.filter { it.masked }) {
-            counts[span.category] = (counts[span.category] ?: 0) + 1
-        }
-        val ordered = counts.entries.sortedWith(
-            compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key },
-        )
+        val ordered = ShieldStore.orderedCategories(ShieldStore.categoryCounts(spans))
         val visible = ordered.take(limit).map { (category, count) -> ShieldStore.categoryChip(category, count) }
         val hidden = ordered.size - visible.size
         return if (hidden > 0) visible + "+$hidden more" else visible

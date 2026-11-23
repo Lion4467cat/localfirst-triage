@@ -633,27 +633,20 @@
 
   async function runExtensionNanoScan(rawText, options = {}) {
     const timeoutMs = options.timeoutMs ?? 3500;
-    if (!globalThis.LanguageModel?.availability) {
-      const spans = runLocalDeterministicScan(rawText, true);
-      const merged = mergeSpans(rawText, spans);
+    const fallback = (nanoState) => {
+      const merged = mergeSpans(rawText, runLocalDeterministicScan(rawText, true));
       return {
         nanoActive: false,
+        ...(nanoState === undefined ? {} : { nanoState }),
         ...merged,
         riskProfile: computeQuickRiskScore(merged.mergedSpans),
       };
-    }
+    };
+
+    if (!globalThis.LanguageModel?.availability) return fallback();
 
     const avail = await globalThis.LanguageModel.availability(TEXT_ONLY_OPTIONS);
-    if (avail !== "available" && avail !== "readily") {
-      const spans = runLocalDeterministicScan(rawText, true);
-      const merged = mergeSpans(rawText, spans);
-      return {
-        nanoActive: false,
-        nanoState: avail,
-        ...merged,
-        riskProfile: computeQuickRiskScore(merged.mergedSpans),
-      };
-    }
+    if (avail !== "available" && avail !== "readily") return fallback(avail);
 
     let session = null;
     const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
@@ -723,15 +716,9 @@
         ...merged,
         riskProfile: computeQuickRiskScore(merged.mergedSpans),
       };
-    } catch {
-      const spans = runLocalDeterministicScan(rawText, true);
-      const merged = mergeSpans(rawText, spans);
-      return {
-        nanoActive: false,
-        nanoState: avail,
-        ...merged,
-        riskProfile: computeQuickRiskScore(merged.mergedSpans),
-      };
+    } catch (err) {
+      console.warn("[Cordon] Nano scan unavailable, using deterministic rules:", err?.message);
+      return fallback(avail);
     } finally {
       if (timer) clearTimeout(timer);
       session?.destroy?.();

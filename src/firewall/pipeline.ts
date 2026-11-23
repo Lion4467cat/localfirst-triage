@@ -755,9 +755,8 @@ async function escalateSanitizedResult(
 }
 
 /**
- * Showcases Firebase AI Logic InferenceMode.PREFER_ON_DEVICE on ALREADY-SANITIZED payloads:
- * generates an executive & Slack-ready stakeholder update on Nano 4 when available,
- * seamlessly falling back to Cloud Gemini when Nano 4 is unavailable.
+ * Generates an executive and Slack-ready stakeholder update from an already-sanitized payload.
+ * Runs on Nano when available and falls back to Cloud Gemini when it is not.
  */
 export async function generateSanitizedHybridBrief(
   result: TriageResult,

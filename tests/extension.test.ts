@@ -123,8 +123,9 @@ describe("Chrome Extension MV3 companion", () => {
       expect(manifest.host_permissions).toContain(perplexity);
     }
     const swSource = fs.readFileSync(path.join(EXT_DIR, "service-worker.js"), "utf8");
-    expect(swSource).toContain("https://www.perplexity.ai/*");
-    expect(swSource).toContain("https://perplexity.ai/*");
+    // Auto-inject targets come from the manifest, so they cannot drift from content_scripts.
+    expect(swSource).toContain("chrome.runtime.getManifest().content_scripts");
+    expect(swSource).toContain("chrome.tabs.query({ url: protectedUrlPatterns })");
     for (const dead of ["atlassian.net", "zendesk.com", "pagerduty.com", "linear.app"]) {
       expect(manifest.host_permissions.join(" ")).not.toContain(dead);
     }

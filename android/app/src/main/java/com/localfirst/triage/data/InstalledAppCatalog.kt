@@ -3,6 +3,7 @@ package com.localfirst.triage.data
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ResolveInfo
+import com.localfirst.triage.accessibility.GuardExclusions
 
 /** One launchable app on this phone, as shown in the "Guard any app" list. */
 data class InstalledApp(
@@ -32,11 +33,7 @@ object InstalledAppCatalog {
     )
 
     /** Apps that must never be offered: Cordon itself and the system surfaces we never lock. */
-    private val NEVER_GUARDED = setOf(
-        "com.localfirst.triage",
-        "com.android.systemui",
-        "com.android.settings",
-    )
+    private val NEVER_GUARDED = GuardExclusions.EXACT_PACKAGES
 
     fun isPinned(packageName: String): Boolean = packageName in PINNED_PACKAGES
 
@@ -71,7 +68,7 @@ object InstalledAppCatalog {
             val pkg = info.activityInfo?.packageName?.takeIf { it.isNotBlank() } ?: continue
             if (pkg in NEVER_GUARDED) continue
             if (apps.containsKey(pkg)) continue
-            val label = runCatching { info.loadLabel(pm)?.toString() }
+            val label = runCatching { info.loadLabel(pm).toString() }
                 .getOrNull()
                 ?.trim()
                 ?.takeIf { it.isNotEmpty() }

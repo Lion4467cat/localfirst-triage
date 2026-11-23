@@ -3,6 +3,7 @@ package com.localfirst.triage.ui.screens
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.util.Log
 import android.util.LruCache
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -74,6 +75,7 @@ import com.localfirst.triage.data.InstalledAppCatalog
 import com.localfirst.triage.data.ShieldStore
 import com.localfirst.triage.model.NanoStatus
 import com.localfirst.triage.model.ProtectionLevel
+import com.localfirst.triage.ui.protectionLevelExplanation
 import com.localfirst.triage.ui.theme.AppThemeMode
 import com.localfirst.triage.ui.theme.LocalFirstThemeTokens
 import kotlinx.coroutines.Dispatchers
@@ -85,12 +87,6 @@ private fun nanoStatusSentence(status: NanoStatus): String = when (status) {
     NanoStatus.DOWNLOADABLE -> "On-device AI is available to download"
     NanoStatus.MODEL_DOWNLOADING -> "AI model downloading…"
     NanoStatus.UNAVAILABLE -> "On-device AI unavailable — using deterministic rules"
-}
-
-private fun protectionExplanation(level: ProtectionLevel): String = when (level) {
-    ProtectionLevel.LOW -> "Unmistakable credentials only: API keys, private keys, card numbers."
-    ProtectionLevel.MEDIUM -> "Credentials plus emails, phones and addresses. Recommended for daily use."
-    ProtectionLevel.HIGH -> "Everything in Medium plus names, IPs and health context. Most cautious."
 }
 
 @Composable
@@ -112,17 +108,16 @@ fun SettingsScreen(
     val tokens = LocalFirstThemeTokens.colors
     val context = LocalContext.current
 
-    var installedApps by remember { mutableStateOf<List<InstalledApp>>(emptyList()) }
-    var appsLoaded by remember { mutableStateOf(false) }
+    var installedApps by remember { mutableStateOf<List<InstalledApp>?>(null) }
     var query by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
         installedApps = withContext(Dispatchers.IO) { InstalledAppCatalog.load(context) }
-        appsLoaded = true
     }
 
-    val visibleApps = remember(installedApps, query) {
-        InstalledAppCatalog.filter(installedApps, query)
+    val apps = installedApps.orEmpty()
+    val visibleApps = remember(apps, query) {
+        InstalledAppCatalog.filter(apps, query)
     }
     val enabledCount = guardedAppsState.count { it.value }
 
@@ -147,9 +142,9 @@ fun SettingsScreen(
             enabledCount = enabledCount,
             query = query,
             onQueryChange = { query = it },
-            appsLoaded = appsLoaded,
+            appsLoaded = installedApps != null,
             visibleApps = visibleApps,
-            totalApps = installedApps.size,
+            totalApps = apps.size,
             guardedAppsState = guardedAppsState,
             onToggleGuardedApp = onToggleGuardedApp,
         )
@@ -456,6 +451,7 @@ private fun AppRow(
 }
 
 private object AppIconCache {
+    private const val TAG = "CordonIcons"
     private val cache = LruCache<String, ImageBitmap>(96)
 
     fun peek(packageName: String): ImageBitmap? = synchronized(cache) { cache.get(packageName) }
@@ -471,7 +467,11 @@ private object AppIconCache {
             drawable.setBounds(0, 0, size, size)
             drawable.draw(canvas)
             bitmap.asImageBitmap()
-        }.getOrNull() ?: return null
+        }.getOrNull()
+        if (icon == null) {
+            Log.w(TAG, "iconLoadFailed pkg=$packageName")
+            return null
+        }
         synchronized(cache) { cache.put(packageName, icon) }
         return icon
     }
@@ -571,7 +571,7 @@ private fun ProtectionDialCard(
                                 color = if (isSelected) tokens.safeText else MaterialTheme.colorScheme.onSurface,
                             )
                             Text(
-                                text = protectionExplanation(level),
+                                text = protectionLevelExplanation(level),
                                 fontSize = 10.5.sp,
                                 lineHeight = 14.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,

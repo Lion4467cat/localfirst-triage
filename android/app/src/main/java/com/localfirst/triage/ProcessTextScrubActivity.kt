@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
+import com.localfirst.triage.data.Pluralize
 import com.localfirst.triage.data.ShieldStore
 import com.localfirst.triage.firewall.LocalFirewallEngine
 import com.localfirst.triage.model.ProtectionLevel
@@ -29,7 +30,7 @@ object ProcessTextScrubLogic {
         )
         return ProcessTextScrubOutcome(
             sanitizedText = sanitizedText,
-            blockedCount = spans.size,
+            blockedCount = spans.count { it.masked },
             spans = spans,
         )
     }
@@ -48,13 +49,7 @@ class ProcessTextScrubActivity : Activity() {
             return
         }
 
-        val prefs = getSharedPreferences("localfirst_ui_prefs", Context.MODE_PRIVATE)
-        val level = runCatching {
-            ProtectionLevel.valueOf(
-                prefs.getString("protection_level", ProtectionLevel.MEDIUM.name)
-                    ?: ProtectionLevel.MEDIUM.name,
-            )
-        }.getOrDefault(ProtectionLevel.MEDIUM)
+        val level = ShieldStore.getProtectionLevel(this)
 
         val outcome = ProcessTextScrubLogic.scrub(rawText, level)
         if (outcome.blockedCount > 0) {
@@ -62,15 +57,16 @@ class ProcessTextScrubActivity : Activity() {
                 context = this,
                 appName = "Text Selection",
                 spans = outcome.spans,
-                engineUsed = "Deterministic Rules",
+                engineUsed = ShieldStore.ENGINE_ON_DEVICE,
             )
         }
 
+        val blocked = Pluralize.of(outcome.blockedCount, "secret")
         if (!readonly) {
             val resultIntent = Intent().putExtra(Intent.EXTRA_PROCESS_TEXT, outcome.sanitizedText)
             setResult(RESULT_OK, resultIntent)
             val msg = if (outcome.blockedCount > 0) {
-                "Cordon [${level.name}] blocked ${outcome.blockedCount} secret(s) · 0 leaked"
+                "Cordon [${level.name}] blocked $blocked · 0 leaked"
             } else {
                 "Cordon: No secrets detected"
             }
@@ -82,7 +78,7 @@ class ProcessTextScrubActivity : Activity() {
             )
             setResult(RESULT_CANCELED)
             val msg = if (outcome.blockedCount > 0) {
-                "Blocked ${outcome.blockedCount} secret(s) · Safe text copied"
+                "Blocked $blocked · Safe text copied"
             } else {
                 "Cordon: No secrets detected"
             }

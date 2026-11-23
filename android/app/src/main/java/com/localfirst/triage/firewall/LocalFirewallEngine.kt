@@ -15,6 +15,19 @@ import kotlin.math.ln
 object LocalFirewallEngine {
     const val PURGED_PLACEHOLDER = "[PURGED_FROM_DISK_FOR_PRIVACY]"
 
+    private val HAS_LOWER = Regex("""[a-z]""")
+    private val HAS_UPPER = Regex("""[A-Z]""")
+    private val HAS_DIGIT = Regex("""[0-9]""")
+    private val HAS_SYMBOL = Regex("""[^A-Za-z0-9]""")
+    private val HAS_SEPARATOR = Regex("""[_-]""")
+    private val LOWER_ONLY = Regex("""^[a-z]+$""")
+    private val HAS_ALNUM = Regex("""[A-Za-z0-9]""")
+    private val SHORT_WORD = Regex("""^[A-Za-z]{1,6}$""")
+    private val WORD_START = Regex("""^[A-Za-z0-9_]""")
+    private val WORD_END = Regex("""[A-Za-z0-9_]$""")
+    private val NON_DIGIT = Regex("""\D""")
+    private val SEPARATOR = Regex("""[\s-]""")
+
     private data class RegexRule(
         val category: String,
         val detector: DetectorSource,
@@ -102,7 +115,7 @@ object LocalFirewallEngine {
     )
 
     fun passesIbanMod97(raw: String): Boolean {
-        val cleaned = raw.replace(Regex("""[\s-]"""), "").uppercase()
+        val cleaned = raw.replace(SEPARATOR, "").uppercase()
         if (!Regex("""^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$""").matches(cleaned)) return false
         val rearranged = cleaned.substring(4) + cleaned.substring(0, 4)
         var remainder = 0
@@ -168,7 +181,7 @@ object LocalFirewallEngine {
             // pathological "4-1-1-…" string costs one attempt instead of one per digit (ReDoS guard).
             pattern = Regex("""(?<![\d-])\b\d(?:[ -]?\d){12,18}\b"""),
             validator = { matched ->
-                val digits = matched.replace(Regex("""\D"""), "")
+                val digits = matched.replace(NON_DIGIT, "")
                 digits.length in 13..19 &&
                     CARD_IIN_PREFIX_REGEX.matches(digits) &&
                     passesLuhnCheck(digits)
@@ -603,7 +616,7 @@ object LocalFirewallEngine {
     )
 
     fun passesLuhnCheck(rawDigits: String): Boolean {
-        val digits = rawDigits.replace(Regex("""\D"""), "")
+        val digits = rawDigits.replace(NON_DIGIT, "")
         if (digits.length !in 13..19) return false
         if (Regex("""^(\d)\1+$""").matches(digits)) return false
 
@@ -732,17 +745,17 @@ object LocalFirewallEngine {
             if (protectedRanges.any { pr -> start < pr.last && end > pr.first }) continue
 
             val entropy = shannonEntropy(secretValue)
-            val hasLower = Regex("""[a-z]""").containsMatchIn(secretValue)
-            val hasUpper = Regex("""[A-Z]""").containsMatchIn(secretValue)
-            val hasDigit = Regex("""[0-9]""").containsMatchIn(secretValue)
-            val hasSymbol = Regex("""[^A-Za-z0-9]""").containsMatchIn(secretValue)
+            val hasLower = HAS_LOWER.containsMatchIn(secretValue)
+            val hasUpper = HAS_UPPER.containsMatchIn(secretValue)
+            val hasDigit = HAS_DIGIT.containsMatchIn(secretValue)
+            val hasSymbol = HAS_SYMBOL.containsMatchIn(secretValue)
             val classCount = listOf(hasLower, hasUpper, hasDigit, hasSymbol).count { it }
-            val hasStrongMix = classCount >= 3 || (hasDigit && Regex("""[_-]""").containsMatchIn(secretValue))
+            val hasStrongMix = classCount >= 3 || (hasDigit && HAS_SEPARATOR.containsMatchIn(secretValue))
 
             val meetsThreshold = if (threshold < 3.0) {
                 entropy >= threshold
             } else {
-                !Regex("""^[a-z]+$""").matches(secretValue) && hasStrongMix && entropy >= threshold
+                !LOWER_ONLY.matches(secretValue) && hasStrongMix && entropy >= threshold
             }
 
             if (meetsThreshold) {
@@ -768,6 +781,13 @@ object LocalFirewallEngine {
     ): List<RedactionSpan> =
         runRules(text, CONTEXTUAL_HEURISTIC_RULES, 100, protectionLevel)
 
+    /** Word-bounds a literal so "Acme" matches the word and not the "Acme" inside "AcmeCorp". */
+    private fun boundedLiteral(term: String): String {
+        val leading = if (WORD_START.containsMatchIn(term)) "\\b" else ""
+        val trailing = if (WORD_END.containsMatchIn(term)) "\\b" else ""
+        return "$leading${Regex.escape(term)}$trailing"
+    }
+
     fun detectPolicyTermSpans(
         text: String,
         terms: List<String>,
@@ -781,10 +801,7 @@ object LocalFirewallEngine {
         for (rawTerm in terms) {
             val term = rawTerm.trim()
             if (term.length < 3) continue
-            val escaped = Regex.escape(term)
-            val leading = if (Regex("""^[A-Za-z0-9_]""").containsMatchIn(term)) "\\b" else ""
-            val trailing = if (Regex("""[A-Za-z0-9_]$""").containsMatchIn(term)) "\\b" else ""
-            val regex = Regex("""$leading$escaped$trailing""", RegexOption.IGNORE_CASE)
+            val regex = Regex(boundedLiteral(term), RegexOption.IGNORE_CASE)
             for (match in regex.findAll(text)) {
                 spans.add(
                     RedactionSpan(
@@ -813,21 +830,19 @@ object LocalFirewallEngine {
                 phrase.length < 3 ||
                 phrase.contains("[REDACTED:") ||
                 phrase.contains('\u0000') ||
-                !Regex("""[A-Za-z0-9]""").containsMatchIn(phrase) ||
+                !HAS_ALNUM.containsMatchIn(phrase) ||
                 NANO_CUE_PHRASE_REGEX.matches(phrase) ||
                 isTechnicalAllowlisted(phrase) ||
                 phrase.lowercase() in NANO_STOPWORDS
             ) {
                 continue
             }
-            val escaped = Regex.escape(phrase)
-            val leading = if (Regex("""^[A-Za-z0-9_]""").containsMatchIn(phrase)) "\\b" else ""
-            val trailing = if (Regex("""[A-Za-z0-9_]$""").containsMatchIn(phrase)) "\\b" else ""
-            val isShortAmbiguous = Regex("""^[A-Za-z]{1,6}$""").matches(phrase)
+            val bounded = boundedLiteral(phrase)
+            val isShortAmbiguous = SHORT_WORD.matches(phrase)
             val pattern = if (isShortAmbiguous) {
-                """(?<![/@-])(?<!\w\.)$leading$escaped$trailing(?![/@-])(?!\.\w)"""
+                """(?<![/@-])(?<!\w\.)$bounded(?![/@-])(?!\.\w)"""
             } else {
-                """$leading$escaped$trailing"""
+                bounded
             }
             val regex = Regex(pattern, RegexOption.IGNORE_CASE)
             val category = normalizeRedactionCategory(item.category)

@@ -171,15 +171,15 @@ class CordonAccessibilityService : AccessibilityService() {
         riskyPackage = pkg
 
         val burst = GuardTriggerPolicy.isPasteBurst(previous.length, text.length)
-        when {
-            GuardTriggerPolicy.shouldShowImmediately(burst, findings.size) -> {
+        when (GuardTriggerPolicy.trigger(burst, findings.size)) {
+            GuardTriggerPolicy.Trigger.LOCK_NOW -> {
                 cancelPendingRescan()
                 showBlockModal(pkg, text, sanitized, findings)
             }
 
-            GuardTriggerPolicy.shouldDebounce(burst, findings.size) -> scheduleRescan(pkg, findings)
+            GuardTriggerPolicy.Trigger.DEBOUNCE -> scheduleRescan(pkg, findings)
 
-            else -> Unit
+            GuardTriggerPolicy.Trigger.IGNORE -> Unit
         }
     }
 
@@ -240,10 +240,6 @@ class CordonAccessibilityService : AccessibilityService() {
         pendingRescanPackage = null
         pendingRescanSpans = emptyList()
     }
-
-    // ---------------------------------------------------------------------------------------
-    // Modal lifecycle
-    // ---------------------------------------------------------------------------------------
 
     private fun showBlockModal(
         pkg: String,
@@ -372,10 +368,6 @@ class CordonAccessibilityService : AccessibilityService() {
         Toast.makeText(this, ModalCopy.CLIPBOARD_TOAST, Toast.LENGTH_LONG).show()
         Log.d(TAG, "modalAction action=clipboardFallback")
     }
-
-    // ---------------------------------------------------------------------------------------
-    // Modal UI
-    // ---------------------------------------------------------------------------------------
 
     private fun buildModalView(
         appName: String,
@@ -616,10 +608,6 @@ class CordonAccessibilityService : AccessibilityService() {
         resources.displayMetrics,
     ).toInt()
 
-    // ---------------------------------------------------------------------------------------
-    // Node helpers
-    // ---------------------------------------------------------------------------------------
-
     private fun findEditable(root: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
         if (root == null) return null
         val focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
@@ -650,10 +638,6 @@ class CordonAccessibilityService : AccessibilityService() {
             variation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD ||
             variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD
     }
-
-    // ---------------------------------------------------------------------------------------
-    // Keys and teardown
-    // ---------------------------------------------------------------------------------------
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
         val modalUp = modalView != null

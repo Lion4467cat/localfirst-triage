@@ -31,7 +31,7 @@ Engineers and support teams paste raw production stack traces, crash logs, and c
 5. **Three surfaces, one contract.**
    - **Web PWA:** lazy-loaded Firestore (549 kB chunk) after Guest/Google sign-in, App Check, Zero-PII rules, ECDSA P-256 receipts with the public key embedded so anyone can re-verify them.
    - **Chrome Extension (MV3):** capture-phase paste shield and Send interception on ChatGPT, Claude, Gemini, GitHub, Slack, and Discord; side panel control center; sanitized-only `#handoff=` bridge.
-   - **Native Android:** Jetpack Compose **Shield · History · Settings**, a layered accessibility send guard across 12 guarded apps (6 chat + 6 browsers) — composer-corner shield, hardware-Enter filter, typing banner, post-send blocker — plus `ACTION_PROCESS_TEXT` ("Scrub with Cordon"), Share Sheet, and Zero-PII sync.
+   - **Native Android:** Jetpack Compose **Shield · History · Settings**, a field-watching accessibility shield that opens a full-screen decision modal before text leaves any guarded app (`Scrub in Field` rewrites the field, `Allow Once (Unsafe)` releases that draft), guard-any-app search over every installed app, plus `ACTION_PROCESS_TEXT` ("Scrub with Cordon"), Share Sheet, and Zero-PII sync.
 
 ---
 

@@ -5,6 +5,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
@@ -72,6 +73,7 @@ import com.localfirst.triage.model.NanoStatus
 import com.localfirst.triage.model.ProtectionLevel
 import com.localfirst.triage.model.RedactionSpan
 import com.localfirst.triage.ui.MainUiState
+import com.localfirst.triage.ui.protectionLevelExplanation
 import com.localfirst.triage.ui.theme.LocalFirstThemeTokens
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -90,11 +92,8 @@ fun ShieldScreen(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
-    val engineLabel = if (state.nanoStatus == NanoStatus.READY) {
-        "Gemini Nano (AICore)"
-    } else {
-        "On-Device Rules"
-    }
+    val nanoReady = state.nanoStatus == NanoStatus.READY
+    val engineName = if (nanoReady) ShieldStore.ENGINE_NANO else ShieldStore.ENGINE_ON_DEVICE
 
     var sandboxExpanded by remember { mutableStateOf(true) }
     var sandboxInput by remember { mutableStateOf("") }
@@ -113,7 +112,7 @@ fun ShieldScreen(
             isShieldPaused = isShieldPaused,
             totalSecretsBlocked = totalSecretsBlocked,
             guardedAppCount = guardedAppCount,
-            engineLabel = engineLabel,
+            nanoReady = nanoReady,
             onEnableAccessibility = onEnableAccessibility,
             onResumeShield = onResumeShield,
         )
@@ -130,8 +129,6 @@ fun ShieldScreen(
             onToggleExpanded = { sandboxExpanded = !sandboxExpanded },
             input = sandboxInput,
             onInputChange = { sandboxInput = it },
-            protectionLevel = state.protectionLevel,
-            nanoReady = state.nanoStatus == NanoStatus.READY,
             sanitizedOutput = lastSanitized,
             spans = lastSpans,
             onLoadSample = {
@@ -145,12 +142,7 @@ fun ShieldScreen(
                 )
                 lastSanitized = sanitized
                 lastSpans = spans
-                val engineUsed = if (state.nanoStatus == NanoStatus.READY) {
-                    "Gemini Nano (AICore)"
-                } else {
-                    "Deterministic Rules"
-                }
-                onScrubSandbox(sandboxInput, sanitized, spans, engineUsed)
+                onScrubSandbox(sandboxInput, sanitized, spans, engineName)
             },
             onChooseApp = { scrubbed ->
                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
@@ -168,6 +160,10 @@ fun ShieldScreen(
                     if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
                 runCatching { context.startActivity(chooser) }
+                    .onFailure { err ->
+                        Log.e("CordonSandbox", "chooserLaunchFailed err=${err.message}")
+                        Toast.makeText(context, "No app accepted the text", Toast.LENGTH_SHORT).show()
+                    }
             },
             onSendToCloud = onSendScrubbedToCloud,
             cloudResult = state.currentResult?.resolution,
@@ -183,12 +179,14 @@ private fun ProtectionHeroCard(
     isShieldPaused: Boolean,
     totalSecretsBlocked: Int,
     guardedAppCount: Int,
-    engineLabel: String,
+    nanoReady: Boolean,
     onEnableAccessibility: () -> Unit,
     onResumeShield: () -> Unit,
 ) {
     val tokens = LocalFirstThemeTokens.colors
     val isActive = isAccessibilityEnabled && !isShieldPaused
+    val engineLabel = if (nanoReady) ShieldStore.ENGINE_NANO else ShieldStore.ENGINE_ON_DEVICE
+    val engineColor = if (nanoReady) tokens.infoText else tokens.textMuted
     val accent = when {
         isActive -> tokens.safeBorder
         isAccessibilityEnabled -> tokens.warnBorder
@@ -271,10 +269,10 @@ private fun ProtectionHeroCard(
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(
-                    color = if (engineLabel.startsWith("Gemini")) tokens.infoBg else tokens.subtleSurface,
+                    color = if (nanoReady) tokens.infoBg else tokens.subtleSurface,
                     border = BorderStroke(
                         1.dp,
-                        if (engineLabel.startsWith("Gemini")) tokens.infoBorder else tokens.borderSubtle,
+                        if (nanoReady) tokens.infoBorder else tokens.borderSubtle,
                     ),
                     shape = RoundedCornerShape(50),
                 ) {
@@ -285,12 +283,12 @@ private fun ProtectionHeroCard(
                         Icon(
                             imageVector = Icons.Default.Security,
                             contentDescription = null,
-                            tint = if (engineLabel.startsWith("Gemini")) tokens.infoText else tokens.textMuted,
+                            tint = engineColor,
                             modifier = Modifier.size(12.dp),
                         )
                         Text(
                             text = engineLabel,
-                            color = if (engineLabel.startsWith("Gemini")) tokens.infoText else tokens.textMuted,
+                            color = engineColor,
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 10.5.sp,
                             modifier = Modifier.padding(start = 5.dp),
@@ -402,12 +400,6 @@ private fun KpiDivider() {
     }
 }
 
-private fun dialExplanation(level: ProtectionLevel): String = when (level) {
-    ProtectionLevel.LOW -> "Only unmistakable credentials: API keys, private keys, cards."
-    ProtectionLevel.MEDIUM -> "Credentials plus emails, phones and addresses. Recommended."
-    ProtectionLevel.HIGH -> "Everything above plus names, IPs and health context."
-}
-
 @Composable
 private fun ProtectionDialStrip(
     selected: ProtectionLevel,
@@ -468,7 +460,7 @@ private fun ProtectionDialStrip(
                 }
             }
             Text(
-                text = dialExplanation(selected),
+                text = protectionLevelExplanation(selected),
                 fontSize = 10.5.sp,
                 lineHeight = 14.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -548,8 +540,6 @@ private fun SandboxCard(
     onToggleExpanded: () -> Unit,
     input: String,
     onInputChange: (String) -> Unit,
-    protectionLevel: ProtectionLevel,
-    nanoReady: Boolean,
     sanitizedOutput: String?,
     spans: List<RedactionSpan>,
     onLoadSample: () -> Unit,
@@ -667,7 +657,7 @@ private fun SandboxCard(
                                         modifier = Modifier.size(15.dp),
                                     )
                                     Text(
-                                        text = " Scrubbed · ${spans.size} blocked · 0 Leaked",
+                                        text = " Scrubbed · ${ShieldStore.categoryCounts(spans).values.sum()} blocked · 0 Leaked",
                                         color = tokens.safeText,
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 11.5.sp,
@@ -685,7 +675,7 @@ private fun SandboxCard(
                                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                                         verticalArrangement = Arrangement.spacedBy(4.dp),
                                     ) {
-                                        categoryCounts(spans).forEach { (category, count) ->
+                                        ShieldStore.orderedCategories(ShieldStore.categoryCounts(spans)).forEach { (category, count) ->
                                             Surface(
                                                 color = MaterialTheme.colorScheme.surface,
                                                 border = BorderStroke(1.dp, tokens.safeBorder),
@@ -806,17 +796,6 @@ private fun CloudResponseCard(text: String) {
             }
         }
     }
-}
-
-/** Category counts for the chip row; keeps the "1 AWS Key / 2 AWS Keys" pluralisation. */
-private fun categoryCounts(spans: List<RedactionSpan>): List<Pair<String, Int>> {
-    val counts = LinkedHashMap<String, Int>()
-    for (span in spans.filter { it.masked }) {
-        counts[span.category] = (counts[span.category] ?: 0) + 1
-    }
-    return counts.entries
-        .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
-        .map { it.key to it.value }
 }
 
 data class CloudResponseBlock(

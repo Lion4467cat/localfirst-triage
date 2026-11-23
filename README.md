@@ -13,8 +13,8 @@ Built for **#BuildHybridAI 2026** on **Firebase Spark** infrastructure (`para-1-
 
 ## The UX contract
 
-1. **Zero popups while typing or pasting.** Cordon never interrupts composition.
-2. **One confirmation, only on Send**, and only when the active composer holds an unredacted secret.
+1. **The browser shield never interrupts composition.** The extension stays silent while you type or paste.
+2. **One confirmation when a draft holds an unredacted secret.** The extension asks at Send; Android asks when the watched field changes.
 3. **Scrub & Send** replaces the text with the sanitized version and sends it. **Reject & Send Anyway** sends the raw text once and never re-prompts for that exact draft.
 
 Every surface enforces the same rule: a secret is masked locally before any byte reaches a cloud model.
@@ -26,7 +26,7 @@ Every surface enforces the same rule: a secret is masked locally before any byte
 | Surface | Role & Capabilities | Core Engine |
 | :--- | :--- | :--- |
 | **Chrome Extension (`extension/`)** | Capture-phase Paste shield + Send interception on `chatgpt.com`, `claude.ai`, `gemini.google.com`, `github.com`, `app.slack.com`, `discord.com`; Side Panel control center (`Low` / `Medium` / `High`, 0-PII stats, `#handoff=` bridge) | `firewall-core.js` + Chrome `LanguageModel` (Nano 4 semantic pass at Medium & High) |
-| **Native Android (`android/`)** | Layered accessibility send guard across 12 guarded apps (6 chat surfaces + 6 browsers): a device-agnostic composer-corner shield (no Send-button matching), hardware-Enter key filtering, a non-touchable typing banner, and a full-screen post-send blocker for soft-keyboard sends; plus `Scrub with Cordon` text action (`ACTION_PROCESS_TEXT`), Share Sheet (`ACTION_SEND`), offline 6-runbook resolution, Zero-PII Firestore sync | `LocalFirewallEngine.kt` + `firebase-ai` (`18.2.0`) & `firebase-ai-ondevice` (`16.0.0-beta08`) |
+| **Native Android (`android/`)** | Watches the composer field in every guarded app and opens a full-screen decision modal before text leaves: `Scrub in Field` rewrites the field in place, `Allow Once (Unsafe)` releases that exact draft. Password fields, keyboards, launchers and system surfaces are never locked. Guard any installed app from Settings, plus `Scrub with Cordon` text action (`ACTION_PROCESS_TEXT`), Share Sheet (`ACTION_SEND`), offline runbook resolution and Zero-PII Firestore sync | `LocalFirewallEngine.kt` + `firebase-ai` (`18.2.0`) & `firebase-ai-ondevice` (`16.0.0-beta08`) |
 | **Web PWA (`src/`)** | Hybrid Workbench (`ONLY_ON_DEVICE`, `PREFER_ON_DEVICE`, `PREFER_IN_CLOUD`), `<5ms` IndexedDB dedup cache, RAM-only rehydration vault, ECDSA P-256 audit receipts (public key embedded, independently verifiable), lazy-loaded Firestore sync | `src/firewall/` + `firebase/ai` (`firebase@13.3.0`) |
 
 ### Android guarded apps (12)

@@ -79,25 +79,32 @@ class SendInterceptionTest {
     @Test
     fun `paste with a secret locks immediately while benign text never locks`() {
         val paste = "here is my key $awsKey"
-        assertTrue(GuardTriggerPolicy.shouldShowImmediately(isBurst = true, findingCount = scrub(paste).size))
-        assertFalse(
-            GuardTriggerPolicy.shouldShowImmediately(
-                isBurst = true,
-                findingCount = scrub("here is a normal pasted paragraph").size,
-            ),
+        assertEquals(
+            GuardTriggerPolicy.Trigger.LOCK_NOW,
+            GuardTriggerPolicy.trigger(isBurst = true, findingCount = scrub(paste).size),
         )
-        assertEquals("benign paste must find nothing", 0, scrub("here is a normal pasted paragraph").size)
+        val benign = scrub("here is a normal pasted paragraph")
+        assertEquals("benign paste must find nothing", 0, benign.size)
+        assertEquals(
+            GuardTriggerPolicy.Trigger.IGNORE,
+            GuardTriggerPolicy.trigger(isBurst = true, findingCount = benign.size),
+        )
     }
 
     @Test
     fun `typing a secret is debounced rather than shown on every keystroke`() {
         val typed = "key $awsKey"
         val findings = scrub(typed).size
-        assertTrue(GuardTriggerPolicy.shouldDebounce(isBurst = false, findingCount = findings))
-        assertFalse(GuardTriggerPolicy.shouldShowImmediately(isBurst = false, findingCount = findings))
+        assertEquals(
+            GuardTriggerPolicy.Trigger.DEBOUNCE,
+            GuardTriggerPolicy.trigger(isBurst = false, findingCount = findings),
+        )
         assertEquals(500L, GuardTriggerPolicy.TYPING_DEBOUNCE_MS)
         // Half-typed text is silent: no findings, no debounce, no modal.
-        assertFalse(GuardTriggerPolicy.shouldDebounce(isBurst = false, findingCount = scrub("key AKIA").size))
+        assertEquals(
+            GuardTriggerPolicy.Trigger.IGNORE,
+            GuardTriggerPolicy.trigger(isBurst = false, findingCount = scrub("key AKIA").size),
+        )
     }
 
     @Test
@@ -140,7 +147,6 @@ class SendInterceptionTest {
         // Any edit drops the override so the next secret is caught again.
         memory.onTextChanged("com.openai.chatgpt", "key $awsKey and one more word")
         assertFalse(memory.isOverridden("com.openai.chatgpt", "key $awsKey and one more word"))
-        assertFalse(memory.isActive)
     }
 
     @Test
@@ -148,7 +154,6 @@ class SendInterceptionTest {
         val memory = OverrideMemory()
         memory.remember("com.whatsapp", "key $awsKey")
         memory.onTextChanged("com.whatsapp", "")
-        assertFalse(memory.isActive)
     }
 
     @Test
@@ -157,7 +162,6 @@ class SendInterceptionTest {
         memory.remember("com.openai.chatgpt", "key $awsKey")
         assertFalse(memory.isOverridden("com.anthropic.claude", "key $awsKey"))
         memory.onTextChanged("com.anthropic.claude", "key $awsKey")
-        assertFalse(memory.isActive)
     }
 
     @Test

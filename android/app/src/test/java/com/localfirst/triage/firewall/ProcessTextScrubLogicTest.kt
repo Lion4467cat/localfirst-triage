@@ -16,6 +16,8 @@ class ProcessTextScrubLogicTest {
 
         val outcome = ProcessTextScrubLogic.scrub(raw)
         assertTrue(outcome.blockedCount >= 4)
+        // Only masked spans count as blocked; an inspected-but-kept span must not inflate the number.
+        assertEquals(outcome.spans.count { it.masked }, outcome.blockedCount)
         assertFalse(outcome.sanitizedText.contains(awsKey))
         assertFalse(outcome.sanitizedText.contains("SecretPass99"))
         assertFalse(outcome.sanitizedText.contains("eyJhbGciOiJIUzI1NiJ9"))

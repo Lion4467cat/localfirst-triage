@@ -40,6 +40,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -242,7 +243,7 @@ fun HistoryScreen(
 private fun SummaryStat(
     value: String,
     label: String,
-    valueColor: androidx.compose.ui.graphics.Color,
+    valueColor: Color,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -386,7 +387,7 @@ private fun HistoryRow(entry: BlockHistoryEntry, timestamp: String) {
                     maxLines = 1,
                     modifier = Modifier.weight(1f),
                 )
-                if (entry.engineUsed.contains("Nano", ignoreCase = true)) {
+                if (entry.usedNanoEngine) {
                     Surface(
                         color = tokens.infoBg,
                         border = BorderStroke(1.dp, tokens.infoBorder),
@@ -409,11 +410,10 @@ private fun HistoryRow(entry: BlockHistoryEntry, timestamp: String) {
 
 /** "2 AWS Keys · 1 Email" - pluralised, never a raw value. */
 private fun findingsLine(entry: BlockHistoryEntry): String {
-    if (entry.categoryCounts.isEmpty()) {
-        return Pluralize.of(entry.totalBlocked, "Secret")
+    val parts = ShieldStore.chipLine(entry.categoryCounts)
+    return if (parts.isEmpty()) {
+        Pluralize.of(entry.totalBlocked, "Secret")
+    } else {
+        parts.joinToString(" · ")
     }
-    return entry.categoryCounts.entries
-        .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
-        .take(3)
-        .joinToString(" · ") { (category, count) -> ShieldStore.categoryChip(category, count) }
 }

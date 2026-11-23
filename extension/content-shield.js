@@ -39,7 +39,9 @@
         if (typeof c.shieldEnabled?.newValue === "boolean") shieldEnabled = c.shieldEnabled.newValue;
         if (["low", "medium", "high"].includes(c.protectionLevel?.newValue)) protectionLevel = c.protectionLevel.newValue;
       });
-    } catch { /* ignore */ }
+    } catch (err) {
+      console.warn("[Cordon] settings unavailable, keeping defaults:", err?.message);
+    }
   }
 
   function recordStats(count) {
@@ -57,7 +59,9 @@
           },
         });
       });
-    } catch { /* ignore */ }
+    } catch (err) {
+      console.warn("[Cordon] stats write failed:", err?.message);
+    }
   }
 
   function findEditor(node) {
@@ -339,17 +343,16 @@
     const ed = resolveEditor(ev);
     if (!ed || isMuted(ed)) return;
     const fw = globalThis.LocalFirstFirewall;
-    const isSendKey = fw?.shouldInterceptSendKey
-      ? fw.shouldInterceptSendKey({
-          key: ev.key,
-          isTextarea: ed.tagName === "TEXTAREA",
-          ctrlKey: ev.ctrlKey,
-          metaKey: ev.metaKey,
-          shiftKey: ev.shiftKey,
-          altKey: ev.altKey,
-          level: protectionLevel,
-        })
-      : ev.key === "Enter" && ed.tagName !== "TEXTAREA" && !ev.shiftKey && !ev.ctrlKey && !ev.metaKey && !ev.altKey;
+    if (!fw?.shouldInterceptSendKey) return;
+    const isSendKey = fw.shouldInterceptSendKey({
+      key: ev.key,
+      isTextarea: ed.tagName === "TEXTAREA",
+      ctrlKey: ev.ctrlKey,
+      metaKey: ev.metaKey,
+      shiftKey: ev.shiftKey,
+      altKey: ev.altKey,
+      level: protectionLevel,
+    });
     if (isSendKey) handleSendAttempt(ev, ed, null);
   }
 

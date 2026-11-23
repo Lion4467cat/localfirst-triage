@@ -13,19 +13,11 @@ chrome.runtime.onInstalled.addListener(async () => {
     contexts: ["selection"],
   });
 
-  // Auto-inject content shield into already-open protected tabs on install/reload
-  const protectedUrlPatterns = [
-    "https://chatgpt.com/*",
-    "https://chat.openai.com/*",
-    "https://claude.ai/*",
-    "https://gemini.google.com/*",
-    "https://github.com/*",
-    "https://app.slack.com/*",
-    "https://discord.com/*",
-    "https://www.perplexity.ai/*",
-    "https://perplexity.ai/*",
-    "http://localhost/*",
-  ];
+  // Auto-inject content shield into already-open protected tabs on install/reload.
+  // The match list comes from the manifest so the two can never drift apart.
+  const protectedUrlPatterns =
+    chrome.runtime.getManifest().content_scripts?.flatMap((script) => script.matches ?? []) ?? [];
+  if (protectedUrlPatterns.length === 0) return;
   try {
     const tabs = await chrome.tabs.query({ url: protectedUrlPatterns });
     for (const tab of tabs) {
@@ -35,12 +27,12 @@ chrome.runtime.onInstalled.addListener(async () => {
           target: { tabId: tab.id },
           files: ["firewall-core.js", "content-shield.js"],
         });
-      } catch {
-        // Ignore tabs that disallow script injection
+      } catch (err) {
+        console.warn("[Cordon] inject skipped for a restricted tab:", err?.message);
       }
     }
-  } catch {
-    // Ignore if tabs query is restricted
+  } catch (err) {
+    console.warn("[Cordon] tab query restricted, skipping auto-inject:", err?.message);
   }
 });
 
