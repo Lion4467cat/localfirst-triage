@@ -46,6 +46,7 @@ import { AirgapSpine } from "./components/AirgapSpine";
 import { HeroEngineDiagram } from "./components/HeroEngineDiagram";
 import { LivePipelineRail } from "./components/LivePipelineRail";
 import { PointerField } from "./components/PointerField";
+import { HardwareBenchmark } from "./components/HardwareBenchmark";
 import { RightWorkbenchPane } from "./components/RightWorkbenchPane";
 import { TelemetryHud, type WorkspaceView } from "./components/TelemetryHud";
 import { TriageInbox } from "./components/TriageInbox";
@@ -895,6 +896,9 @@ export function App() {
             </div>
           </div>
         </main>
+
+          {/* ACT 3: Hardware benchmark — same corpus, three surfaces */}
+          <HardwareBenchmark />
         </>
       )}
 

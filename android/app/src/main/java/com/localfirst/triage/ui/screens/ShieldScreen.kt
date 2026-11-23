@@ -66,6 +66,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.localfirst.triage.ai.SandboxScan
+import com.localfirst.triage.data.Pluralize
 import com.localfirst.triage.data.ShieldStore
 import com.localfirst.triage.model.NanoStatus
 import com.localfirst.triage.model.ProtectionLevel
@@ -215,10 +216,11 @@ private fun ProtectionHeroCard(
         isAccessibilityEnabled -> "Shield Paused"
         else -> "Shield Off"
     }
+    val appNoun = Pluralize.of(guardedAppCount, "app")
     val subtitle = when {
-        isActive -> "Watching $guardedAppCount apps · secrets are blocked before they leave"
-        isAccessibilityEnabled -> "Paused · your next message is not protected"
-        else -> "Turn on Accessibility to guard $guardedAppCount apps"
+        isActive -> "Watching $guardedAppCount $appNoun · scrub before send"
+        isAccessibilityEnabled -> "Paused · messages are not protected"
+        else -> "Turn on Accessibility to guard $guardedAppCount $appNoun"
     }
 
     Card(
@@ -336,7 +338,7 @@ private fun ProtectionHeroCard(
                 KpiDivider()
                 KpiColumn(
                     value = guardedAppCount.toString(),
-                    label = "Guarded Apps",
+                    label = Pluralize.of(guardedAppCount, "Guarded App"),
                     valueColor = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
                 )
@@ -735,6 +737,10 @@ private fun SandboxCard(
                             onClick = { onSendToCloud(sanitizedOutput) },
                             enabled = !isRunning && !offlineMode,
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                            border = BorderStroke(1.dp, tokens.borderSubtle),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = MaterialTheme.colorScheme.onSurface,
+                            ),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             if (isRunning) {
@@ -786,7 +792,7 @@ private fun SandboxEngineBadge(scan: SandboxScan) {
         shape = RoundedCornerShape(6.dp),
     ) {
         Text(
-            text = scan.inferenceSource.name,
+            text = if (onDevice) "Gemini Nano" else "Local rules",
             fontSize = 9.5.sp,
             fontWeight = FontWeight.Bold,
             color = if (onDevice) tokens.infoText else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -799,6 +805,7 @@ internal data class CloudCardCopy(
     val header: String,
     val badge: String?,
     val failed: Boolean,
+    val inCloud: Boolean = false,
 )
 
 internal fun cloudCardCopy(inferenceSource: String?, cloudError: String?): CloudCardCopy {
@@ -816,10 +823,20 @@ internal fun cloudCardCopy(inferenceSource: String?, cloudError: String?): Cloud
         )
         else -> CloudCardCopy(
             header = "Cloud AI Response · 0 raw PII left device",
-            badge = inferenceSource,
+            badge = sourceBadge(inferenceSource),
             failed = false,
+            inCloud = inferenceSource.equals("IN_CLOUD", ignoreCase = true),
         )
     }
+}
+
+/** The engine that actually answered, in words a user can read instead of an enum name. */
+internal fun sourceBadge(inferenceSource: String): String = when (inferenceSource.uppercase()) {
+    "IN_CLOUD" -> "CLOUD"
+    "ON_DEVICE" -> "ON-DEVICE"
+    "LOCAL_REGEX_FALLBACK" -> "LOCAL RULES"
+    "OFFLINE_BLOCKED" -> "OFFLINE"
+    else -> inferenceSource.uppercase().replace('_', ' ')
 }
 
 @Composable
@@ -839,33 +856,26 @@ private fun CloudResponseCard(text: String, inferenceSource: String?, cloudError
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
-            Row(
+            Text(
+                text = copy.header,
+                fontWeight = FontWeight.Bold,
+                fontSize = 11.sp,
+                color = accentText,
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Top,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    text = copy.header,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 11.sp,
-                    color = accentText,
-                    modifier = Modifier.weight(1f),
-                )
-                if (copy.badge != null) {
-                    val servedInCloud = copy.badge == "IN_CLOUD"
-                    Surface(
-                        color = if (servedInCloud) tokens.infoBg else accentBg,
-                        border = BorderStroke(1.dp, if (servedInCloud) tokens.infoBorder else accentBorder),
-                        shape = RoundedCornerShape(6.dp),
-                    ) {
-                        Text(
-                            text = copy.badge,
-                            fontSize = 9.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (servedInCloud) tokens.infoText else accentText,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                        )
-                    }
+            )
+            if (copy.badge != null) {
+                Surface(
+                    color = if (copy.inCloud) tokens.infoBg else accentBg,
+                    border = BorderStroke(1.dp, if (copy.inCloud) tokens.infoBorder else accentBorder),
+                    shape = RoundedCornerShape(6.dp),
+                ) {
+                    Text(
+                        text = copy.badge,
+                        fontSize = 9.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (copy.inCloud) tokens.infoText else accentText,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
                 }
             }
             if (copy.failed && !cloudError.isNullOrBlank()) {

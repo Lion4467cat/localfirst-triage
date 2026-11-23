@@ -1,4 +1,4 @@
-# Cordon (`v4.6.0`)
+# Cordon (`v4.6.1`)
 
 **Unified 3-surface on-device hybrid AI privacy firewall across Chrome Extension (MV3), Native Android, and Web PWA.**
 
@@ -24,15 +24,15 @@ Every claim below is a runtime call in tracked source, not a dependency sitting 
 | **Web** | `getGenerativeModel(..., mode: InferenceMode.PREFER_IN_CLOUD)` — post-scrub cloud escalation | `src/config/firebase.ts:245` |
 | **Web** | Cloud call site: `createCloudEscalationModel(ai, modelName, …)` | `src/firewall/pipeline.ts:145` |
 | **Web** | `inferenceSource` surfaced in telemetry (`ON_DEVICE` vs `IN_CLOUD`) | `src/config/firebase.ts:260`, `src/firewall/pipeline.ts:722` |
-| **Android** | `Firebase.ai(backend = GenerativeBackend.googleAI())` | `ai/HybridAiClient.kt:60` |
-| **Android** | `InferenceMode.ONLY_ON_DEVICE` — status probe, model download, semantic PII pass; fails closed to `LocalFirewallEngine` | `ai/HybridAiClient.kt:93`, `:104`, `:139` |
-| **Android** | `InferenceMode.ONLY_IN_CLOUD` — post-scrub Stage 2 escalation (stream + unary) | `ai/HybridAiClient.kt:158`, `:174` |
-| **Android** | `InferenceMode.PREFER_ON_DEVICE` — stakeholder brief | `ai/HybridAiClient.kt:187` |
+| **Android** | `Firebase.ai(backend = GenerativeBackend.googleAI())` | `ai/HybridAiClient.kt:78` |
+| **Android** | `InferenceMode.ONLY_ON_DEVICE` — status probe, model download, semantic PII pass; fails closed to `LocalFirewallEngine` | `ai/HybridAiClient.kt:111`, `:163`, `:248` |
+| **Android** | `InferenceMode.ONLY_IN_CLOUD` — post-scrub Stage 2 escalation (stream + unary) | `ai/HybridAiClient.kt:267`, `:283` |
+| **Android** | `InferenceMode.PREFER_ON_DEVICE` — stakeholder brief | `ai/HybridAiClient.kt:296` |
 | **Android** | App Check, release: `PlayIntegrityAppCheckProviderFactory` | `src/release/…/AppCheckInitializer.kt:11` |
 | **Android** | App Check, debug: `DebugAppCheckProviderFactory` (token never committed) | `src/debug/…/AppCheckInitializer.kt:11` |
-| **Extension** | Chrome built-in `LanguageModel` semantic pass (`runExtensionNanoScan`) | `extension/firewall-core.js:672`, `:690` |
-| **Web** | `loadRuntimeConfig()` on startup and on manual refresh — `fetchAndActivate` with a 3.5 s deadline | `src/App.tsx:243`, `:219` → `src/config/firebase.ts:366` |
-| **Android** | `remoteConfigRepo.loadRuntimeConfig()` on ViewModel init — `fetchAndActivate` with a 3.5 s deadline | `ui/TriageViewModel.kt:72` → `:177` → `data/RemoteConfigRepository.kt:18` |
+| **Extension** | Chrome built-in `LanguageModel` semantic pass (`runExtensionNanoScan`) | `extension/firewall-core.js:934`, `:952` |
+| **Web** | `loadRuntimeConfig()` on startup and on manual refresh — `fetchAndActivate` with a 3.5 s deadline | `src/App.tsx:246`, `:222` → `src/config/firebase.ts:366` |
+| **Android** | `remoteConfigRepo.loadRuntimeConfig()` on ViewModel init — `fetchAndActivate` with a 3.5 s deadline | `ui/TriageViewModel.kt:204` → `data/RemoteConfigRepository.kt:18` |
 
 **Why the extension does not call Firebase AI Logic directly.** An MV3 content script runs under the page's CSP and the extension's own CSP, and a service worker cannot load the remote reCAPTCHA script that `ReCaptchaEnterpriseProvider` requires. The extension therefore keeps the deterministic floor plus the Chrome built-in model locally, and routes cloud escalation through the `#handoff=` bridge to the Firebase-hosted, App Check–protected Web Workbench at [`https://para-1-2e22b.web.app/`](https://para-1-2e22b.web.app/). That is a platform constraint, stated rather than hidden.
 
@@ -112,21 +112,24 @@ Reproduce: `cd android && ./gradlew connectedDebugAndroidTest -Pandroid.testInst
 
 The Chrome extension scores `80` positives / `48` benign at `100%` recall and `0%` false positives across 26 categories (`npm test`, `tests/extensionBenchmark.test.ts`).
 
-### Hybrid benchmark (Samsung Galaxy S26 Ultra, Gemini Nano 4 `ON_DEVICE`)
+### Hardware benchmark (three surfaces, same corpus)
 
-Retail AICore ships Gemini Nano on the S26 Ultra, so the same APK runs the hybrid path with no developer preview:
+Retail AICore ships Gemini Nano on the S26 Ultra, so the same APK runs the hybrid path with no developer preview. The Moto G82 has no AICore, so it fails closed to the deterministic rules. The extension runs the same rules in MV3.
 
-| Metric | S26 Ultra (Hybrid) | Moto G82 5G (Fail-Closed Deterministic) |
-| :--- | :---: | :---: |
-| **Stage 1 engine** | `ON_DEVICE` (`nano-v4-fast` via AICore) + deterministic union | `HEURISTIC_GUARD` + deterministic |
-| **AICore status** | `AVAILABLE` → `NanoStatus.READY` | `UNAVAILABLE` |
-| **Demo sentence** ("cover for Maya… oncology clinic in Indiranagar") | **`3/3` semantic spans** (person, PHI, neighbourhood) | **`0/3`** semantic, fail-closed |
-| **Sandbox hybrid pass** (sentence + card + Stripe key, Airplane Mode) | **`6` spans in `2,589 ms`** | `6` spans, `~1.4 ms` |
-| **Deterministic recall / FP** | **`100%` (81/81)** / **`0%` (0/46)** | **`100%` (81/81)** / **`0%` (0/46)** |
-| **Deterministic latency p50 / p95 / max** | **`0.44 ms` / `0.63 ms` / `0.91 ms`** | **`1.42 ms` / `4.01 ms` / `6.94 ms`** |
-| **Raw PII left device** | **`0`** | **`0`** |
+| Metric | Galaxy S26 Ultra (SM-S948B, API 37) | Moto G82 5G (API 33) | Chrome Extension (MV3) |
+| :--- | :---: | :---: | :---: |
+| **Stage 1 engine** | `ON_DEVICE` (`nano-v4-fast` via AICore) + deterministic union | `HEURISTIC_GUARD` + deterministic | `HEURISTIC_GUARD` + deterministic |
+| **AICore status** | `AVAILABLE` → `NanoStatus.READY` | `UNAVAILABLE` (fail-closed) | n/a |
+| **Demo sentence** ("cover for Maya… oncology clinic in Indiranagar") | **`3/3` semantic spans** (person, PHI, neighbourhood) | **`0/3`** semantic, fail-closed | **`0/3`** semantic, fail-closed |
+| **Deterministic recall / FP** (MEDIUM dial) | **`100.0%` (81/81)** / **`0.0%` (0/46)** | **`100.0%` (81/81)** / **`0.0%` (0/46)** | **`100.0%` (80/80)** / **`0.0%` (0/48)** |
+| **Deterministic latency p50 / p95 / max** | **`0.44 ms` / `0.63 ms` / `0.91 ms`** | **`1.42 ms` / `4.01 ms` / `6.94 ms`** | in-page, `npm test` |
+| **Live AI-app lock latency** | **`7–44 ms`** — WhatsApp `7`, ChatGPT `10`, Gemini `11`, Chrome `16`, Google `31`, Perplexity `44` | n/a | n/a |
+| **Multi-turn post-scrub re-lock** | **`7–17 ms`** | n/a | n/a |
+| **Hybrid on-device pass** (sentence + card + key, Airplane Mode) | **`6` spans in `2,513 ms`**, `ON_DEVICE` badge, **0 network bytes** | `6` spans, `~1.4 ms` | n/a |
+| **Composition interruptions** | **`0`** | **`0`** | **`0`** |
+| **Raw PII left device** | **`0`** | **`0`** | **`0` raw secrets in handoff** |
 
-Measured with Wi-Fi off. `adb logcat -s CordonNano` on the S26 shows `probe option=preview status=READY`, `onDevice modelName=nano-v4-fast` and `sandbox status=READY model=nano-v4-fast semantic=5 spans=6 latency=2589ms`; the result card renders the `ON_DEVICE` badge next to `Scrubbed · 6 blocked · 0 Leaked`. `CordonBench` on the same phone: `device=SM-S948B api=37 abi=arm64-v8a`, `overall recall=100.0% (81/81)`, `false positive rate=0.0% (0/46)`, `storedEntries=81 rawSecretSubstringsInStore=0`.
+Measured with Wi-Fi off. `adb logcat -s CordonNano` on the S26 shows `probe option=preview status=READY`, `onDevice modelName=nano-v4-fast` and `sandbox status=READY model=nano-v4-fast semantic=5 spans=6 latency=2513ms`; the result card renders the `Gemini Nano` badge next to `Scrubbed · 6 blocked · 0 Leaked`. `CordonBench` on the same phone: `device=SM-S948B api=37 abi=arm64-v8a`, `overall recall=100.0% (81/81)`, `false positive rate=0.0% (0/46)`, `storedEntries=81 rawSecretSubstringsInStore=0`, `scrubbedOutputLeaks=0`. The live lock figures come from the six-app sweep (`adb logcat -s CordonA11y`, `textChanged → modalShown elapsedMs`).
 
 ---
 
@@ -149,7 +152,7 @@ You will see exactly **one** confirmation: **Scrub & Send** (safe version goes o
 
 ### C. Android app — 2 minutes
 
-1. On the phone, open the [Releases page](https://github.com/Lion4467cat/localfirst-triage/releases) and download `cordon-android-v4.6.0.apk`, then tap it to install (allow "install unknown apps" when Android asks).
+1. On the phone, open the [Releases page](https://github.com/Lion4467cat/localfirst-triage/releases) and download `cordon-android-v4.6.1.apk`, then tap it to install (allow "install unknown apps" when Android asks).
 2. Open **Cordon**. On the **Shield** tab, tap **Enable Background Shield**.
 3. Android opens Accessibility settings: tap **Cordon**, then switch it **on** and confirm.
 4. Go back to Cordon. The Shield tab now says the shield is on. Open ChatGPT (or any listed app), type a secret, and tap **Send**.

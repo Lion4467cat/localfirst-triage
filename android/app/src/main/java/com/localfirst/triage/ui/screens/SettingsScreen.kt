@@ -218,7 +218,7 @@ private fun EnableShieldCard(onEnable: () -> Unit) {
             }
             Text(
                 text = "1. Tap Enable and find Cordon Privacy Shield.\n" +
-                    "2. Turn Use Cordon on, then come back here.",
+                    "2. Turn Cordon Privacy Shield on, then come back here.",
                 fontSize = 11.5.sp,
                 lineHeight = 17.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -336,34 +336,35 @@ private fun GuardedAppsCard(
             modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = "Guarded Apps",
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp,
                         color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
                     )
-                    Text(
-                        text = "Guard any app · password fields are always ignored",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Surface(
+                        color = tokens.safeBg,
+                        border = BorderStroke(1.dp, tokens.safeBorder),
+                        shape = RoundedCornerShape(50),
+                    ) {
+                        Text(
+                            text = if (appsLoaded && totalApps > 0) "$enabledCount of $totalApps guarded" else "$enabledCount guarded",
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 10.sp,
+                            color = tokens.safeText,
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp),
+                        )
+                    }
                 }
-                Surface(
-                    color = tokens.safeBg,
-                    border = BorderStroke(1.dp, tokens.safeBorder),
-                    shape = RoundedCornerShape(50),
-                ) {
-                    Text(
-                        text = if (appsLoaded && totalApps > 0) "$enabledCount of $totalApps guarded" else "$enabledCount guarded",
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 10.sp,
-                        color = tokens.safeText,
-                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp),
-                    )
-                }
+                Text(
+                    text = "Guard any app · password fields are always ignored",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
 
             OutlinedTextField(

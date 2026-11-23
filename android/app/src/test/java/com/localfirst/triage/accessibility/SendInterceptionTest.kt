@@ -317,6 +317,30 @@ class SendInterceptionTest {
         assertTrue(FindingChips.summary(findings).contains("2 AWS Keys"))
     }
 
+    @Test
+    fun `six categories collapse to three chips plus a more count`() {
+        val categories = listOf(
+            "CREDIT_CARD", "EMAIL", "PHONE", "API_KEY", "AWS_ACCESS_KEY", "IP_ADDRESS",
+        )
+        val findings = categories.mapIndexed { index, category ->
+            com.localfirst.triage.model.RedactionSpan(
+                start = index * 10,
+                end = index * 10 + 4,
+                category = category,
+                detector = com.localfirst.triage.model.DetectorSource.REGEX_FIREWALL,
+                placeholder = "[REDACTED]",
+                matchedText = "tok$index",
+            )
+        }
+        val chips = FindingChips.chips(findings)
+        assertEquals(4, chips.size)
+        assertEquals("+3 more", chips.last())
+        // Every chip is a count plus a noun: no raw value and no overflow past the modal width.
+        for (chip in chips.dropLast(1)) {
+            assertTrue("chip=$chip", Regex("^\\d+ [A-Za-z].*").matches(chip))
+        }
+    }
+
     // --- Pluralisation helper --------------------------------------------------------------
 
     @Test
@@ -342,8 +366,8 @@ class SendInterceptionTest {
         assertEquals("2 Emails", ShieldStore.categoryChip("EMAIL", 2))
         assertEquals("1 Address", ShieldStore.categoryChip("ADDRESS", 1))
         assertEquals("2 Addresses", ShieldStore.categoryChip("ADDRESS", 2))
-        assertEquals("1 Card", ShieldStore.categoryChip("CREDIT_CARD", 1))
-        assertEquals("3 Cards", ShieldStore.categoryChip("CREDIT_CARD", 3))
+        assertEquals("1 Card Number", ShieldStore.categoryChip("CREDIT_CARD", 1))
+        assertEquals("3 Card Numbers", ShieldStore.categoryChip("CREDIT_CARD", 3))
         assertEquals("2 IPs", ShieldStore.categoryChip("IP_ADDRESS", 2))
         assertEquals("2 Private Keys", ShieldStore.categoryChip("PEM_PRIVATE_KEY", 2))
         assertEquals("2 Bearer/JWTs", ShieldStore.categoryChip("BEARER_OR_JWT", 2))

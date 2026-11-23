@@ -285,7 +285,7 @@ object ShieldStore {
         "PRIVATE_KEY", "PEM_PRIVATE_KEY" -> "Private Key"
         "BEARER_OR_JWT" -> "Bearer/JWT"
         "DB_URI", "DB_CONNECTION_URI" -> "DB URI"
-        "CREDIT_CARD" -> "Card"
+        "CREDIT_CARD" -> "Card Number"
         "CARD_EXPIRY" -> "Card Expiry"
         "CVV" -> "CVV"
         "UPI_ID" -> "UPI ID"

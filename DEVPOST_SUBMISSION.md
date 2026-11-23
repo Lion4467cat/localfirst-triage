@@ -1,8 +1,8 @@
-# Cordon (`v4.6.0`) — #BuildHybridAI 2026 Submission
+# Cordon (`v4.6.1`) — #BuildHybridAI 2026 Submission
 
 - **Live Web PWA:** [`https://para-1-2e22b.web.app/`](https://para-1-2e22b.web.app/)
 - **Public GitHub Repository:** [`https://github.com/Lion4467cat/localfirst-triage`](https://github.com/Lion4467cat/localfirst-triage)
-- **Releases (Extension ZIP + Android APK `v4.6.0`):** [`github.com/Lion4467cat/localfirst-triage/releases`](https://github.com/Lion4467cat/localfirst-triage/releases)
+- **Releases (Extension ZIP + Android APK `v4.6.1`):** [`github.com/Lion4467cat/localfirst-triage/releases`](https://github.com/Lion4467cat/localfirst-triage/releases)
 - **Demo video (≤3 min, YouTube, public):** `<!-- VIDEO_URL: add the public YouTube link here before submitting -->`
 
 ---
@@ -39,7 +39,7 @@ Engineers and support teams paste raw production stack traces, crash logs, and c
 
 - **Web (30 s):** open the live PWA → **Sign in as Guest** → **Run Privacy Firewall** on any scenario.
 - **Chrome extension (1 min):** download the ZIP from Releases → unzip → `chrome://extensions` → Developer mode → **Load unpacked** → pick the folder → click the Cordon icon → open ChatGPT and paste a key.
-- **Android (2 min):** install `cordon-android-v4.6.0.apk` from Releases → open Cordon → **Enable Background Shield** → turn on **Cordon** in Accessibility settings → open ChatGPT, type a secret, tap Send.
+- **Android (2 min):** install `cordon-android-v4.6.1.apk` from Releases → open Cordon → **Enable Background Shield** → turn on **Cordon** in Accessibility settings → open ChatGPT, type a secret, tap Send.
 
 Each surface shows exactly one confirmation on Send (**Scrub & Send** / **Send anyway**) and never interrupts typing.
 
@@ -55,13 +55,13 @@ Every row below is a call site in tracked source, verified on the connected devi
 | Web | Three models: `ONLY_ON_DEVICE`, `PREFER_ON_DEVICE`, `PREFER_IN_CLOUD` | `src/config/firebase.ts:219`, `:229`, `:245` |
 | Web | Stage 2 cloud call on every escalation | `src/firewall/pipeline.ts:145` |
 | Web | `loadRuntimeConfig()` — startup + manual refresh, 3.5 s deadline | `src/App.tsx:243`, `:219` |
-| Android | `Firebase.ai(backend = GenerativeBackend.googleAI())` | `ai/HybridAiClient.kt:60` |
-| Android | `ONLY_ON_DEVICE` status probe, download, semantic pass — fails closed to `LocalFirewallEngine` | `ai/HybridAiClient.kt:93`, `:104`, `:139` |
-| Android | `ONLY_IN_CLOUD` Stage 2 escalation (stream + unary) | `ai/HybridAiClient.kt:158`, `:174` |
-| Android | `PREFER_ON_DEVICE` stakeholder brief | `ai/HybridAiClient.kt:187` |
+| Android | `Firebase.ai(backend = GenerativeBackend.googleAI())` | `ai/HybridAiClient.kt:78` |
+| Android | `ONLY_ON_DEVICE` status probe, download, semantic pass — fails closed to `LocalFirewallEngine` | `ai/HybridAiClient.kt:111`, `:163`, `:248` |
+| Android | `ONLY_IN_CLOUD` Stage 2 escalation (stream + unary) | `ai/HybridAiClient.kt:267`, `:283` |
+| Android | `PREFER_ON_DEVICE` stakeholder brief | `ai/HybridAiClient.kt:296` |
 | Android | App Check: Play Integrity (release) / Debug provider (debug) | `src/release|debug/…/AppCheckInitializer.kt:11` |
-| Android | `loadRuntimeConfig()` on ViewModel init, 3.5 s deadline | `ui/TriageViewModel.kt:72` → `data/RemoteConfigRepository.kt:18` |
-| Extension | Chrome built-in `LanguageModel` semantic pass | `extension/firewall-core.js:860`, `:878` |
+| Android | `loadRuntimeConfig()` on ViewModel init, 3.5 s deadline | `ui/TriageViewModel.kt:204` → `data/RemoteConfigRepository.kt:18` |
+| Extension | Chrome built-in `LanguageModel` semantic pass | `extension/firewall-core.js:934`, `:952` |
 
 **The extension does not call AI Logic directly.** An MV3 content script runs under the page CSP plus the extension CSP, and a service worker cannot load the remote reCAPTCHA script `ReCaptchaEnterpriseProvider` needs. The extension keeps the deterministic floor plus Chrome's built-in model locally and hands cloud escalation to the App Check–protected Web Workbench through `#handoff=` — a stated platform constraint, not a hidden gap.
 
@@ -105,18 +105,21 @@ Reproduce: `node scripts/benchmark-third-party.mjs --out=benchmarks/third-party-
 
 Every category scored 100%: `ADDRESS`, `API_KEY`, `AWS_ACCESS_KEY`, `AWS_SECRET_KEY`, `BEARER_OR_JWT`, `CARD_EXPIRY`, `CREDIT_CARD`, `CVV`, `DB_CONNECTION_URI`, `EMAIL`, `GOV_ID`, `HIGH_ENTROPY_SECRET`, `IBAN`, `IFSC`, `PAN_ID`, `PASSWORD`, `PEM_PRIVATE_KEY`, `PHONE`, `UPI_ID`, `US_SSN`. The Chrome extension scores 80 positives / 48 benign at 100% recall and 0% false positives across 26 categories.
 
-### Gemini Nano 4 verified on a Samsung Galaxy S26 Ultra
+### Hardware benchmark — Gemini Nano 4 on a Galaxy S26 Ultra, fail-closed on a Moto G82, MV3 in Chrome
 
-| Metric | S26 Ultra (Hybrid `ON_DEVICE`) | Moto G82 5G (Fail-Closed Deterministic) |
-| :--- | :---: | :---: |
-| AICore status | `AVAILABLE` → `NanoStatus.READY` (`nano-v4-fast`) | `UNAVAILABLE` |
-| "Cover for Maya… oncology clinic in Indiranagar" | **3/3 semantic spans** (person, PHI, neighbourhood) | 0/3 — fail-closed |
-| Sandbox pass: sentence + card + Stripe key, Airplane Mode | **6 spans, 2,589 ms** | 6 spans, ~1.4 ms |
-| Deterministic recall / FP (`CordonBench`) | **100% (81/81)** / **0% (0/46)** | **100% (81/81)** / **0% (0/46)** |
-| Deterministic latency p50 / p95 / max | **0.44 ms / 0.63 ms / 0.91 ms** | **1.42 ms / 4.01 ms / 6.94 ms** |
-| Raw PII left device | **0** | **0** |
+| Metric | Galaxy S26 Ultra (SM-S948B, API 37) | Moto G82 5G (API 33) | Chrome Extension (MV3) |
+| :--- | :---: | :---: | :---: |
+| AICore status | `AVAILABLE` → `NanoStatus.READY` (`nano-v4-fast`) | `UNAVAILABLE` | n/a |
+| "Cover for Maya… oncology clinic in Indiranagar" | **3/3 semantic spans** (person, PHI, neighbourhood) | 0/3 — fail-closed | 0/3 — fail-closed |
+| Deterministic recall / FP (`CordonBench`, MEDIUM dial) | **100.0% (81/81)** / **0.0% (0/46)** | **100.0% (81/81)** / **0.0% (0/46)** | **100.0% (80/80)** / **0.0% (0/48)** |
+| Deterministic latency p50 / p95 / max | **0.44 ms / 0.63 ms / 0.91 ms** | **1.42 ms / 4.01 ms / 6.94 ms** | in-page (`npm test`) |
+| Live AI-app lock latency | **7–44 ms** — WhatsApp 7, ChatGPT 10, Gemini 11, Chrome 16, Google 31, Perplexity 44 | n/a | n/a |
+| Multi-turn post-scrub re-lock | **7–17 ms** | n/a | n/a |
+| Hybrid pass: sentence + card + key, Airplane Mode | **6 spans, 2,513 ms**, `ON_DEVICE` badge, 0 network bytes | 6 spans, ~1.4 ms | n/a |
+| Composition interruptions | **0** | **0** | **0** |
+| Raw PII left device | **0** | **0** | **0 raw secrets in handoff** |
 
-The app offered a real download (`DOWNLOADABLE` → `DOWNLOADING` with live bytes, MB/s and ETA → `AVAILABLE`), then ran stage 1 with Wi-Fi off and rendered the `ON_DEVICE` badge next to `Scrubbed · 6 blocked · 0 Leaked`. Logcat: `onDevice modelName=nano-v4-fast` · `sandbox status=READY semantic=5 spans=6 latency=2589ms` · `CordonBench: device=SM-S948B api=37 abi=arm64-v8a`.
+The app offered a real download (`DOWNLOADABLE` → `DOWNLOADING` with live bytes, MB/s and ETA → `AVAILABLE`), then ran stage 1 with Wi-Fi off and rendered the `Gemini Nano` badge next to `Scrubbed · 6 blocked · 0 Leaked`. Logcat: `onDevice modelName=nano-v4-fast` · `sandbox status=READY semantic=5 spans=6 latency=2513ms` · `CordonBench: device=SM-S948B api=37 abi=arm64-v8a`. The live lock figures come from the six-app sweep (`CordonA11y`: `textChanged → modalShown elapsedMs`), where every app redacted all six categories with zero raw secrets left in the field.
 
 Reproduce: `cd android && ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.localfirst.triage.OnDeviceFirewallBenchmarkTest`, then `adb logcat -d | grep CordonBench`.
 
@@ -130,7 +133,7 @@ Reproduce: `cd android && ./gradlew connectedDebugAndroidTest -Pandroid.testInst
 | 0:25–1:05 | Hybrid airgap | Web Workbench → paste a multi-secret prompt → Stage 1 scrubs locally → Approve → Stage 2 answers via Firebase AI Logic, with `inferenceSource` and App Check visible |
 | 1:05–1:55 | Multi-surface sweep | Android Chrome omnibox lock + scrub, Settings guard-any-app, Quick Sandbox; then the extension blocking Send on a real ChatGPT DOM and the `#handoff=` bridge |
 | 1:55–2:30 | Hard proof | `CordonBench` table: 100.0% recall (81/81), 0.0% false positives (0/46), 1.42 ms p50, and fail-closed `ONLY_ON_DEVICE` on devices without AICore |
-| 2:30–2:55 | Close | Apache-2.0 repo, v4.6.0 release assets, one line: sensitive data never leaves the device; cloud AI only ever sees redacted intent |
+| 2:30–2:55 | Close | Apache-2.0 repo, v4.6.1 release assets, one line: sensitive data never leaves the device; cloud AI only ever sees redacted intent |
 
 ---
 

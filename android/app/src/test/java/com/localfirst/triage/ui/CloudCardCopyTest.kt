@@ -12,15 +12,25 @@ class CloudCardCopyTest {
     fun `in-cloud answer is labelled as a cloud response`() {
         val copy = cloudCardCopy("IN_CLOUD", null)
         assertEquals("Cloud AI Response · 0 raw PII left device", copy.header)
-        assertEquals("IN_CLOUD", copy.badge)
+        assertEquals("CLOUD", copy.badge)
+        assertTrue(copy.inCloud)
         assertFalse(copy.failed)
     }
 
     @Test
     fun `on-device fallback keeps the cloud card but reports its real source`() {
         val copy = cloudCardCopy("ON_DEVICE", null)
-        assertEquals("ON_DEVICE", copy.badge)
+        assertEquals("ON-DEVICE", copy.badge)
+        assertFalse(copy.inCloud)
         assertFalse(copy.failed)
+    }
+
+    @Test
+    fun `no badge ever shows a raw enum name`() {
+        for (source in listOf("IN_CLOUD", "ON_DEVICE", "LOCAL_REGEX_FALLBACK", "OFFLINE_BLOCKED")) {
+            val badge = cloudCardCopy(source, null).badge.orEmpty()
+            assertFalse("$source leaked as $badge", badge.contains('_'))
+        }
     }
 
     @Test
