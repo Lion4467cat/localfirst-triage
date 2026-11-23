@@ -373,6 +373,8 @@ export const BENIGN: string[] = [
   "TypeError: Cannot read properties of undefined (reading 'map')",
   "HTTP 502 Bad Gateway on /healthz after the rollout",
   "Order INV-2026-0042 is still unpaid",
+  "Invoice number INV-2026-0042 is unpaid",
+  "tracking number 1Z999AA10123456784 cleared customs",
   "Deploy is scheduled for Tuesday at 10:30",
   "the dev server listens on port 8080",
   "open http://localhost:3000/settings and check the toggle",

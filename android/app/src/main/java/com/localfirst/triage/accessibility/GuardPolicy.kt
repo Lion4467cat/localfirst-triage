@@ -34,11 +34,21 @@ object GuardExclusions {
         ".ime",
     )
 
+    /**
+     * True for keyboards. A keyboard raises its own window-state events while the user is typing,
+     * so those must not be mistaken for the user leaving the app the modal was raised for.
+     */
+    fun isInputMethodPackage(packageName: String?): Boolean {
+        if (packageName.isNullOrBlank()) return false
+        val pkg = packageName.lowercase()
+        return IME_HINTS.any { pkg.contains(it) }
+    }
+
     fun isExcludedPackage(packageName: String?): Boolean {
         if (packageName.isNullOrBlank()) return true
         val pkg = packageName.lowercase()
         if (pkg in EXACT_PACKAGES) return true
-        if (IME_HINTS.any { pkg.contains(it) }) return true
+        if (isInputMethodPackage(pkg)) return true
         // Home launchers: every OEM ships a different package name, all of them contain
         // "launcher" or end in ".home".
         if (pkg.contains("launcher") || pkg.endsWith(".home")) return true

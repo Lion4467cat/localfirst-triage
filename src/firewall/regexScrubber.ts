@@ -211,6 +211,9 @@ const DETERMINISTIC_REGEX_RULES: RegexRule[] = [
       /(?<!\d[.-])(?:\+\d{1,3}[\s.-]?\(?\d{2,4}\)?[\s.-]?\d{3,4}[\s.-]?\d{3,4}|\(\d{3}\)\s*\d{3}[-.\s]\d{4}|\b\d{3}[-.\s]\d{3}[-.\s]\d{4}\b)(?!\s*T\d{2}:)/g,
     validator: (m) => {
       if (/^\d{4}[-.]\d{2}[-.]\d{2}$/.test(m)) return false;
+      // "invoice number INV-2026-0042" is an identifier, not a line. A bare NNNN-NNNN is never
+      // dialable; the space form (Hong Kong's 2345 6789) still is.
+      if (/^\d{4}[-.]\d{4}$/.test(m)) return false;
       const d = m.replace(/\D/g, "");
       return d.length >= 7 && d.length <= 15;
     },
@@ -224,6 +227,9 @@ const DETERMINISTIC_REGEX_RULES: RegexRule[] = [
       /\b(?:phone|mobile|cell|call|whatsapp|contact|number|tel|fax|ext|ph)\b[^0-9\n]{0,25}((?:\+?\d{1,3}[\s.-]?)?(?:\(\d{2,4}\)[\s.-]?)?\d{3,4}[-.\s]?\d{4}(?:[-.\s]?\d{2,4})?)\b/gi,
     validator: (m) => {
       if (/^\d{4}[-.]\d{2}[-.]\d{2}$/.test(m)) return false;
+      // "invoice number INV-2026-0042" is an identifier, not a line. A bare NNNN-NNNN is never
+      // dialable; the space form (Hong Kong's 2345 6789) still is.
+      if (/^\d{4}[-.]\d{4}$/.test(m)) return false;
       const d = m.replace(/\D/g, "");
       return d.length >= 7 && d.length <= 15;
     },

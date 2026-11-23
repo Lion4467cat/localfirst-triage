@@ -29,12 +29,23 @@ class CorpusRecallTest {
     }
 
     @Test
-    fun `false positive rate stays under five percent`() {
+    fun `no benign developer prompt is flagged`() {
         val flagged = FirewallBenchmarkCorpus.benign.filter { text ->
             LocalFirewallEngine.scrub(text, ProtectionLevel.MEDIUM).second.any { it.masked }
         }
-        val rate = flagged.size.toDouble() / FirewallBenchmarkCorpus.benign.size
-        assertTrue("false positives ($flagged) rate=$rate", rate <= 0.05)
+        assertTrue("false positives ($flagged)", flagged.isEmpty())
+    }
+
+    @Test
+    fun `an invoice identifier is not mistaken for a phone number`() {
+        val (_, spans) = LocalFirewallEngine.scrub(
+            "Invoice number INV-2026-0042 is unpaid",
+            ProtectionLevel.MEDIUM,
+        )
+        assertTrue(
+            "flagged as " + spans.filter { it.masked }.joinToString { it.category + "=" + it.matchedText },
+            spans.none { it.masked },
+        )
     }
 
     @Test

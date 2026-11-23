@@ -112,9 +112,12 @@ class CordonAccessibilityService : AccessibilityService() {
 
     /**
      * Leaving the app (or going home) releases the modal immediately, so a soft-lock can never
-     * trap the user in an app they are no longer looking at.
+     * trap the user in an app they are no longer looking at. The keyboard is skipped: it raises
+     * window-state events of its own while the user types into the very app being guarded.
      */
     private fun handleWindowStateChanged(pkg: String) {
+        if (pkg == GuardExclusions.SELF_PACKAGE) return
+        if (GuardExclusions.isInputMethodPackage(pkg)) return
         val shownFor = modalPackage
         if (shownFor != null && shownFor != pkg) {
             dismissModal("appSwitch")
@@ -127,7 +130,12 @@ class CordonAccessibilityService : AccessibilityService() {
     }
 
     private fun evaluateField(event: AccessibilityEvent, pkg: String) {
-        if (modalView != null) return
+        if (modalView != null) {
+            // A window-state event can arrive late or not at all, so a modal left over from the
+            // previous app must never label (or scrub into) the app that is on screen now.
+            if (modalPackage == pkg) return
+            dismissModal("appSwitch")
+        }
 
         val source = event.source
         if (source != null && isPasswordNode(source)) return

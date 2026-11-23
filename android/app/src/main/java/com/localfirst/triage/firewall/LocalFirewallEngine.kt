@@ -297,6 +297,7 @@ object LocalFirewallEngine {
             ),
             validator = {
                 if (Regex("""^\d{4}[-.]\d{2}[-.]\d{2}$""").matches(it)) return@RegexRule false
+                if (Regex("""^\d{4}[-.]\d{4}$""").matches(it)) return@RegexRule false
                 val digits = it.count { ch -> ch.isDigit() }
                 digits in 7..15
             },
@@ -312,6 +313,9 @@ object LocalFirewallEngine {
             ),
             validator = {
                 if (Regex("""^\d{4}[-.]\d{2}[-.]\d{2}$""").matches(it)) return@RegexRule false
+                // "invoice number INV-2026-0042" is an identifier, not a line. A bare NNNN-NNNN
+                // is never a dialable number; the space form (Hong Kong's 2345 6789) still is.
+                if (Regex("""^\d{4}[-.]\d{4}$""").matches(it)) return@RegexRule false
                 val digits = it.count { ch -> ch.isDigit() }
                 digits in 7..15
             },

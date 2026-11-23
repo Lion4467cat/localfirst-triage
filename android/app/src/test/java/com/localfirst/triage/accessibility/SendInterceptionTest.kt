@@ -56,6 +56,18 @@ class SendInterceptionTest {
     }
 
     @Test
+    fun `a keyboard window state change is not an app switch`() {
+        // The IME raises window-state events while the user types into the guarded app. Treating
+        // those as an app switch dismissed the modal the instant it appeared.
+        assertTrue(GuardExclusions.isInputMethodPackage("org.futo.inputmethod.latin"))
+        assertTrue(GuardExclusions.isInputMethodPackage("com.google.android.inputmethod.latin"))
+        assertTrue(GuardExclusions.isInputMethodPackage("com.samsung.android.honeyboard"))
+        assertFalse(GuardExclusions.isInputMethodPackage("com.openai.chatgpt"))
+        assertFalse(GuardExclusions.isInputMethodPackage("com.android.chrome"))
+        assertFalse(GuardExclusions.isInputMethodPackage(null))
+    }
+
+    @Test
     fun `real chat browsers and AI apps stay guarded`() {
         assertFalse(GuardExclusions.isExcludedPackage("com.android.chrome"))
         assertFalse(GuardExclusions.isExcludedPackage("com.openai.chatgpt"))
