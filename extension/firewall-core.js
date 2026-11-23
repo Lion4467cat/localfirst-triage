@@ -139,12 +139,55 @@
       validator: (m) => {
         const digits = m.replace(/\D/g, "");
         const isKnownCardPrefix =
-          /^(?:4\d{12}(?:\d{3})?(?:\d{3})?|5[1-5]\d{14}|2(?:2[2-9]\d{12}|[3-6]\d{13}|7[01]\d{12}|720\d{12})|3[47]\d{13}|6(?:011|5\d{2})\d{12})$/.test(
+          /^(?:4\d{12}(?:\d{3})?(?:\d{3})?|5[1-5]\d{14}|2(?:2[2-9]\d{12}|[3-6]\d{13}|7[01]\d{12}|720\d{12})|3[47]\d{13}|6(?:011|5\d{2})\d{12}|(?:60|81|82)\d{14}|508\d{13})$/.test(
             digits,
           );
         if (!isKnownCardPrefix) return false;
         return passesLuhnCheck(digits);
       },
+    },
+    {
+      // UPI VPA. Listed before EMAIL so an NPCI handle is named for what it is; the
+      // trailing lookahead keeps "user@ybl.com" an email.
+      category: "UPI_ID",
+      detector: "REGEX_FIREWALL",
+      minLevel: "medium",
+      pattern:
+        /\b[A-Za-z0-9][A-Za-z0-9._-]{1,40}@(?:oksbi|okicici|okhdfcbank|okhdfc|okaxis|okbizaxis|ybl|ibl|axl|paytm|apl|upi|jupiteraxis|yapl|sliceaxis|fam|axisb|airtel|freecharge|ikwik|jio|waaxis|wahdfcbank|waicici|wasbi)(?!\.[A-Za-z])\b/gi,
+      validator: (m) => !m.startsWith(".") && !m.includes(".."),
+    },
+    {
+      // Indian PAN: 5 letters (4th is the assessee type), 4 digits, 1 letter.
+      category: "PAN_ID",
+      detector: "REGEX_FIREWALL",
+      pattern: /\b[A-Z]{3}[PCHFATBLJG][A-Z](?!0000)\d{4}[A-Z]\b/g,
+    },
+    {
+      // Indian IFSC: 4 bank letters, a literal 0, then the branch code.
+      category: "IFSC",
+      detector: "REGEX_FIREWALL",
+      pattern: /\b[A-Z]{4}0[A-Z0-9]{6}\b/g,
+    },
+    {
+      category: "CARD_EXPIRY",
+      detector: "REGEX_FIREWALL",
+      captureGroup: 1,
+      minLevel: "medium",
+      pattern:
+        /\b(?:exp(?:iry|iration)?\s*(?:date)?|valid\s*(?:thru|through|until|till))\s*[:\-]?\s*((?:0?[1-9]|1[0-2])\s*[/\-]\s*(?:\d{2}|\d{4}))\b/gi,
+      validator: (m) => {
+        const [month, year] = m.split(/[/\-]/).map((part) => part.trim());
+        const y = Number(year);
+        return Number(month) >= 1 && Number(month) <= 12 && (year.length === 4 ? y >= 2000 && y <= 2099 : y >= 0 && y <= 99);
+      },
+    },
+    {
+      category: "CVV",
+      detector: "REGEX_FIREWALL",
+      captureGroup: 1,
+      minLevel: "medium",
+      pattern:
+        /\b(?:cvv2?|cvc2?|cid|csc|security\s*code|card\s*verification(?:\s*(?:value|code))?)\b\s*(?:is|:|=|#|-)?\s*(\d{3,4})(?!\d)/gi,
     },
     {
       category: "US_SSN",
@@ -165,7 +208,9 @@
     {
       category: "GOV_ID",
       detector: "REGEX_FIREWALL",
-      pattern: /\b\d{4}[\s-]\d{4}[\s-]\d{4}\b/g,
+      // Aadhaar's 4-4-4 shape. The trailing lookahead stops a card from being read as a 12-digit
+      // Aadhaar prefix while the user is still typing it ("4111 1111 1111 1111").
+      pattern: /\b\d{4}[\s-]\d{4}[\s-]\d{4}(?![\s-]\d)\b/g,
     },
     {
       category: "IBAN",
@@ -273,6 +318,43 @@
   const ADDRESS_INDICATOR_REGEX =
     /\b(?:\d{1,5}\s+[A-Za-z]|\d{5,6}\b|road|rd|street|st|ave|avenue|lane|ln|layout|nagar|sector|cross|main|block|apt|flat|floor)\b/i;
 
+  // A door/plot/block identifier. The leading lookbehind stops the match starting inside a
+  // version string ("v2.1/A") or an identifier ("INV-2026-0042").
+  const ADDRESS_DOOR_REGEX =
+    /(?<![\w.])(?:\d{1,5}[A-Za-z]?[/-][A-Za-z0-9]{1,4}|#\s?\d{1,5}[A-Za-z]?|[A-Z]-\d{1,4}|(?:plot|flat|door|house|block|unit|apt|apartment)\s*(?:no\.?|number|#)?\s*[A-Z]?\d{1,5}[A-Za-z]?)(?![\w/])/i;
+
+  const ADDRESS_LOCALITY_REGEX =
+    /\b(?:main|cross|layout|nagar|colony|phase|sector|block|enclave|extension|marg|gali|street|st\.?|avenue|ave\.?|road|rd\.?|boulevard|blvd\.?|lane|ln\.?|drive|dr\.?|way|highway|hwy\.?|parkway|pkwy\.?|court|ct\.?|place|terrace|apartments?|flats?|residency|vihar|pura|bagh|chowk)\b/i;
+
+  const ADDRESS_LOCALITY_AT_END =
+    /\b(?:main|cross|layout|nagar|colony|phase|sector|block|enclave|extension|marg|gali|street|st\.?|avenue|ave\.?|road|rd\.?|boulevard|blvd\.?|lane|ln\.?|drive|dr\.?|way|highway|hwy\.?|parkway|pkwy\.?|court|ct\.?|place|terrace|apartments?|flats?|residency|vihar|pura|bagh|chowk)\s*$/i;
+
+  const ADDRESS_PIN_AT_END = /(?:\b\d{6}|\b\d{5}(?:-\d{4})?)\s*$/;
+
+  function looksLikeAddressBody(body) {
+    const text = body.trim();
+    if (!/\d/.test(text)) return false;
+    if (ADDRESS_DOOR_REGEX.test(text)) return true;
+    const hasLocality = ADDRESS_LOCALITY_REGEX.test(text);
+    if (!hasLocality) return false;
+    // "address 12 main street" has no comma but is unambiguous: a number opens the body.
+    if (/^\s*(?:#\s*)?\d{1,5}[A-Za-z]?(?![\w.])/.test(text)) return true;
+    return ADDRESS_PIN_AT_END.test(text) || text.includes(",");
+  }
+
+  function looksLikeStandaloneAddress(body) {
+    const text = body.trim();
+    if (!/\d/.test(text)) return false;
+    // A year-serial pair ("2026-0042") or a date ("2026-11-22") is an identifier, not a door number.
+    if (/^(?:\d{4}-\d{4}|\d{4}-\d{2}-\d{2})\b/.test(text)) return false;
+    if (ADDRESS_PIN_AT_END.test(text)) return true;
+    if (!ADDRESS_LOCALITY_REGEX.test(text)) return false;
+    if (text.includes(",")) return true;
+    // No comma, no PIN: the street marker has to close the span, so "7 main street cafe"
+    // stays a sentence and "742 Evergreen Terrace" stays an address.
+    return ADDRESS_LOCALITY_AT_END.test(text) && /^\s*(?:\d{1,5}[A-Za-z]?[/-]|#)/.test(text);
+  }
+
   const ORG_IDIOM_BLOCKLIST = new Set([
     "progress", "production", "tech", "software", "silence", "general",
     "home", "night", "remote", "shift", "me", "you", "us", "now", "free", "fine", "well", "scale",
@@ -337,6 +419,78 @@
     return false;
   }
 
+  const CARD_EXPIRY_TOKEN = /(?<!\d)(?:0?[1-9]|1[0-2])\s*[/\-]\s*(?:\d{2}|\d{4})(?!\d)/g;
+  const CARD_CVV_LABEL =
+    /\b(?:cvv2?|cvc2?|cid|csc|security\s*code|card\s*verification(?:\s*(?:value|code))?)\b\s*(?:is|:|=|#|-)?\s*(\d{3,4})(?!\d)/gi;
+  const CARD_BARE_DIGITS = /(?<![\d.\-/])(\d{3,4})(?![\d.\-/])/g;
+  const CARD_UNIT_AFTER = /^\s*(?:%|ms\b|px\b|k\b|m\b|gb\b|mb\b|kb\b|hrs?\b|am\b|pm\b|orders?\b|days?\b|hours?\b|mins?\b|seconds?\b|items?\b|users?\b|requests?\b|retries?\b)/i;
+  const CARD_YEAR_LIKE = /^(?:19|20)\d{2}$/;
+
+  /**
+   * CVV and expiry only mean something next to a card. A bare 3-digit number is never a CVV
+   * unless a Luhn-valid card (or that card's expiry) sits within 80 characters of it.
+   *
+   * The token regexes always run over the whole buffer: slicing a window would let a lookbehind
+   * succeed at index 0 and turn "4111-1111" into an expiry, which then licenses unrelated digits.
+   */
+  function detectCardBundleSpans(text, cardSpans, nextCounter) {
+    const extras = [];
+    let counter = nextCounter;
+    const push = (start, end, category) => {
+      if (extras.some((span) => start < span.end && end > span.start)) return;
+      extras.push({
+        start,
+        end,
+        category,
+        detector: "HEURISTIC_GUARD",
+        placeholder: `[REDACTED:${category}_${counter++}]`,
+        matchedText: text.slice(start, end),
+      });
+    };
+    const overlapsCard = (start, end) =>
+      cardSpans.some((card) => start < card.end && end > card.start);
+
+    for (const card of cardSpans) {
+      const from = Math.max(0, card.start - 80);
+      const to = Math.min(text.length, card.end + 80);
+      const inWindow = (start, end) => start >= from && end <= to;
+      const expiries = [];
+
+      CARD_EXPIRY_TOKEN.lastIndex = 0;
+      let m;
+      while ((m = CARD_EXPIRY_TOKEN.exec(text)) !== null) {
+        const start = m.index;
+        const end = start + m[0].length;
+        if (!inWindow(start, end) || overlapsCard(start, end)) continue;
+        expiries.push({ start, end });
+        push(start, end, "CARD_EXPIRY");
+      }
+
+      CARD_CVV_LABEL.lastIndex = 0;
+      while ((m = CARD_CVV_LABEL.exec(text)) !== null) {
+        const start = m.index + m[0].lastIndexOf(m[1]);
+        const end = start + m[1].length;
+        if (!inWindow(start, end)) continue;
+        push(start, end, "CVV");
+      }
+
+      // A bare code is only accepted when the window also carries an expiry, which is what
+      // separates a card bundle from an order number sitting near a card number.
+      if (expiries.length === 0) continue;
+      CARD_BARE_DIGITS.lastIndex = 0;
+      while ((m = CARD_BARE_DIGITS.exec(text)) !== null) {
+        const start = m.index;
+        const end = start + m[0].length;
+        if (!inWindow(start, end) || overlapsCard(start, end)) continue;
+        if (expiries.some((e) => start < e.end && end > e.start)) continue;
+        if (CARD_YEAR_LIKE.test(m[1])) continue;
+        if (CARD_UNIT_AFTER.test(text.slice(end, end + 12))) continue;
+        push(start, end, "CVV");
+      }
+    }
+    return { extras, nextCounter: counter };
+  }
+
   const CONTEXTUAL_RULES = [
     {
       category: "PERSON",
@@ -373,6 +527,31 @@
       validator: (m) => ADDRESS_INDICATOR_REGEX.test(m),
     },
     {
+      // Cue-anchored address. The cue stays outside the span so the cloud model still knows
+      // what the placeholder means. A newline continues the address only when the next line
+      // still looks like one (a digit or a comma); a blank line, a lower-case prose line or a
+      // "Field:" label ends it, so "address 143/A\n2nd Cross, Bengaluru 560038" is one span
+      // while "address 143/A\nthe build failed" is not.
+      category: "ADDRESS",
+      detector: "HEURISTIC_GUARD",
+      captureGroup: 1,
+      minLevel: "medium",
+      pattern:
+        /\b(?:address|addr|house\s*(?:no\.?|number)|flat\s*(?:no\.?|number)|door\s*(?:no\.?|number)|plot\s*(?:no\.?|number)|residing\s+at|resides?\s+at|shipping\s+(?:to|address)|deliver(?:y)?\s+to|lives?\s+at|located\s+at)\b\s*(?:is|was|:|=|-)?\s*((?=[^\n]{0,160}?\d)(?:(?!\s+(?:and|but)\s+(?:my|the|i|we|please|call|email|phone|contact)\b)[^\[\]\u0000]){4,160}?)(?=\s*(?:[;|!?](?:\s|$)|\n\s*\n|\n\s*[A-Za-z][A-Za-z ]{1,18}[:=]|\n(?!\s*[^\n]{0,60}(?:\d|,))|$|\.(?=\s+[A-Z]|\s*$)|(?:card|upi|pan|ifsc|cvv|cvc|cid|csc|exp|expiry|account|acct|iban|vpa)\b))/gi,
+      validator: looksLikeAddressBody,
+    },
+    {
+      // Standalone address: no cue, so a door token plus a locality marker or a terminal
+      // PIN/ZIP is required. A version string like v2.1/A never reaches this point.
+      category: "ADDRESS",
+      detector: "HEURISTIC_GUARD",
+      captureGroup: 1,
+      minLevel: "medium",
+      pattern:
+        /(?<![\w.])((?:\d{1,5}[A-Za-z]?[/-][A-Za-z0-9]{1,4}|#\s?\d{1,5}[A-Za-z]?|[A-Z]-\d{1,4}|(?:plot|flat|door|house)(?!\s*(?:no\.?|number|#))\s*[A-Z]?\d{1,5}[A-Za-z]?|(?:block|unit|apt|apartment)\s*(?:no\.?|#)?\s*[A-Z]?\d{1,5}[A-Za-z]?)(?:(?![.;!?](?:\s|$))[^\n\[\]\u0000]){0,80}?)(?=\s*(?:[;|!?](?:\s|$)|\n|$|\.(?=\s+[A-Z]|\s*$)|(?:card|upi|pan|ifsc|cvv|cvc|cid|csc|exp|expiry|account|acct|iban|vpa)\b))/gi,
+      validator: looksLikeStandaloneAddress,
+    },
+    {
       category: "POSTAL_CODE",
       detector: "HEURISTIC_GUARD",
       captureGroup: 1,
@@ -392,7 +571,7 @@
       detector: "HEURISTIC_GUARD",
       minLevel: "medium",
       pattern:
-        /\b\d{1,6}\s+(?:[NSEW]\.?\s+)?[A-Za-z0-9.'-]{2,25}(?:\s+[A-Za-z0-9.'-]{2,25}){0,3}\s+(?:Street|St\.?|Avenue|Ave\.?|Road|Rd\.?|Boulevard|Blvd\.?|Drive|Dr\.?|Lane|Ln\.?|Way|Highway|Hwy\.?|Parkway|Pkwy\.?|Court|Ct\.?|Place|Pl\.?|Circle|Cir\.?|Terrace|Ter\.?|Trail|Trl\.?|Square|Sq\.?|Cross|Main|Nagar|Layout|Sector)\b/gi,
+        /\b\d{1,6}\s+(?:[NSEW]\.?\s+)?[A-Za-z0-9.'-]{2,25}(?:\s+[A-Za-z0-9.'-]{2,25}){0,3}\s+(?:Street|St\.?|Avenue|Ave\.?|Road|Rd\.?|Boulevard|Blvd\.?|Drive|Dr\.?|Lane|Ln\.?|Way|Highway|Hwy\.?|Parkway|Pkwy\.?|Court|Ct\.?|Place|Pl\.?|Circle|Cir\.?|Terrace|Ter\.?|Trail|Trl\.?|Square|Sq\.?|Cross|Main|Nagar|Layout|Sector)\b(?:,\s*[A-Za-z0-9 .,'-]{1,40}?\d{5,6}(?:-\d{4})?)?/gi,
     },
     {
       category: "ADDRESS",
@@ -475,9 +654,18 @@
       }
     }
 
+    const cards = spans.filter((span) => span.category === "CREDIT_CARD");
+    if (cards.length > 0) {
+      const bundle = detectCardBundleSpans(text, cards, counter);
+      counter = bundle.nextCounter;
+      for (const extra of bundle.extras) {
+        if (spans.some((span) => span.start === extra.start)) continue;
+        spans.push(extra);
+      }
+    }
+
     const assignmentRegex =
-      /\b(?:api[_-]?key|x[_-]?api[_-]?key|secret|token|access[_-]?token|refresh[_-]?token|session[_-]?token|id[_-]?token|password|passwd|pwd|client[_-]?secret|signing[_-]?key|webhook[_-]?secret|private[_-]?key|auth[_-]?secret)\\?["']?\s*(?:[:=]|%3D)\s*\\?["']?([^\s"',;\[\]\\/\u0000]{16,})\\?["']?/gi;
-    let eMatch;
+      /\b(?:api[_-]?key|x[_-]?api[_-]?key|secret|token|access[_-]?token|refresh[_-]?token|session[_-]?token|id[_-]?token|password|passwd|pwd|client[_-]?secret|signing[_-]?key|webhook[_-]?secret|private[_-]?key|auth[_-]?secret)\\?["']?\s*(?:[:=]|%3D)\s*\\?["']?([^\s"',;\[\]\\/\u0000]{16,})\\?["']?/gi;    let eMatch;
     while ((eMatch = assignmentRegex.exec(scanBuffer)) !== null) {
       const val = eMatch[1];
       if (!val || val.includes("[REDACTED:") || val.includes("\u0000") || isLikelyNormalIdentifier(val)) {

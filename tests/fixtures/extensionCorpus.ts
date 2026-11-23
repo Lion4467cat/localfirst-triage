@@ -361,6 +361,47 @@ export const POSITIVES: PositiveCase[] = [
     category: "HIGH_ENTROPY_SECRET",
     text: j('secret = "', "9F8a7B6c5D4e3F2a1B0c9D8e7F6a5B4c", '"'),
   },
+
+  // --- Card bundle, addresses and Indian financial identifiers --------------
+  { id: "card-rupay", category: "CREDIT_CARD", text: j("rupay ", "6521 5678 9012 3453") },
+  {
+    id: "card-bundle",
+    category: "CREDIT_CARD",
+    text: j("pay with ", "4111 1111 1111 1111", " exp 09/29 cvv 123"),
+  },
+  { id: "card-expiry", category: "CARD_EXPIRY", text: j("the card is valid thru ", "11/27") },
+  { id: "cvv-labelled", category: "CVV", text: j("security code ", "456", " is on the back") },
+  { id: "upi-oksbi", category: "UPI_ID", text: j("send the split to ", "ravi.kumar@oksbi") },
+  { id: "upi-ybl", category: "UPI_ID", text: j("merchant collects on ", "9876543210@ybl") },
+  { id: "pan-id", category: "PAN_ID", text: j("pan ", "ABCPE1234F", " is on the KYC form") },
+  { id: "ifsc", category: "IFSC", text: j("transfer to ", "HDFC0001234", " for the refund") },
+  {
+    id: "address-india-cued",
+    category: "ADDRESS",
+    text: j("address ", "143/A, 2nd Cross, Indiranagar, Bengaluru 560038"),
+  },
+  {
+    id: "address-india-flat",
+    category: "ADDRESS",
+    text: j("flat no ", "7, Shanti Nagar, Mysuru 570001"),
+  },
+  {
+    id: "address-india-hash",
+    category: "ADDRESS",
+    text: j("#42-B Sector 21, Gurugram 122016"),
+  },
+  {
+    // The locality and PIN sit on the next line, so the span has to cross the newline.
+    id: "address-india-multiline",
+    category: "ADDRESS",
+    text: j("Address: ", "143/A, 2nd Cross\nIndiranagar, Bengaluru 560038"),
+  },
+  {
+    // No cue and no door token: the street suffix plus the ZIP has to carry the span.
+    id: "address-us-zip",
+    category: "ADDRESS",
+    text: j("742 Evergreen Terrace, ", "Springfield 62704"),
+  },
 ];
 
 export const BENIGN: string[] = [
@@ -401,4 +442,16 @@ export const BENIGN: string[] = [
   "why does the password reset email never arrive",
   "cache hit ratio is 94.2% this hour",
   "the feature flag rollout is at 25 percent",
+  "v2.1/A shipped to staging this morning",
+  "HTTP 404 from the CDN edge node",
+  "order 4111111111111112 shipped today",
+  "tracking 1234567890123456 cleared customs",
+  "retry after 500 ms with exponential backoff",
+  "the queue still holds 128 items",
+  "deployed 2026-11-22 at noon",
+  "phase 2 rollout finished ahead of schedule",
+  "build hash a1b2c3d4e5 is stable",
+  // The word "address" with no number after it is a topic, not a location.
+  "the diff touches address parsing, not the build",
+  "see the address column in the users table",
 ];

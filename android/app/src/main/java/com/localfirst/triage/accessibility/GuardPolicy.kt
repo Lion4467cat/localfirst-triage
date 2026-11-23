@@ -73,7 +73,12 @@ object GuardTriggerPolicy {
 
     /**
      * Categories whose match can still grow with the next keystroke. Everything else — API keys,
-     * JWTs, private keys, cards, government ids — is complete the instant it matches.
+     * JWTs, private keys, cards, security codes, UPI VPAs, PANs and IFSC codes — is complete the
+     * instant it matches.
+     *
+     * Government ids stay here on purpose: a 12-digit Aadhaar is indistinguishable from the first
+     * twelve digits of a card until the card finishes. Waiting 250 ms lets a card being typed
+     * reach its Luhn check instead of locking the user out with a half-scrubbed "Gov ID".
      */
     private val OPEN_ENDED_CATEGORIES = setOf(
         "EMAIL", "PHONE", "MOBILE", "ADDRESS", "PERSON", "NAME", "FIRSTNAME", "LASTNAME",

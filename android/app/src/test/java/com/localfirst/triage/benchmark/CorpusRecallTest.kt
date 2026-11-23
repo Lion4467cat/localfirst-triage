@@ -29,6 +29,22 @@ class CorpusRecallTest {
     }
 
     @Test
+    fun `every positive payload lands in its declared category`() {
+        val mismatches = FirewallBenchmarkCorpus.positives.filter { case ->
+            LocalFirewallEngine.scrub(case.text, ProtectionLevel.MEDIUM).second
+                .none { it.masked && it.category == case.category }
+        }
+        assertTrue(
+            "category mismatches: " + mismatches.joinToString { case ->
+                val got = LocalFirewallEngine.scrub(case.text, ProtectionLevel.MEDIUM).second
+                    .filter { it.masked }.joinToString("+") { it.category }
+                "${case.id} expected ${case.category} got $got"
+            },
+            mismatches.isEmpty(),
+        )
+    }
+
+    @Test
     fun `no benign developer prompt is flagged`() {
         val flagged = FirewallBenchmarkCorpus.benign.filter { text ->
             LocalFirewallEngine.scrub(text, ProtectionLevel.MEDIUM).second.any { it.masked }

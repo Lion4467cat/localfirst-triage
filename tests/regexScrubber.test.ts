@@ -355,8 +355,207 @@ describe("regexScrubber", () => {
     expect(phoneRes.sanitizedText).toContain("Can you help me write a python script?");
   });
 
-  it("fixes P0 redaction-tag leak for malformed Nano categories and plural 'apis key' cues", async () => {
-    const { buildSemanticSpans, mergeAndRedactSpans, normalizeRedactionCategory } = await import(
+  it("redacts Indian and Western addresses behind an explicit cue, keeping the cue readable", () => {
+    const cases: Array<[string, string[]]> = [
+      [
+        "customer address 143/A, 4th Cross, Indiranagar, Bengaluru 560047",
+        ["143/A", "4th Cross", "Indiranagar", "560047"],
+      ],
+      ["house no 42-B, Sector 21, Gurugram, Haryana 122016", ["42-B", "Sector 21", "122016"]],
+      ["plot no. 9, Jubilee Hills, Road No. 36, Hyderabad 500033", ["Jubilee Hills", "500033"]],
+      ["shipping to 742 Evergreen Terrace, Springfield 62704", ["Evergreen Terrace", "62704"]],
+    ];
+    for (const [raw, mustVanish] of cases) {
+      const res = scanAndRedactLocal(raw, { protectionLevel: "medium", includeHeuristics: true });
+      for (const fragment of mustVanish) expect(res.sanitizedText).not.toContain(fragment);
+      expect(res.sanitizedText).toContain("[REDACTED:ADDRESS_");
+      expect(res.mergedSpans.some((span) => span.category === "ADDRESS")).toBe(true);
+    }
+    const cued = scanAndRedactLocal("customer address 143/A, 4th Cross, Indiranagar 560047", {
+      protectionLevel: "medium",
+      includeHeuristics: true,
+    });
+    // The cue stays outside the span so the cloud model still knows what was removed.
+    expect(cued.sanitizedText.startsWith("customer address ")).toBe(true);
+  });
+
+  it("carries a line-continued address into one span without swallowing prose", () => {
+    const multiline = "Address: 143/A, 2nd Cross\nIndiranagar, Bengaluru 560038";
+    const res = scanAndRedactLocal(multiline, { protectionLevel: "medium", includeHeuristics: true });
+    for (const fragment of ["2nd Cross", "Indiranagar", "Bengaluru", "560038"]) {
+      expect(res.sanitizedText, fragment).not.toContain(fragment);
+    }
+    expect(res.sanitizedText.startsWith("Address: [REDACTED:ADDRESS_")).toBe(true);
+
+    // A lower-case prose line is not a continuation.
+    const prose = "address 143/A\nthe build failed because the cache was stale";
+    const proseRes = scanAndRedactLocal(prose, { protectionLevel: "medium", includeHeuristics: true });
+    expect(proseRes.sanitizedText).toContain("the build failed because the cache was stale");
+
+    // Neither is the next labelled field.
+    const labelled = "Address: 143/A, 2nd Cross\nPAN: ABCPE1234F";
+    const labelledRes = scanAndRedactLocal(labelled, { protectionLevel: "medium", includeHeuristics: true });
+    expect(labelledRes.sanitizedText).toContain("PAN:");
+    expect(labelledRes.sanitizedText).not.toContain("ABCPE1234F");
+  });
+
+  it("redacts standalone addresses only when a door token meets a locality or PIN/ZIP", () => {
+    const positives = [
+      "143/A, 4th Cross, Indiranagar, Bengaluru 560047",
+      "742 Evergreen Terrace, Springfield 62704",
+      "B-12, Sector 21, Gurugram",
+      "#42, Lane 3, Jubilee Hills, Hyderabad",
+      "143/A Viveknagar 560047",
+    ];
+    for (const raw of positives) {
+      const res = scanAndRedactLocal(raw, { protectionLevel: "medium", includeHeuristics: true });
+      expect(res.mergedSpans.some((span) => span.category === "ADDRESS"), raw).toBe(true);
+    }
+    // The city and ZIP after the street word belong to the same span.
+    const usZip = scanAndRedactLocal("742 Evergreen Terrace, Springfield 62704", {
+      protectionLevel: "medium",
+      includeHeuristics: true,
+    });
+    expect(usZip.sanitizedText).not.toContain("Springfield");
+    expect(usZip.sanitizedText).not.toContain("62704");
+    const negatives = [
+      "version v2.1/A is the release candidate",
+      "invoice number INV-2026-0042 is unpaid",
+      "HTTP 404 from the upstream",
+      "server listening on port 8080",
+      "B-12 deficiency is common",
+      "Sector 21 has a new policy",
+      "address the 3 main issues before launch",
+    ];
+    for (const raw of negatives) {
+      const res = scanAndRedactLocal(raw, { protectionLevel: "medium", includeHeuristics: true });
+      expect(res.mergedSpans, raw).toEqual([]);
+    }
+  });
+
+  it("redacts cards by Luhn plus IIN, and pairs expiry/CVV with a card instead of guessing", () => {
+    const bundle = scanAndRedactLocal("card 4532015112830366 exp 09/29 cvv 123", {
+      protectionLevel: "medium",
+      includeHeuristics: true,
+    });
+    const categories = bundle.mergedSpans.map((span) => span.category);
+    expect(categories).toContain("CREDIT_CARD");
+    expect(categories).toContain("CARD_EXPIRY");
+    expect(categories).toContain("CVV");
+
+    const rupay = scanAndRedactLocal("rupay card 6521567890123453 charged twice", {
+      protectionLevel: "medium",
+      includeHeuristics: true,
+    });
+    expect(rupay.mergedSpans.some((span) => span.category === "CREDIT_CARD")).toBe(true);
+
+    const labelled = scanAndRedactLocal("security code 482 for the charge", {
+      protectionLevel: "medium",
+      includeHeuristics: true,
+    });
+    expect(labelled.mergedSpans.some((span) => span.category === "CVV")).toBe(true);
+
+    for (const raw of [
+      "order 1234567890123456 shipped",
+      "the offer expires 12/25 for all users",
+      "we have 250 orders to process",
+      "room 402 has a projector",
+    ]) {
+      const res = scanAndRedactLocal(raw, { protectionLevel: "medium", includeHeuristics: true });
+      expect(res.mergedSpans, raw).toEqual([]);
+    }
+  });
+
+  it("never labels a card mid-typing as a 12-digit government id", () => {
+    // Exactly twelve digits is a valid Aadhaar on its own; the trigger policy debounces that case
+    // (see SendInterceptionTest). Once a thirteenth digit arrives the shape is unambiguously a
+    // card in progress and must not be named GOV_ID.
+    for (const partial of ["4111 1111 1111 1", "4111 1111 1111 11", "4111 1111 1111 1111 1"]) {
+      const res = scanAndRedactLocal(`card ${partial}`, {
+        protectionLevel: "medium",
+        includeHeuristics: true,
+      });
+      expect(
+        res.mergedSpans.some((span) => span.category === "GOV_ID"),
+        partial,
+      ).toBe(false);
+    }
+    const full = scanAndRedactLocal("card 4111 1111 1111 1111", {
+      protectionLevel: "medium",
+      includeHeuristics: true,
+    });
+    expect(full.mergedSpans.map((span) => span.category)).toContain("CREDIT_CARD");
+    expect(full.mergedSpans.map((span) => span.category)).not.toContain("GOV_ID");
+  });
+
+  it("ends an address body at the next labelled field on a single line", () => {
+    const raw =
+      "address 143/A, 2nd Cross, Indiranagar, Bengaluru 560038 card 4111 1111 1111 1111 exp 09/29 cvv 123 upi ravi.kumar@oksbi";
+    const res = scanAndRedactLocal(raw, { protectionLevel: "medium", includeHeuristics: true });
+    expect(res.mergedSpans.map((span) => span.category)).toEqual([
+      "ADDRESS",
+      "CREDIT_CARD",
+      "CARD_EXPIRY",
+      "CVV",
+      "UPI_ID",
+    ]);
+    // The address must not swallow the card, which is what a longer body used to do.
+    const address = res.mergedSpans.find((span) => span.category === "ADDRESS")!;
+    expect(raw.slice(address.start, address.end)).toBe(
+      "143/A, 2nd Cross, Indiranagar, Bengaluru 560038",
+    );
+    expect(res.sanitizedText).toBe(
+      "address [REDACTED:ADDRESS_1] card [REDACTED:CREDIT_CARD_1] exp [REDACTED:CARD_EXPIRY_1] cvv [REDACTED:CVV_1] upi [REDACTED:UPI_ID_1]",
+    );
+  });
+
+  it("keeps a pipe-separated KYC line as distinct fields instead of one address blob", () => {
+    const raw =
+      "KYC: address 143/A, 2nd Cross, Indiranagar, Bengaluru 560038 | card 4111 1111 1111 1111 exp 09/29 cvv 123 | upi ravi.kumar@oksbi | pan ABCPE1234F | ifsc HDFC0001234";
+    const res = scanAndRedactLocal(raw, { protectionLevel: "medium", includeHeuristics: true });
+    const categories = res.mergedSpans.map((span) => span.category);
+    for (const expected of ["ADDRESS", "CREDIT_CARD", "CARD_EXPIRY", "CVV", "UPI_ID", "PAN_ID", "IFSC"]) {
+      expect(categories, expected).toContain(expected);
+    }
+    for (const secret of ["143/A", "560038", "4111", "09/29", "ravi.kumar@oksbi", "ABCPE1234F", "HDFC0001234"]) {
+      expect(res.sanitizedText, secret).not.toContain(secret);
+    }
+  });
+
+  it("redacts UPI VPAs, PANs and IFSC codes without touching emails or uppercase ids", () => {
+    const upi = scanAndRedactLocal("pay ravi.kumar@oksbi or 9876543210@ybl today", {
+      protectionLevel: "medium",
+      includeHeuristics: true,
+    });
+    expect(upi.mergedSpans.filter((span) => span.category === "UPI_ID")).toHaveLength(2);
+    expect(upi.sanitizedText).not.toContain("ravi.kumar@oksbi");
+
+    const email = scanAndRedactLocal("write to ravi.kumar@oksbi.com instead", {
+      protectionLevel: "medium",
+      includeHeuristics: true,
+    });
+    expect(email.mergedSpans.some((span) => span.category === "UPI_ID")).toBe(false);
+    expect(email.mergedSpans.some((span) => span.category === "EMAIL")).toBe(true);
+
+    const pan = scanAndRedactLocal("PAN ABCPE1234F submitted for KYC", {
+      protectionLevel: "medium",
+      includeHeuristics: true,
+    });
+    expect(pan.mergedSpans.some((span) => span.category === "PAN_ID")).toBe(true);
+
+    const ifsc = scanAndRedactLocal("transfer to HDFC0001234 at the branch", {
+      protectionLevel: "medium",
+      includeHeuristics: true,
+    });
+    expect(ifsc.mergedSpans.some((span) => span.category === "IFSC")).toBe(true);
+
+    for (const raw of ["random token QWERTYUIOP and ZXCVBNMASD", "build hash 1234567890"]) {
+      const res = scanAndRedactLocal(raw, { protectionLevel: "medium", includeHeuristics: true });
+      expect(res.mergedSpans, raw).toEqual([]);
+    }
+  });
+
+  it("fixes P0 redaction-tag leak for malformed Nano categories and plural 'apis key' cues", async () => {    const { buildSemanticSpans, mergeAndRedactSpans, normalizeRedactionCategory } = await import(
       "../src/firewall/spanMerger"
     );
     expect(normalizeRedactionCategory("544245453")).toBe("SENSITIVE");

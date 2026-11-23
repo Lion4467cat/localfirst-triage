@@ -100,17 +100,17 @@ The same engine measured on a mid-range ARM phone, not a workstation:
 
 | Metric | Result |
 | :--- | :---: |
-| **Recall** (65 synthetic secrets/PII across 15 categories) | **`100.0%` (65/65)** |
-| **False positives** (35 benign developer & everyday prompts) | **`0.0%` (0/35)** |
-| **Latency p50 / p95 / max** | **`1.02 ms` / `1.69 ms` / `2.19 ms`** |
+| **Recall** (81 synthetic secrets/PII across 20 categories) | **`100.0%` (81/81)** |
+| **False positives** (46 benign developer & everyday prompts) | **`0.0%` (0/46)** |
+| **Latency p50 / p95 / max** | **`1.42 ms` / `4.01 ms` / `6.94 ms`** |
 | **Raw secret substrings persisted in `ShieldStore`** | **`0`** |
 | **Raw values surviving the scrub in output** | **`0`** |
 
-Every category scored 100%: `ADDRESS`, `API_KEY`, `AWS_ACCESS_KEY`, `AWS_SECRET_KEY`, `BEARER_OR_JWT`, `CREDIT_CARD`, `DB_CONNECTION_URI`, `EMAIL`, `GOV_ID`, `HIGH_ENTROPY_SECRET`, `IBAN`, `PASSWORD`, `PEM_PRIVATE_KEY`, `PHONE`, `US_SSN`.
+Every category scored 100%: `ADDRESS`, `API_KEY`, `AWS_ACCESS_KEY`, `AWS_SECRET_KEY`, `BEARER_OR_JWT`, `CARD_EXPIRY`, `CREDIT_CARD`, `CVV`, `DB_CONNECTION_URI`, `EMAIL`, `GOV_ID`, `HIGH_ENTROPY_SECRET`, `IBAN`, `IFSC`, `PAN_ID`, `PASSWORD`, `PEM_PRIVATE_KEY`, `PHONE`, `UPI_ID`, `US_SSN`.
 
 Reproduce: `cd android && ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.localfirst.triage.OnDeviceFirewallBenchmarkTest`, then `adb logcat -d | grep CordonBench`.
 
-The Chrome extension scores `67` positives / `37` benign at `100%` recall and `0%` false positives (`npm test`, `tests/extensionBenchmark.test.ts`).
+The Chrome extension scores `80` positives / `48` benign at `100%` recall and `0%` false positives across 26 categories (`npm test`, `tests/extensionBenchmark.test.ts`).
 
 ---
 
@@ -173,10 +173,10 @@ The Release APK ships this project's Firebase config, so AI Logic and App Check 
 
 ```bash
 npm ci && npm run build            # TypeScript + Vite production build
-npm test                           # Vitest: 24 files, 170 tests passing
+npm test                           # Vitest: 24 files, 186 tests passing
 npm run test:e2e                   # Playwright: 10/10 flows, 0 page errors
 cd android && ./gradlew testDebugUnitTest lintDebug assembleDebug
-                                   # 14 classes, 81 tests passing, 0 lint errors
+                                   # 15 classes, 98 tests passing, 0 lint errors
 ```
 
 ---

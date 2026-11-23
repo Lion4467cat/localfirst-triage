@@ -30,8 +30,8 @@ class OnDeviceFirewallBenchmarkTest {
 
     private companion object {
         const val TAG = "CordonBench"
-        const val MIN_OVERALL_RECALL = 0.95
-        const val MAX_FALSE_POSITIVE_RATE = 0.05
+        const val MIN_OVERALL_RECALL = 1.0
+        const val MAX_FALSE_POSITIVE_RATE = 0.0
     }
 
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
@@ -127,6 +127,12 @@ class OnDeviceFirewallBenchmarkTest {
         assertTrue(
             "overall recall too low: $detected/${positives.size}",
             overallRecall >= MIN_OVERALL_RECALL,
+        )
+        val categoryMismatches = positives.filter { it.detected && !it.categoryHit }
+        assertTrue(
+            "detected but mis-categorised: " +
+                categoryMismatches.joinToString { "${it.case.id} expected ${it.case.category}" },
+            categoryMismatches.isEmpty(),
         )
         assertTrue(
             "false positive rate too high: ${flaggedBenign.map { it.index }}",

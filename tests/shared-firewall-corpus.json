@@ -97,5 +97,64 @@
         "mustPreserve": ["Can you help me write a python script?"]
       }
     }
+  },
+  {
+    "id": "round2-card-bundle-and-indian-identifiers",
+    "input": "KYC: address 143/A, 2nd Cross, Indiranagar, Bengaluru 560038 | card 4111 1111 1111 1111 exp 09/29 cvv 123 | upi ravi.kumar@oksbi | pan ABCPE1234F | ifsc HDFC0001234",
+    "levels": {
+      "low": {
+        "mustNotContain": ["4111 1111 1111 1111", "ABCPE1234F", "HDFC0001234"],
+        "mustPreserve": ["143/A"]
+      },
+      "medium": {
+        "mustNotContain": [
+          "143/A",
+          "Indiranagar",
+          "560038",
+          "4111 1111 1111 1111",
+          "09/29",
+          "ravi.kumar@oksbi",
+          "ABCPE1234F",
+          "HDFC0001234"
+        ],
+        "mustPreserve": ["KYC:"]
+      },
+      "high": {
+        "mustNotContain": [
+          "143/A",
+          "Indiranagar",
+          "560038",
+          "4111 1111 1111 1111",
+          "09/29",
+          "ravi.kumar@oksbi",
+          "ABCPE1234F",
+          "HDFC0001234"
+        ],
+        "mustPreserve": ["KYC:"]
+      }
+    }
+  },
+  {
+    "id": "zero-fp-round2-developer-traps",
+    "input": "v2.1/A shipped to staging. HTTP 404 from the CDN. Worker listening on port 8080. Order 4111111111111112 shipped. Tracking 1234567890123456 cleared. Deployed 2026-11-22 at noon. Phase 2 rollout finished.",
+    "levels": {
+      "low": { "expectZeroMasks": true },
+      "medium": { "expectZeroMasks": true }
+    }
+  },
+  {
+    "id": "round2-multiline-and-zip-addresses",
+    "input": "Address: 143/A, 2nd Cross\nIndiranagar, Bengaluru 560038\nPAN: ABCPE1234F\nShip to 742 Evergreen Terrace, Springfield 62704",
+    "levels": {
+      "low": {
+        "mustPreserve": ["2nd Cross", "Indiranagar", "Bengaluru", "560038", "Springfield", "62704"]
+      },
+      "medium": {
+        "mustNotContain": ["2nd Cross", "Indiranagar", "Bengaluru", "560038", "Springfield", "62704", "ABCPE1234F"]
+      },
+      "high": {
+        "mustNotContain": ["2nd Cross", "Indiranagar", "Bengaluru", "560038", "Springfield", "62704", "ABCPE1234F"]
+      }
+    }
   }
 ]

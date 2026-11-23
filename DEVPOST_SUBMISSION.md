@@ -61,7 +61,7 @@ Every row below is a call site in tracked source, verified on the connected devi
 | Android | `PREFER_ON_DEVICE` stakeholder brief | `ai/HybridAiClient.kt:187` |
 | Android | App Check: Play Integrity (release) / Debug provider (debug) | `src/release|debug/…/AppCheckInitializer.kt:11` |
 | Android | `loadRuntimeConfig()` on ViewModel init, 3.5 s deadline | `ui/TriageViewModel.kt:72` → `data/RemoteConfigRepository.kt:18` |
-| Extension | Chrome built-in `LanguageModel` semantic pass | `extension/firewall-core.js:672`, `:690` |
+| Extension | Chrome built-in `LanguageModel` semantic pass | `extension/firewall-core.js:860`, `:878` |
 
 **The extension does not call AI Logic directly.** An MV3 content script runs under the page CSP plus the extension CSP, and a service worker cannot load the remote reCAPTCHA script `ReCaptchaEnterpriseProvider` needs. The extension keeps the deterministic floor plus Chrome's built-in model locally and hands cloud escalation to the App Check–protected Web Workbench through `#handoff=` — a stated platform constraint, not a hidden gap.
 
@@ -97,13 +97,13 @@ Reproduce: `node scripts/benchmark-third-party.mjs --out=benchmarks/third-party-
 
 | Metric | Result |
 | :--- | :---: |
-| Recall, 65 synthetic secrets/PII across 15 categories | **100.0% (65/65)** |
-| False positives, 35 benign developer & everyday prompts | **0.0% (0/35)** |
-| Latency p50 / p95 / max | **1.02 ms / 1.69 ms / 2.19 ms** |
+| Recall, 81 synthetic secrets/PII across 20 categories | **100.0% (81/81)** |
+| False positives, 46 benign developer & everyday prompts | **0.0% (0/46)** |
+| Latency p50 / p95 / max | **1.42 ms / 4.01 ms / 6.94 ms** |
 | Raw secret substrings persisted in `ShieldStore` | **0** |
 | Raw values surviving the scrub in output | **0** |
 
-Every category scored 100%: `ADDRESS`, `API_KEY`, `AWS_ACCESS_KEY`, `AWS_SECRET_KEY`, `BEARER_OR_JWT`, `CREDIT_CARD`, `DB_CONNECTION_URI`, `EMAIL`, `GOV_ID`, `HIGH_ENTROPY_SECRET`, `IBAN`, `PASSWORD`, `PEM_PRIVATE_KEY`, `PHONE`, `US_SSN`. The Chrome extension scores 67 positives / 37 benign at 100% recall and 0% false positives.
+Every category scored 100%: `ADDRESS`, `API_KEY`, `AWS_ACCESS_KEY`, `AWS_SECRET_KEY`, `BEARER_OR_JWT`, `CARD_EXPIRY`, `CREDIT_CARD`, `CVV`, `DB_CONNECTION_URI`, `EMAIL`, `GOV_ID`, `HIGH_ENTROPY_SECRET`, `IBAN`, `IFSC`, `PAN_ID`, `PASSWORD`, `PEM_PRIVATE_KEY`, `PHONE`, `UPI_ID`, `US_SSN`. The Chrome extension scores 80 positives / 48 benign at 100% recall and 0% false positives across 26 categories.
 
 Reproduce: `cd android && ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.localfirst.triage.OnDeviceFirewallBenchmarkTest`, then `adb logcat -d | grep CordonBench`.
 
@@ -116,7 +116,7 @@ Reproduce: `cd android && ./gradlew connectedDebugAndroidTest -Pandroid.testInst
 | 0:00–0:25 | Hook | Paste a key + PII into ChatGPT on Android → full-screen lock in 34 ms → Scrub in Field → redaction token in the composer, nothing sent |
 | 0:25–1:05 | Hybrid airgap | Web Workbench → paste a multi-secret prompt → Stage 1 scrubs locally → Approve → Stage 2 answers via Firebase AI Logic, with `inferenceSource` and App Check visible |
 | 1:05–1:55 | Multi-surface sweep | Android Chrome omnibox lock + scrub, Settings guard-any-app, Quick Sandbox; then the extension blocking Send on a real ChatGPT DOM and the `#handoff=` bridge |
-| 1:55–2:30 | Hard proof | `CordonBench` table: 100.0% recall (65/65), 0.0% false positives (0/35), 1.02 ms p50, and fail-closed `ONLY_ON_DEVICE` on devices without AICore |
+| 1:55–2:30 | Hard proof | `CordonBench` table: 100.0% recall (81/81), 0.0% false positives (0/46), 1.42 ms p50, and fail-closed `ONLY_ON_DEVICE` on devices without AICore |
 | 2:30–2:55 | Close | Apache-2.0 repo, v4.5.0 release assets, one line: sensitive data never leaves the device; cloud AI only ever sees redacted intent |
 
 ---

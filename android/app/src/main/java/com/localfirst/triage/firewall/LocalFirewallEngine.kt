@@ -61,7 +61,7 @@ object LocalFirewallEngine {
     )
 
     private val CARD_IIN_PREFIX_REGEX = Regex(
-        """^(?:4\d{12}(?:\d{3})?(?:\d{3})?|5[1-5]\d{14}|2(?:2[2-9]\d{12}|[3-6]\d{13}|7[01]\d{12}|720\d{12})|3[47]\d{13}|6(?:011|5\d{2})\d{12})$""",
+        """^(?:4\d{12}(?:\d{3})?(?:\d{3})?|5[1-5]\d{14}|2(?:2[2-9]\d{12}|[3-6]\d{13}|7[01]\d{12}|720\d{12})|3[47]\d{13}|6(?:011|5\d{2})\d{12}|(?:60|81|82)\d{14}|508\d{13})$""",
     )
 
     private val RAW_CREDENTIAL_GUARDS = listOf(
@@ -75,6 +75,7 @@ object LocalFirewallEngine {
         "PRIVATE_KEY", "DB_URI", "CREDIT_CARD", "GOV_ID", "PHONE", "EMAIL",
         "ADDRESS", "PERSON", "ORG_TERM", "PHI", "M_AND_A_SECRET", "HIGH_ENTROPY",
         "IP_ADDRESS", "IBAN", "ACCOUNT_NUMBER", "POSTAL_CODE", "SENSITIVE",
+        "UPI_ID", "PAN_ID", "IFSC", "CARD_EXPIRY", "CVV",
     )
 
     private val CATEGORY_SYNONYMS = mapOf(
@@ -189,6 +190,60 @@ object LocalFirewallEngine {
             },
         ),
         RegexRule(
+            // UPI VPA. Listed before EMAIL so an NPCI handle is named for what it is; the trailing
+            // lookahead keeps "user@ybl.com" an email.
+            category = "UPI_ID",
+            detector = DetectorSource.REGEX_FIREWALL,
+            minLevel = ProtectionLevel.MEDIUM,
+            pattern = Regex(
+                """\b[A-Za-z0-9][A-Za-z0-9._-]{1,40}@(?:oksbi|okicici|okhdfcbank|okhdfc|okaxis|okbizaxis|ybl|ibl|axl|paytm|apl|upi|jupiteraxis|yapl|sliceaxis|fam|axisb|airtel|freecharge|ikwik|jio|waaxis|wahdfcbank|waicici|wasbi)(?!\.[A-Za-z])\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            validator = { !it.startsWith(".") && !it.contains("..") },
+        ),
+        RegexRule(
+            // Indian PAN: 5 letters (4th is the assessee type), 4 digits, 1 letter. Must run
+            // before the GOV_ID 5-4-1 shape so a PAN is named for what it is.
+            category = "PAN_ID",
+            detector = DetectorSource.REGEX_FIREWALL,
+            pattern = Regex("""\b[A-Z]{3}[PCHFATBLJG][A-Z](?!0000)\d{4}[A-Z]\b"""),
+        ),
+        RegexRule(
+            // Indian IFSC: 4 bank letters, a literal 0, then the branch code.
+            category = "IFSC",
+            detector = DetectorSource.REGEX_FIREWALL,
+            pattern = Regex("""\b[A-Z]{4}0[A-Z0-9]{6}\b"""),
+        ),
+        RegexRule(
+            category = "CARD_EXPIRY",
+            detector = DetectorSource.REGEX_FIREWALL,
+            captureGroup = 1,
+            minLevel = ProtectionLevel.MEDIUM,
+            pattern = Regex(
+                """\b(?:exp(?:iry|iration)?\s*(?:date)?|valid\s*(?:thru|through|until|till))\s*[:\-]?\s*((?:0?[1-9]|1[0-2])\s*[/\-]\s*(?:\d{2}|\d{4}))\b""",
+                RegexOption.IGNORE_CASE,
+            ),
+            validator = { matched ->
+                val parts = matched.split("/", "-")
+                val month = parts.getOrNull(0)?.trim()?.toIntOrNull() ?: 0
+                val year = parts.getOrNull(1)?.trim().orEmpty()
+                val y = year.toIntOrNull() ?: -1
+                month in 1..12 && if (year.length == 4) y in 2000..2099 else y in 0..99
+            },
+        ),
+        RegexRule(
+            // A security code is only meaningful next to its label; the bare form is handled by
+            // the card-bundle pass, which also requires a nearby card.
+            category = "CVV",
+            detector = DetectorSource.REGEX_FIREWALL,
+            captureGroup = 1,
+            minLevel = ProtectionLevel.MEDIUM,
+            pattern = Regex(
+                """\b(?:cvv2?|cvc2?|cid|csc|security\s*code|card\s*verification(?:\s*(?:value|code))?)\b\s*(?:is|:|=|#|-)?\s*(\d{3,4})(?!\d)""",
+                RegexOption.IGNORE_CASE,
+            ),
+        ),
+        RegexRule(
             category = "US_SSN",
             detector = DetectorSource.REGEX_FIREWALL,
             pattern = Regex("""\b(?!000|666|9\d{2})\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b"""),
@@ -210,7 +265,9 @@ object LocalFirewallEngine {
         RegexRule(
             category = "GOV_ID",
             detector = DetectorSource.REGEX_FIREWALL,
-            pattern = Regex("""\b\d{4}[\s-]\d{4}[\s-]\d{4}\b"""),
+            // Aadhaar's 4-4-4 shape. The trailing lookahead stops a card from being read as a
+            // 12-digit Aadhaar prefix while the user is still typing it.
+            pattern = Regex("""\b\d{4}[\s-]\d{4}[\s-]\d{4}(?![\s-]\d)\b"""),
         ),
         RegexRule(
             category = "IBAN",
@@ -337,6 +394,49 @@ object LocalFirewallEngine {
         RegexOption.IGNORE_CASE,
     )
 
+    // A door/plot/block identifier. The leading lookbehind stops the match starting inside a
+    // version string ("v2.1/A") or an identifier ("INV-2026-0042").
+    private val ADDRESS_DOOR_REGEX = Regex(
+        """(?<![\w.])(?:\d{1,5}[A-Za-z]?[/-][A-Za-z0-9]{1,4}|#\s?\d{1,5}[A-Za-z]?|[A-Z]-\d{1,4}|(?:plot|flat|door|house)(?!\s*(?:no\.?|number|#))\s*[A-Z]?\d{1,5}[A-Za-z]?|(?:block|unit|apt|apartment)\s*(?:no\.?|#)?\s*[A-Z]?\d{1,5}[A-Za-z]?)(?![\w/])""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private val ADDRESS_LOCALITY_REGEX = Regex(
+        """\b(?:main|cross|layout|nagar|colony|phase|sector|block|enclave|extension|marg|gali|street|st\.?|avenue|ave\.?|road|rd\.?|boulevard|blvd\.?|lane|ln\.?|drive|dr\.?|way|highway|hwy\.?|parkway|pkwy\.?|court|ct\.?|place|terrace|apartments?|flats?|residency|vihar|pura|bagh|chowk)\b""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private val ADDRESS_LOCALITY_AT_END = Regex(
+        """\b(?:main|cross|layout|nagar|colony|phase|sector|block|enclave|extension|marg|gali|street|st\.?|avenue|ave\.?|road|rd\.?|boulevard|blvd\.?|lane|ln\.?|drive|dr\.?|way|highway|hwy\.?|parkway|pkwy\.?|court|ct\.?|place|terrace|apartments?|flats?|residency|vihar|pura|bagh|chowk)\s*\z""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private val ADDRESS_PIN_AT_END = Regex("""(?:\b\d{6}|\b\d{5}(?:-\d{4})?)\s*\z""")
+
+    private fun looksLikeAddressBody(body: String): Boolean {
+        val text = body.trim()
+        if (!HAS_DIGIT.containsMatchIn(text)) return false
+        if (ADDRESS_DOOR_REGEX.containsMatchIn(text)) return true
+        if (!ADDRESS_LOCALITY_REGEX.containsMatchIn(text)) return false
+        // "address 12 main street" has no comma but is unambiguous: a number opens the body.
+        if (Regex("""^\s*(?:#\s*)?\d{1,5}[A-Za-z]?(?![\w.])""").containsMatchIn(text)) return true
+        return ADDRESS_PIN_AT_END.containsMatchIn(text) || text.contains(",")
+    }
+
+    private fun looksLikeStandaloneAddress(body: String): Boolean {
+        val text = body.trim()
+        if (!HAS_DIGIT.containsMatchIn(text)) return false
+        // A year-serial pair ("2026-0042") or a date ("2026-11-22") is an identifier, not a door number.
+        if (Regex("""^(?:\d{4}-\d{4}|\d{4}-\d{2}-\d{2})\b""").containsMatchIn(text)) return false
+        if (ADDRESS_PIN_AT_END.containsMatchIn(text)) return true
+        if (!ADDRESS_LOCALITY_REGEX.containsMatchIn(text)) return false
+        if (text.contains(",")) return true
+        // No comma, no PIN: the street marker has to close the span, so "7 main street cafe"
+        // stays a sentence and "742 Evergreen Terrace" stays an address.
+        return ADDRESS_LOCALITY_AT_END.containsMatchIn(text) &&
+            Regex("""^\s*(?:\d{1,5}[A-Za-z]?[/-]|#)""").containsMatchIn(text)
+    }
+
     private val ORG_IDIOM_BLOCKLIST = setOf(
         "progress", "production", "tech", "software", "silence", "general",
         "home", "night", "remote", "shift", "me", "you", "us", "now", "free", "fine", "well", "scale",
@@ -393,6 +493,35 @@ object LocalFirewallEngine {
             validator = { ADDRESS_INDICATOR_REGEX.containsMatchIn(it) },
         ),
         RegexRule(
+            // Cue-anchored address. The cue stays outside the span so the cloud model still knows
+            // what the placeholder means. A newline continues the address only when the next line
+            // still looks like one (a digit or a comma); a blank line, a lower-case prose line or a
+            // "Field:" label ends it, so "address 143/A\n2nd Cross, Bengaluru 560038" is one span
+            // while "address 143/A\nthe build failed" is not.
+            category = "ADDRESS",
+            detector = DetectorSource.HEURISTIC_GUARD,
+            captureGroup = 1,
+            minLevel = ProtectionLevel.MEDIUM,
+            pattern = Regex(
+                """\b(?:address|addr|house\s*(?:no\.?|number)|flat\s*(?:no\.?|number)|door\s*(?:no\.?|number)|plot\s*(?:no\.?|number)|residing\s+at|resides?\s+at|shipping\s+(?:to|address)|deliver(?:y)?\s+to|lives?\s+at|located\s+at)\b\s*(?:is|was|:|=|-)?\s*((?=[^\n]{0,160}?\d)(?:(?!\s+(?:and|but)\s+(?:my|the|i|we|please|call|email|phone|contact)\b)[^\[\]\u0000]){4,160}?)(?=\s*(?:[;|!?](?:\s|\z)|\n\s*\n|\n\s*[A-Za-z][A-Za-z ]{1,18}[:=]|\n(?!\s*[^\n]{0,60}(?:\d|,))|\z|\.(?=\s+[A-Z]|\s*\z)|(?:card|upi|pan|ifsc|cvv|cvc|cid|csc|exp|expiry|account|acct|iban|vpa)\b))""",
+                RegexOption.IGNORE_CASE,
+            ),
+            validator = { looksLikeAddressBody(it) },
+        ),
+        RegexRule(
+            // Standalone address: no cue, so a door token plus a locality marker or a terminal
+            // PIN/ZIP is required. A version string like v2.1/A never reaches this point.
+            category = "ADDRESS",
+            detector = DetectorSource.HEURISTIC_GUARD,
+            captureGroup = 1,
+            minLevel = ProtectionLevel.MEDIUM,
+            pattern = Regex(
+                """(?<![\w.])((?:\d{1,5}[A-Za-z]?[/-][A-Za-z0-9]{1,4}|#\s?\d{1,5}[A-Za-z]?|[A-Z]-\d{1,4}|(?:plot|flat|door|house)(?!\s*(?:no\.?|number|#))\s*[A-Z]?\d{1,5}[A-Za-z]?|(?:block|unit|apt|apartment)\s*(?:no\.?|#)?\s*[A-Z]?\d{1,5}[A-Za-z]?)(?:(?![.;!?](?:\s|\z))[^\n\[\]\u0000]){0,80}?)(?=\s*(?:[;|!?](?:\s|\z)|\n|\z|\.(?=\s+[A-Z]|\s*\z)|(?:card|upi|pan|ifsc|cvv|cvc|cid|csc|exp|expiry|account|acct|iban|vpa)\b))""",
+                RegexOption.IGNORE_CASE,
+            ),
+            validator = { looksLikeStandaloneAddress(it) },
+        ),
+        RegexRule(
             category = "POSTAL_CODE",
             detector = DetectorSource.HEURISTIC_GUARD,
             captureGroup = 1,
@@ -410,11 +539,14 @@ object LocalFirewallEngine {
             pattern = Regex("""\b(?:[A-Z]{2}\s+\d{5}(?:-\d{4})?|\d{5}-\d{4})\b"""),
         ),
         RegexRule(
+            // Standalone Western street. The trailing group carries the city and ZIP that follow
+            // the street word, but only when a 5/6-digit postal code closes them, so prose after
+            // the comma ("221 Baker Street, and then we left") stays prose.
             category = "ADDRESS",
             detector = DetectorSource.HEURISTIC_GUARD,
             minLevel = ProtectionLevel.MEDIUM,
             pattern = Regex(
-                """\b\d{1,6}\s+(?:[NSEW]\.?\s+)?[A-Za-z0-9.'-]{2,25}(?:\s+[A-Za-z0-9.'-]{2,25}){0,3}\s+(?:Street|St\.?|Avenue|Ave\.?|Road|Rd\.?|Boulevard|Blvd\.?|Drive|Dr\.?|Lane|Ln\.?|Way|Highway|Hwy\.?|Parkway|Pkwy\.?|Court|Ct\.?|Place|Pl\.?|Circle|Cir\.?|Terrace|Ter\.?|Trail|Trl\.?|Square|Sq\.?|Cross|Main|Nagar|Layout|Sector)\b""",
+                """\b\d{1,6}\s+(?:[NSEW]\.?\s+)?[A-Za-z0-9.'-]{2,25}(?:\s+[A-Za-z0-9.'-]{2,25}){0,3}\s+(?:Street|St\.?|Avenue|Ave\.?|Road|Rd\.?|Boulevard|Blvd\.?|Drive|Dr\.?|Lane|Ln\.?|Way|Highway|Hwy\.?|Parkway|Pkwy\.?|Court|Ct\.?|Place|Pl\.?|Circle|Cir\.?|Terrace|Ter\.?|Trail|Trl\.?|Square|Sq\.?|Cross|Main|Nagar|Layout|Sector)\b(?:,\s*[A-Za-z0-9 .,'-]{1,40}?\d{5,6}(?:-\d{4})?)?""",
                 RegexOption.IGNORE_CASE,
             ),
         ),
@@ -719,11 +851,98 @@ object LocalFirewallEngine {
         return spans
     }
 
+    private val CARD_EXPIRY_TOKEN = Regex("""(?<!\d)(?:0?[1-9]|1[0-2])\s*[/\-]\s*(?:\d{2}|\d{4})(?!\d)""")
+    private val CARD_CVV_LABEL = Regex(
+        """\b(?:cvv2?|cvc2?|cid|csc|security\s*code|card\s*verification(?:\s*(?:value|code))?)\b\s*(?:is|:|=|#|-)?\s*(\d{3,4})(?!\d)""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val CARD_BARE_DIGITS = Regex("""(?<![\d.\-/])(\d{3,4})(?![\d.\-/])""")
+    private val CARD_UNIT_AFTER = Regex(
+        """^\s*(?:%|ms\b|px\b|k\b|m\b|gb\b|mb\b|kb\b|hrs?\b|am\b|pm\b|orders?\b|days?\b|hours?\b|mins?\b|seconds?\b|items?\b|users?\b|requests?\b|retries?\b)""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val CARD_YEAR_LIKE = Regex("""^(?:19|20)\d{2}$""")
+
+    /**
+     * CVV and expiry only mean something next to a card. A bare 3-digit number is never a CVV
+     * unless a Luhn-valid card (or that card's expiry) sits within 80 characters of it.
+     *
+     * The token regexes always run over the whole buffer: slicing a window would let a lookbehind
+     * succeed at index 0 and turn "4111-1111" into an expiry, which then licenses unrelated digits.
+     */
+    private fun detectCardBundleSpans(
+        text: String,
+        cardSpans: List<RedactionSpan>,
+        startCounter: Int,
+    ): List<RedactionSpan> {
+        val extras = mutableListOf<RedactionSpan>()
+        var counter = startCounter
+        fun push(start: Int, end: Int, category: String) {
+            if (extras.any { start < it.end && end > it.start }) return
+            extras.add(
+                RedactionSpan(
+                    start = start,
+                    end = end,
+                    category = category,
+                    detector = DetectorSource.HEURISTIC_GUARD,
+                    placeholder = "[REDACTED:${category}_${counter++}]",
+                    matchedText = text.substring(start, end),
+                    masked = true,
+                ),
+            )
+        }
+        fun overlapsCard(start: Int, end: Int) = cardSpans.any { start < it.end && end > it.start }
+
+        for (card in cardSpans) {
+            val from = maxOf(0, card.start - 80)
+            val to = minOf(text.length, card.end + 80)
+            fun inWindow(start: Int, end: Int) = start >= from && end <= to
+            val expiries = mutableListOf<IntRange>()
+
+            for (match in CARD_EXPIRY_TOKEN.findAll(text)) {
+                val start = match.range.first
+                val end = match.range.last + 1
+                if (!inWindow(start, end) || overlapsCard(start, end)) continue
+                expiries.add(start until end)
+                push(start, end, "CARD_EXPIRY")
+            }
+
+            for (match in CARD_CVV_LABEL.findAll(text)) {
+                val group = match.groups[1] ?: continue
+                val start = group.range.first
+                val end = group.range.last + 1
+                if (!inWindow(start, end)) continue
+                push(start, end, "CVV")
+            }
+
+            // A bare code is only accepted when the window also carries an expiry, which is what
+            // separates a card bundle from an order number sitting near a card number.
+            if (expiries.isEmpty()) continue
+            for (match in CARD_BARE_DIGITS.findAll(text)) {
+                val start = match.range.first
+                val end = match.range.last + 1
+                if (!inWindow(start, end) || overlapsCard(start, end)) continue
+                if (expiries.any { start < it.last + 1 && end > it.first }) continue
+                if (CARD_YEAR_LIKE.matches(match.value)) continue
+                if (CARD_UNIT_AFTER.containsMatchIn(text.substring(end, minOf(text.length, end + 12)))) continue
+                push(start, end, "CVV")
+            }
+        }
+        return extras
+    }
+
     fun detectRegexSpans(
         text: String,
         protectionLevel: ProtectionLevel = ProtectionLevel.MEDIUM,
-    ): List<RedactionSpan> =
-        runRules(text, DETERMINISTIC_REGEX_RULES, 1, protectionLevel)
+    ): List<RedactionSpan> {
+        val spans = runRules(text, DETERMINISTIC_REGEX_RULES, 1, protectionLevel).toMutableList()
+        val cards = spans.filter { it.category == "CREDIT_CARD" }
+        if (cards.isEmpty()) return spans
+        for (extra in detectCardBundleSpans(text, cards, spans.size + 1)) {
+            if (spans.none { it.start == extra.start }) spans.add(extra)
+        }
+        return spans
+    }
 
     fun detectHighEntropySecrets(
         text: String,

@@ -104,6 +104,43 @@ class SendInterceptionTest {
     }
 
     @Test
+    fun `typing a card never locks on the twelve digit government id prefix`() {
+        // A card is typed one digit at a time; the first twelve digits look exactly like Aadhaar.
+        val halfTyped = "card 4111 1111 1111"
+        assertEquals(
+            GuardTriggerPolicy.Trigger.DEBOUNCE,
+            GuardTriggerPolicy.trigger(isBurst = false, findings = scrub(halfTyped), textLength = halfTyped.length),
+        )
+
+        val complete = "card 4111 1111 1111 1111"
+        val findings = scrub(complete)
+        assertTrue(findings.any { it.category == "CREDIT_CARD" })
+        assertTrue(findings.none { it.category == "GOV_ID" })
+        assertEquals(
+            GuardTriggerPolicy.Trigger.LOCK_NOW,
+            GuardTriggerPolicy.trigger(isBurst = false, findings = findings, textLength = complete.length),
+        )
+    }
+
+    @Test
+    fun `structured financial identifiers lock immediately when typed`() {
+        listOf(
+            "upi ravi.kumar@oksbi",
+            "pan ABCPE1234F",
+            "ifsc HDFC0001234",
+            "security code 456",
+        ).forEach { typed ->
+            val findings = scrub(typed)
+            assertTrue("expected a finding for '$typed'", findings.isNotEmpty())
+            assertEquals(
+                "typed '$typed' must lock now",
+                GuardTriggerPolicy.Trigger.LOCK_NOW,
+                GuardTriggerPolicy.trigger(isBurst = false, findings = findings, textLength = typed.length),
+            )
+        }
+    }
+
+    @Test
     fun `a typed structured credential locks without waiting for a pause`() {
         val typed = "key $awsKey"
         val findings = scrub(typed)
@@ -281,6 +318,21 @@ class SendInterceptionTest {
     }
 
     // --- Pluralisation helper --------------------------------------------------------------
+
+    @Test
+    fun `history chip row never contradicts the caught badge`() {
+        val counts = linkedMapOf(
+            "ADDRESS" to 1,
+            "CREDIT_CARD" to 1,
+            "CARD_EXPIRY" to 1,
+            "CVV" to 1,
+            "UPI_ID" to 1,
+        )
+        val chips = ShieldStore.chipLine(counts)
+        assertEquals(4, chips.size)
+        assertEquals("+2 more", chips.last())
+        assertEquals(listOf("1 Address"), ShieldStore.chipLine(mapOf("ADDRESS" to 1)))
+    }
 
     @Test
     fun `pluraliser handles the categories the UI actually shows`() {

@@ -69,8 +69,9 @@ object FirewallBenchmarkCorpus {
     private val cardVisa2 = "4242" + "424242424242"
     private val cardMastercard = "5555" + "555555554444"
     private val cardAmex = "3782" + "82246310005"
+    private val cardRupay = "6521" + "567890123453"
 
-    /** 65 positive payloads across every category the engine supports. */
+    /** 79 positive payloads across every category the engine supports. */
     val positives: List<BenchmarkCase> = listOf(
         // AWS access keys (5)
         case("aws-1", "AWS_ACCESS_KEY", "Here is my access key $awsKey1, can you check the IAM policy?"),
@@ -144,13 +145,33 @@ object FirewallBenchmarkCorpus {
         case("card-2", "CREDIT_CARD", "use $cardVisa2 for the test charge"),
         case("card-3", "CREDIT_CARD", "mastercard $cardMastercard expires 09/29"),
         case("card-4", "CREDIT_CARD", "amex $cardAmex is on file"),
+        case("card-5", "CREDIT_CARD", "rupay $cardRupay was used at the terminal"),
+        case("card-6", "CREDIT_CARD", "pay with $cardVisa2 exp 09/29 cvv 123"),
+        case("expiry-1", "CARD_EXPIRY", "the card is valid thru 11/27"),
+        case("cvv-1", "CVV", "security code 456 is printed on the back"),
 
-        // Street addresses (5)
+        // Indian financial identifiers (6)
+        case("upi-1", "UPI_ID", "send the split to ravi.kumar@oksbi"),
+        case("upi-2", "UPI_ID", "merchant collects on 9876543210@ybl"),
+        case("pan-1", "PAN_ID", "pan ABCPE1234F is on the KYC form"),
+        case("pan-2", "PAN_ID", "verify XYZPA9876K before payout"),
+        case("ifsc-1", "IFSC", "transfer to HDFC0001234 for the refund"),
+        case("ifsc-2", "IFSC", "branch code SBIN0004321 belongs to the vendor"),
+
+        // Street addresses (11)
         case("address-1", "ADDRESS", "ship it to 742 Evergreen Terrace tomorrow"),
         case("address-2", "ADDRESS", "the office is at 1600 Amphitheatre Parkway"),
         case("address-3", "ADDRESS", "meet at 221 Baker Street at nine"),
         case("address-4", "ADDRESS", "warehouse 12 MG Road needs a delivery"),
         case("address-5", "ADDRESS", "my address is 45 Indiranagar 100ft Road"),
+        case("address-6", "ADDRESS", "address 143/A, 2nd Cross, Indiranagar, Bengaluru 560038"),
+        case("address-7", "ADDRESS", "flat no 7, Shanti Nagar, Mysuru 570001"),
+        case("address-8", "ADDRESS", "#42-B Sector 21, Gurugram 122016"),
+        case("address-9", "ADDRESS", "plot no 12, Green Layout, Pune 411045"),
+        // The locality and PIN sit on the next line, so the span has to cross the newline.
+        case("address-10", "ADDRESS", "Address: 143/A, 2nd Cross\nIndiranagar, Bengaluru 560038"),
+        // No cue and no door token: the street suffix plus the ZIP has to carry the span.
+        case("address-11", "ADDRESS", "742 Evergreen Terrace, Springfield 62704"),
 
         // Database URIs (2)
         case("db-1", "DB_CONNECTION_URI", "DB URI leaked: postgres://billing_svc:s3cr3tP4ssword99@db-shard-04.internal:5432/ledger"),
@@ -176,7 +197,7 @@ object FirewallBenchmarkCorpus {
         case("password-3", "PASSWORD", "passphrase = correct-horse-battery"),
     )
 
-    /** 35 benign prompts that must stay silent. */
+    /** 46 benign prompts that must stay silent. */
     val benign: List<String> = listOf(
         "Can you summarise this article about privacy-preserving analytics?",
         "npm install --save-dev typescript",
@@ -213,5 +234,17 @@ object FirewallBenchmarkCorpus {
         "The release candidate passed all 138 tests",
         "Remind me to book a dentist appointment",
         "Vite dev server is running on port 5173",
+        "v2.1/A shipped to staging this morning",
+        "HTTP 404 from the CDN edge node",
+        "the worker is listening on port 8080",
+        "order 4111111111111112 shipped today",
+        "tracking 1234567890123456 cleared customs",
+        "retry after 500 ms with exponential backoff",
+        "the queue still holds 128 items",
+        "deployed 2026-11-22 at noon",
+        "phase 2 rollout finished ahead of schedule",
+        // The word "address" with no number after it is a topic, not a location.
+        "the diff touches address parsing, not the build",
+        "see the address column in the users table",
     )
 }

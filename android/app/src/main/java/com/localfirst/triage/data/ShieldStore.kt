@@ -286,6 +286,11 @@ object ShieldStore {
         "BEARER_OR_JWT" -> "Bearer/JWT"
         "DB_URI", "DB_CONNECTION_URI" -> "DB URI"
         "CREDIT_CARD" -> "Card"
+        "CARD_EXPIRY" -> "Card Expiry"
+        "CVV" -> "CVV"
+        "UPI_ID" -> "UPI ID"
+        "PAN_ID" -> "PAN"
+        "IFSC" -> "IFSC"
         "GOV_ID", "US_SSN" -> "Gov ID"
         "PHONE" -> "Phone"
         "EMAIL" -> "Email"
@@ -325,6 +330,14 @@ object ShieldStore {
             .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
             .map { it.key to it.value }
 
-    fun chipLine(counts: Map<String, Int>, limit: Int = 3): List<String> =
-        orderedCategories(counts).take(limit).map { (category, count) -> categoryChip(category, count) }
+    /**
+     * The chip row under a History entry. When more categories were caught than fit, the last
+     * chip says "+N more" so the row never contradicts the "N caught" badge beside it.
+     */
+    fun chipLine(counts: Map<String, Int>, limit: Int = 3): List<String> {
+        val ordered = orderedCategories(counts)
+        val chips = ordered.take(limit).map { (category, count) -> categoryChip(category, count) }
+        val hidden = ordered.size - chips.size
+        return if (hidden > 0) chips + "+$hidden more" else chips
+    }
 }
