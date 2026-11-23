@@ -4,6 +4,11 @@ const MENU_ID = "localfirst-triage-selection";
 // to the side panel exactly once. Nothing raw is ever written to chrome.storage.
 let pendingCapture = null;
 
+// A capture the user forgot about must not be silently injected into the panel later.
+// MV3 evicts an idle worker in ~30s, which is the real expiry; this window only covers a
+// worker kept alive by other events, so it stays shorter than the worker's own life.
+const CAPTURE_TTL_MS = 60 * 1000;
+
 chrome.runtime.onInstalled.addListener(async () => {
   await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
   await chrome.contextMenus.removeAll();
@@ -73,7 +78,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "GET_CAPTURE") {
     const capture = pendingCapture;
     pendingCapture = null;
-    sendResponse({ capture });
+    const fresh = capture && Date.now() - capture.capturedAt <= CAPTURE_TTL_MS;
+    sendResponse({ capture: fresh ? capture : null });
     return false;
   }
   if (message?.type === "CLEAR_BADGE") {

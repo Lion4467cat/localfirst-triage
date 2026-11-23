@@ -683,7 +683,8 @@ button:not(:disabled):active {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  padding-top: 4px;
+  margin-top: 10px;
+  padding-top: 9px;
   border-top: 1px solid var(--border-subtle);
 }
 
@@ -827,27 +828,6 @@ textarea {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
   color: var(--mint);
-}
-
-.panel-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 2px 2px 4px;
-}
-
-.footer-target {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  flex: 1;
-}
-
-.footer-target select {
-  padding: 4px 6px;
-  font-size: 10.5px;
 }
 
 .theme-group {

@@ -49,6 +49,28 @@ function type(editor: HTMLTextAreaElement, value: string) {
   editor.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
+interface RichHarness {
+  editor: HTMLElement;
+  send: HTMLButtonElement;
+  sendClicks: () => number;
+}
+
+function mountContentEditable(initial: string): RichHarness {
+  document.body.innerHTML = `
+    <div id="editor" contenteditable="true" role="textbox" aria-label="Message"></div>
+    <button id="send" type="button" aria-label="Send message">Send</button>
+  `;
+  const editor = document.getElementById("editor") as HTMLElement;
+  const send = document.getElementById("send") as HTMLButtonElement;
+  let clicks = 0;
+  send.addEventListener("click", () => {
+    clicks += 1;
+  });
+  editor.textContent = initial;
+  editor.dispatchEvent(new Event("input", { bubbles: true }));
+  return { editor, send, sendClicks: () => clicks };
+}
+
 async function loadShield() {
   vi.resetModules();
   document.body.innerHTML = "";
@@ -69,22 +91,59 @@ describe("content-shield live guard", () => {
     document.body.innerHTML = "";
   });
 
-  it("P0-2: re-intercepts Send when the host framework reverts the scrubbed DOM", async () => {
-    const { editor, send } = mountEditor(`Leaked ${SECRET_ONE}`);
+  it("P0-2: keeps Send blocked and offers the safe copy when the framework reverts the scrub", async () => {
+    const { editor, send, sendClicks } = mountEditor(`Leaked ${SECRET_ONE}`);
     send.click();
     expect(modalOpen()).toBe(true);
 
     button("lf-primary").click();
-    // The real Send fires immediately with the scrubbed text.
-    vi.advanceTimersByTime(0);
-    // Framework restores the pre-scrub DOM right after our write.
+    // Framework restores the pre-scrub DOM before the verification window closes.
     type(editor, `Leaked ${SECRET_ONE}`);
-    vi.advanceTimersByTime(2500);
-    expect(modalOpen()).toBe(false);
+    vi.advanceTimersByTime(300);
 
+    expect(sendClicks()).toBe(0);
+    expect(editor.value).toContain(SECRET_ONE);
+    expect(hud()?.getElementById("lf-copy")).toBeTruthy();
+
+    // The still-raw draft is re-intercepted on the next Send attempt.
     send.click();
     expect(modalOpen()).toBe(true);
-    expect(editor.value).toContain(SECRET_ONE);
+  });
+
+  it("P0-7: Scrub & Send releases Send only after the scrubbed text lands", async () => {
+    const { editor, send, sendClicks } = mountEditor(`Leaked ${SECRET_ONE}`);
+    send.click();
+    button("lf-primary").click();
+
+    vi.advanceTimersByTime(50);
+    expect(sendClicks()).toBe(0);
+
+    vi.advanceTimersByTime(150);
+    expect(sendClicks()).toBe(1);
+    expect(editor.value).toContain("[REDACTED:");
+  });
+
+  it("P0-8: the safe-copy fallback copies the scrubbed text, never the raw draft", async () => {
+    const copied: string[] = [];
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (value: string) => void copied.push(value) },
+    });
+
+    const { editor, send } = mountEditor(`Leaked ${SECRET_ONE}`);
+    send.click();
+    button("lf-primary").click();
+    type(editor, `Leaked ${SECRET_ONE}`);
+    vi.advanceTimersByTime(300);
+
+    const copyBtn = hud()?.getElementById("lf-copy") as HTMLButtonElement | null;
+    expect(copyBtn).toBeTruthy();
+    copyBtn?.click();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(copied).toHaveLength(1);
+    expect(copied[0]).toContain("[REDACTED:");
+    expect(copied[0]).not.toContain(SECRET_ONE);
   });
 
   it("P0-3: a new secret typed within the mute window is still intercepted", async () => {
@@ -136,5 +195,84 @@ describe("content-shield live guard", () => {
 
     expect(ev.defaultPrevented).toBe(false);
     expect(document.getElementById(HOST_ID)).toBeNull();
+  });
+
+  it("P1-7: an IME composition commit is never treated as Send", async () => {
+    const { editor } = mountEditor(`Leaked ${SECRET_ONE}`);
+
+    editor.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+    const commit = new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+      isComposing: true,
+    });
+    editor.dispatchEvent(commit);
+
+    expect(commit.defaultPrevented).toBe(false);
+    expect(modalOpen()).toBe(false);
+
+    editor.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
+  });
+
+  it("P1-8: a form submit carrying a secret is blocked", async () => {
+    document.body.innerHTML = `
+      <form id="composer">
+        <textarea id="editor"></textarea>
+        <button id="send" type="submit">Comment</button>
+      </form>
+    `;
+    const editor = document.getElementById("editor") as HTMLTextAreaElement;
+    editor.focus();
+    editor.value = `Leaked ${SECRET_ONE}`;
+    editor.dispatchEvent(new Event("input", { bubbles: true }));
+
+    const form = document.getElementById("composer") as HTMLFormElement;
+    const submit = new Event("submit", { bubbles: true, cancelable: true });
+    form.dispatchEvent(submit);
+
+    expect(submit.defaultPrevented).toBe(true);
+    expect(modalOpen()).toBe(true);
+  });
+
+  it("P0-9: a contenteditable that ignores the edit pipeline never releases Send", async () => {
+    const { editor, send, sendClicks } = mountContentEditable(`Leaked ${SECRET_ONE}`);
+    // jsdom has no execCommand, which is exactly the "browser refused the edit" case: a write
+    // through textContent would leave the editor's own model holding the raw secret.
+    send.click();
+    expect(modalOpen()).toBe(true);
+
+    button("lf-primary").click();
+    vi.advanceTimersByTime(400);
+
+    expect(sendClicks()).toBe(0);
+    expect(hud()?.getElementById("lf-copy")).toBeTruthy();
+    // The refused write is rolled back, so the DOM never disagrees with the editor's model.
+    expect(editor.textContent).toBe(`Leaked ${SECRET_ONE}`);
+
+    // A second, user-initiated Send is still guarded because the raw text is still there.
+    send.click();
+    expect(modalOpen()).toBe(true);
+    expect(sendClicks()).toBe(0);
+  });
+
+  it("P0-10: a contenteditable that accepts the edit releases Send once", async () => {
+    const { editor, send, sendClicks } = mountContentEditable(`Leaked ${SECRET_ONE}`);
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: (command: string, _showUi?: boolean, value?: string) => {
+        if (command !== "insertText") return false;
+        editor.textContent = String(value ?? "");
+        return true;
+      },
+    });
+
+    send.click();
+    button("lf-primary").click();
+    vi.advanceTimersByTime(400);
+
+    expect(sendClicks()).toBe(1);
+    expect(editor.textContent).toContain("[REDACTED:");
+    expect(editor.textContent).not.toContain(SECRET_ONE);
   });
 });

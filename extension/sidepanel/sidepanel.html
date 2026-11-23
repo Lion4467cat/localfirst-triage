@@ -243,20 +243,8 @@
 
         <div class="facts-strip">
           <div class="fact-row">
-            <span class="fact-k">Local Floor</span>
-            <span class="fact-v">&lt;2ms Sync</span>
-          </div>
-          <div class="fact-row">
             <span class="fact-k">On-Device AI</span>
             <span id="nano-badge" class="fact-v fact-ai">Checking…</span>
-          </div>
-          <div class="fact-row">
-            <span class="fact-k">Protected Surfaces</span>
-            <span class="fact-v">Send-time Interception</span>
-          </div>
-          <div class="fact-row" data-benchmark-slot="true">
-            <span class="fact-k">Verified Benchmarks</span>
-            <span id="benchmark-slot-val" class="fact-v">Gitleaks 100% (42/42) · Global PII 70.8% + Nano 4 · 0% Dev FP · 0.02ms</span>
           </div>
         </div>
       </section>
@@ -295,23 +283,20 @@
             <pre id="sanitized-output" class="output">Click "Scrub Locally" to preview safe redacted text.</pre>
           </div>
 
+          <div class="field">
+            <label for="workbench-target">Handoff Target</label>
+            <select id="workbench-target">
+              <option value="production">Production: para-1-2e22b.web.app</option>
+              <option value="local">Local: localhost:4173</option>
+            </select>
+          </div>
+
           <div class="actions">
             <button id="btn-copy" type="button" class="btn secondary" disabled>Copy Safe Text</button>
             <button id="btn-handoff" type="button" class="btn primary" disabled>Open Live Workbench →</button>
           </div>
         </div>
       </details>
-
-      <!-- Minimal Footer -->
-      <footer class="panel-footer">
-        <div class="footer-target">
-          <label for="workbench-target">Target</label>
-          <select id="workbench-target">
-            <option value="production">Production: para-1-2e22b.web.app</option>
-            <option value="local">Local: localhost:4173</option>
-          </select>
-        </div>
-      </footer>
     </main>
     <script type="module" src="sidepanel.js"></script>
   </body>

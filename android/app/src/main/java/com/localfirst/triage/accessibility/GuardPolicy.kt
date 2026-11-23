@@ -50,22 +50,48 @@ object GuardExclusions {
  * When to show the full-screen decision modal.
  *
  * A paste (or any jump of [PASTE_BURST_CHARS] characters in one event) is unambiguous, so the
- * modal appears immediately. Manual typing is debounced by [TYPING_DEBOUNCE_MS] so a user typing
- * a sentence is never interrupted mid-word, and the field is re-read before locking.
+ * modal appears immediately. A typed finding is also complete the moment it matches, unless it is
+ * open-ended PII still growing at the end of the field — that is the only case that waits, and it
+ * waits [TYPING_DEBOUNCE_MS] so the user can finish the address instead of being interrupted
+ * mid-word.
  */
 object GuardTriggerPolicy {
     const val PASTE_BURST_CHARS = 8
-    const val TYPING_DEBOUNCE_MS = 500L
+    const val TYPING_DEBOUNCE_MS = 250L
 
     enum class Trigger { IGNORE, LOCK_NOW, DEBOUNCE }
+
+    /**
+     * Categories whose match can still grow with the next keystroke. Everything else — API keys,
+     * JWTs, private keys, cards, government ids — is complete the instant it matches.
+     */
+    private val OPEN_ENDED_CATEGORIES = setOf(
+        "EMAIL", "PHONE", "MOBILE", "ADDRESS", "PERSON", "NAME", "FIRSTNAME", "LASTNAME",
+        "ORG_TERM", "ORGANIZATION", "COMPANY", "POSTAL_CODE", "ACCOUNT_NUMBER", "LOCATION",
+        "PHI", "MEDICAL", "HEALTH", "MEDICAL_PHI", "CONTEXTUAL_PHI", "GOV_ID", "AADHAAR",
+        "PASSPORT",
+    )
 
     fun isPasteBurst(previousLength: Int, currentLength: Int): Boolean =
         currentLength - previousLength >= PASTE_BURST_CHARS
 
-    fun trigger(isBurst: Boolean, findingCount: Int): Trigger = when {
-        findingCount <= 0 -> Trigger.IGNORE
-        isBurst -> Trigger.LOCK_NOW
-        else -> Trigger.DEBOUNCE
+    fun isOpenEnded(category: String): Boolean =
+        category.uppercase() in OPEN_ENDED_CATEGORIES
+
+    /**
+     * [findings] must be the masked spans for [textLength] characters of live field text.
+     *
+     * Only a field whose every finding is open-ended *and* runs to the last character waits: a
+     * terminated address or an email followed by a space is already complete, so locking early
+     * costs nothing.
+     */
+    fun trigger(isBurst: Boolean, findings: List<RedactionSpan>, textLength: Int): Trigger {
+        if (findings.isEmpty()) return Trigger.IGNORE
+        if (isBurst) return Trigger.LOCK_NOW
+        val stillGrowing = findings.all { span ->
+            isOpenEnded(span.category) && span.end >= textLength
+        }
+        return if (stillGrowing) Trigger.DEBOUNCE else Trigger.LOCK_NOW
     }
 
     /**

@@ -81,29 +81,59 @@ class SendInterceptionTest {
         val paste = "here is my key $awsKey"
         assertEquals(
             GuardTriggerPolicy.Trigger.LOCK_NOW,
-            GuardTriggerPolicy.trigger(isBurst = true, findingCount = scrub(paste).size),
+            GuardTriggerPolicy.trigger(isBurst = true, findings = scrub(paste), textLength = paste.length),
         )
-        val benign = scrub("here is a normal pasted paragraph")
-        assertEquals("benign paste must find nothing", 0, benign.size)
+        val benign = "here is a normal pasted paragraph"
+        assertEquals("benign paste must find nothing", 0, scrub(benign).size)
         assertEquals(
             GuardTriggerPolicy.Trigger.IGNORE,
-            GuardTriggerPolicy.trigger(isBurst = true, findingCount = benign.size),
+            GuardTriggerPolicy.trigger(isBurst = true, findings = scrub(benign), textLength = benign.length),
         )
     }
 
     @Test
-    fun `typing a secret is debounced rather than shown on every keystroke`() {
+    fun `a typed structured credential locks without waiting for a pause`() {
         val typed = "key $awsKey"
-        val findings = scrub(typed).size
+        val findings = scrub(typed)
+        assertTrue(findings.isNotEmpty())
+        assertEquals(
+            GuardTriggerPolicy.Trigger.LOCK_NOW,
+            GuardTriggerPolicy.trigger(isBurst = false, findings = findings, textLength = typed.length),
+        )
+        assertEquals(250L, GuardTriggerPolicy.TYPING_DEBOUNCE_MS)
+    }
+
+    @Test
+    fun `typed PII that is already terminated locks immediately`() {
+        val typed = "mail $email now"
+        val findings = scrub(typed)
+        assertTrue(findings.isNotEmpty())
+        assertTrue(findings.all { it.end < typed.length })
+        assertEquals(
+            GuardTriggerPolicy.Trigger.LOCK_NOW,
+            GuardTriggerPolicy.trigger(isBurst = false, findings = findings, textLength = typed.length),
+        )
+    }
+
+    @Test
+    fun `open-ended PII still being typed is the only thing that waits`() {
+        val typed = "mail ops@acme-heal.co"
+        val findings = scrub(typed)
+        assertTrue(findings.isNotEmpty())
+        assertTrue(findings.all { it.end >= typed.length })
         assertEquals(
             GuardTriggerPolicy.Trigger.DEBOUNCE,
-            GuardTriggerPolicy.trigger(isBurst = false, findingCount = findings),
+            GuardTriggerPolicy.trigger(isBurst = false, findings = findings, textLength = typed.length),
         )
-        assertEquals(500L, GuardTriggerPolicy.TYPING_DEBOUNCE_MS)
-        // Half-typed text is silent: no findings, no debounce, no modal.
+    }
+
+    @Test
+    fun `half typed text is silent`() {
+        val typed = "key AKIA"
+        assertEquals(0, scrub(typed).size)
         assertEquals(
             GuardTriggerPolicy.Trigger.IGNORE,
-            GuardTriggerPolicy.trigger(isBurst = false, findingCount = scrub("key AKIA").size),
+            GuardTriggerPolicy.trigger(isBurst = false, findings = scrub(typed), textLength = typed.length),
         )
     }
 

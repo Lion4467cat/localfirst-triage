@@ -41,11 +41,14 @@ export function scrubSync(
 
 export function runExtensionNanoScan(
   rawText: string,
+  options?: { timeoutMs?: number; protectionLevel?: "low" | "medium" | "high" },
 ): Promise<{
   nanoActive: boolean;
   nanoState?: string;
+  nanoTimedOut?: boolean;
   sanitizedText: string;
   mergedSpans: ExtensionSpan[];
+  riskProfile?: { score: number; tier: "LOW" | "ELEVATED" | "HIGH" | "CRITICAL" };
 }>;
 
 export function shouldInterceptSendKey(input: {

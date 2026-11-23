@@ -660,7 +660,18 @@ async function runFirewall() {
   const raw = rawInput.value;
   if (!raw.trim()) return;
   scanStats.textContent = "Scrubbing locally on your device…";
-  const res = await runExtensionNanoScan(raw);
+  // Never let the previous result be handed off under the new capture's title.
+  lastSanitizedText = "";
+  handoffBtn.disabled = true;
+  copyBtn.disabled = true;
+  let res;
+  try {
+    res = await runExtensionNanoScan(raw, { protectionLevel: activeProtectionLevel });
+  } catch {
+    sanitizedOutput.textContent = "";
+    scanStats.textContent = "Scrub failed. Nothing left this panel — paste again and retry.";
+    return;
+  }
   lastSanitizedText = res.sanitizedText;
   sanitizedOutput.textContent = res.sanitizedText;
   const count = res.mergedSpans.length;
@@ -668,7 +679,7 @@ async function runFirewall() {
   scanStats.textContent =
     count === 0
       ? `Safe (${engine}) · No secrets detected`
-      : `Protected (${engine}) · ${count} secret(s) scrubbed`;
+      : `Protected (${engine}) · ${count} ${count === 1 ? "secret" : "secrets"} scrubbed`;
   copyBtn.disabled = false;
   handoffBtn.disabled = false;
   if (count > 0) playPanelLock();
@@ -683,13 +694,18 @@ async function loadPendingCapture() {
   } catch {
     return;
   }
-  if (capture?.rawText) {
-    if (manualDrawer) manualDrawer.open = true;
-    titleInput.value = capture.title || "Captured Selection";
-    rawInput.value = capture.rawText;
+  const rawText = typeof capture?.rawText === "string" ? capture.rawText : "";
+  // The worker is evicted between the menu click and this pull often enough that the badge
+  // must not be left claiming a capture that no longer exists.
+  try {
     await chrome.runtime?.sendMessage?.({ type: "CLEAR_BADGE" });
-    await runFirewall();
-  }
+  } catch { /* ignore */ }
+  if (!rawText.trim()) return;
+  if (manualDrawer) manualDrawer.open = true;
+  titleInput.value = typeof capture.title === "string" ? capture.title : "Captured Selection";
+  rawInput.value = rawText;
+  sanitizedOutput.textContent = "";
+  await runFirewall();
 }
 
 captureBtn?.addEventListener("click", async () => {

@@ -111,12 +111,14 @@
       pattern: /\b(?:AKIA|ASIA|AIDA|AROA)[0-9A-Z]{16}\b/g,
     },
     {
-      // The 40-char secret that follows AWS_SECRET_ACCESS_KEY=. Anchored to the
+      // The 40-char secret that follows an AWS secret-key label. Anchored to the
       // key NAME so a bare 40-char base64 hash elsewhere is not falsely redacted.
+      // Covers env style (AWS_SECRET_ACCESS_KEY=), snake case and JSON camelCase
+      // ({"SecretAccessKey":"..."}) because all three appear in real transcripts.
       category: "AWS_SECRET_KEY",
       detector: "REGEX_FIREWALL",
       pattern:
-        /\b(?:aws_?)?secret_?access_?key\b\s*[:=]\s*["']?[A-Za-z0-9/+=]{40}(?![A-Za-z0-9/+=])/gi,
+        /\b(?:aws[_-]?)?secret[_-]?access[_-]?key\b["']?\s*[:=]\s*["']?[A-Za-z0-9/+=]{40}(?![A-Za-z0-9/+=])/gi,
     },
     {
       category: "API_KEY",
@@ -276,6 +278,25 @@
     "localhost", "you", "are", "was", "were", "not", "but", "all", "any",
     "how", "who", "what", "when", "where", "why",
   ]);
+
+  const NANO_MAX_ENTITY_WORDS = 4;
+  const NANO_MAX_ENTITY_CHARS = 64;
+
+  /**
+   * A 3B model asked for "sensitive substrings" also returns ordinary clauses.
+   * Redacting those would silently rewrite the user's message, so an entity is
+   * only adopted when it still looks like a name, id or credential: short, no
+   * connective words, and carrying a capital, a digit or a symbol.
+   */
+  function isPlausibleNanoEntity(phrase) {
+    if (phrase.length > NANO_MAX_ENTITY_CHARS) return false;
+    const words = phrase.split(/\s+/);
+    if (words.length > NANO_MAX_ENTITY_WORDS) return false;
+    if (words.length > 1 && words.some((word) => NANO_STOPWORDS.has(word.toLowerCase().replace(/[^\p{L}]/gu, "")))) {
+      return false;
+    }
+    return /[A-Z0-9]/.test(phrase) || /[^A-Za-z\s]/.test(phrase);
+  }
 
   function getProtectedPlaceholderRanges(rawText) {
     const ranges = [];
@@ -631,29 +652,58 @@
     };
   }
 
+  const NANO_TIMEOUT = Symbol("cordon-nano-timeout");
+
+  /** Resolves with `fallbackValue` if `promise` has not settled in time. Never rejects. */
+  function withDeadline(promise, ms, fallbackValue) {
+    let timer;
+    const deadline = new Promise((resolve) => {
+      timer = setTimeout(() => resolve(fallbackValue), ms);
+    });
+    return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
+  }
+
   async function runExtensionNanoScan(rawText, options = {}) {
     const timeoutMs = options.timeoutMs ?? 3500;
-    const fallback = (nanoState) => {
-      const merged = mergeSpans(rawText, runLocalDeterministicScan(rawText, true));
+    // The panel and the shield both honour the Protection Dial, so every deterministic pass
+    // inside this function has to use the same level as the caller's.
+    const level = ["low", "medium", "high"].includes(options.protectionLevel)
+      ? options.protectionLevel
+      : "medium";
+    const fallback = (nanoState, timedOut = false) => {
+      const merged = mergeSpans(rawText, runLocalDeterministicScan(rawText, true, level));
       return {
         nanoActive: false,
         ...(nanoState === undefined ? {} : { nanoState }),
+        nanoTimedOut: timedOut,
         ...merged,
         riskProfile: computeQuickRiskScore(merged.mergedSpans),
       };
     };
 
-    if (!globalThis.LanguageModel?.availability) return fallback();
+    const model = globalThis.LanguageModel;
+    if (typeof model?.availability !== "function") return fallback();
 
-    const avail = await globalThis.LanguageModel.availability(TEXT_ONLY_OPTIONS);
+    let avail;
+    try {
+      avail = await withDeadline(model.availability(TEXT_ONLY_OPTIONS), timeoutMs, NANO_TIMEOUT);
+    } catch (err) {
+      console.warn("[Cordon] Nano availability check failed, using deterministic rules:", err?.message);
+      return fallback();
+    }
+    if (avail === NANO_TIMEOUT) {
+      console.warn("[Cordon] Nano availability check timed out, using deterministic rules");
+      return fallback(undefined, true);
+    }
     if (avail !== "available" && avail !== "readily") return fallback(avail);
 
     let session = null;
     const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
-    const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
-    try {
-      const params = globalThis.LanguageModel.params ? await globalThis.LanguageModel.params() : null;
-      session = await globalThis.LanguageModel.create({
+    const abortTimer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+
+    const attempt = async () => {
+      const params = typeof model.params === "function" ? await model.params() : null;
+      session = await model.create({
         ...TEXT_ONLY_OPTIONS,
         ...(params?.defaultTopK ? { topK: Math.min(3, params.maxTopK ?? 3), temperature: 0.1 } : {}),
         ...(controller ? { signal: controller.signal } : {}),
@@ -679,7 +729,8 @@
           phrase.includes("\u0000") ||
           !/[A-Za-z0-9]/.test(phrase) ||
           NANO_CUE_PHRASE_REGEX.test(phrase) ||
-          NANO_STOPWORDS.has(phrase.toLowerCase())
+          NANO_STOPWORDS.has(phrase.toLowerCase()) ||
+          !isPlausibleNanoEntity(phrase)
         ) {
           continue;
         }
@@ -708,20 +759,35 @@
           });
         }
       }
-      const baseSpans = runLocalDeterministicScan(rawText, false);
+      const baseSpans = runLocalDeterministicScan(rawText, false, level);
       const merged = mergeSpans(rawText, [...baseSpans, ...nanoSpans]);
       return {
         nanoActive: true,
         nanoState: avail,
+        nanoTimedOut: false,
         ...merged,
         riskProfile: computeQuickRiskScore(merged.mergedSpans),
       };
+    };
+
+    try {
+      // The deadline is a hard wall: a session that ignores its abort signal still returns.
+      const result = await withDeadline(attempt(), timeoutMs, NANO_TIMEOUT);
+      if (result === NANO_TIMEOUT) {
+        console.warn("[Cordon] Nano scan timed out, using deterministic rules");
+        return fallback(avail, true);
+      }
+      return result;
     } catch (err) {
       console.warn("[Cordon] Nano scan unavailable, using deterministic rules:", err?.message);
       return fallback(avail);
     } finally {
-      if (timer) clearTimeout(timer);
-      session?.destroy?.();
+      if (abortTimer) clearTimeout(abortTimer);
+      try {
+        session?.destroy?.();
+      } catch (err) {
+        console.warn("[Cordon] Nano session cleanup failed:", err?.message);
+      }
     }
   }
 
@@ -767,15 +833,42 @@
     return host;
   }
 
-  function buildSanitizedHandoffUrl(title, sanitizedText, baseUrl = "https://para-1-2e22b.web.app/") {
-    const json = JSON.stringify({ title, sanitizedText });
+  const DEFAULT_HANDOFF_BASE = "https://para-1-2e22b.web.app/";
+  const MAX_HANDOFF_TEXT_CHARS = 50_000;
+  const MAX_HANDOFF_TITLE_CHARS = 200;
+  const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
+
+  /**
+   * Builds the `#handoff=` link. The body is re-scrubbed here instead of being
+   * trusted from the caller: this is the last point before text leaves the
+   * extension, so a stale or unscrubbed buffer can never slip out.
+   */
+  function buildSanitizedHandoffUrl(title, sanitizedText, baseUrl = DEFAULT_HANDOFF_BASE) {
+    let origin = DEFAULT_HANDOFF_BASE;
+    try {
+      const parsed = new URL(String(baseUrl));
+      if (parsed.protocol === "https:" || parsed.protocol === "http:") origin = parsed.href;
+    } catch {
+      // Unparseable base falls back to the shipped workbench origin.
+    }
+
+    const safeBody = scrubSync(String(sanitizedText ?? ""))
+      .sanitizedText.replace(CONTROL_CHARS, "")
+      .slice(0, MAX_HANDOFF_TEXT_CHARS);
+    const safeTitle =
+      String(title ?? "")
+        .replace(CONTROL_CHARS, "")
+        .trim()
+        .slice(0, MAX_HANDOFF_TITLE_CHARS) || "Chrome Extension Capture";
+
+    const json = JSON.stringify({ title: safeTitle, sanitizedText: safeBody });
     const bytes = new TextEncoder().encode(json);
     let binary = "";
     for (const b of bytes) {
       binary += String.fromCharCode(b);
     }
     const base64url = btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-    return `${baseUrl}#handoff=${base64url}`;
+    return `${origin}#handoff=${base64url}`;
   }
 
   root.LocalFirstFirewall = {

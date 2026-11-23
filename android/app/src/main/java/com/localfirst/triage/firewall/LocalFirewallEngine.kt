@@ -152,11 +152,12 @@ object LocalFirewallEngine {
         ),
         RegexRule(
             // The 40-char secret that follows AWS_SECRET_ACCESS_KEY= has no recognisable prefix,
-            // so it is only identifiable by its assignment label.
+            // so it is only identifiable by its assignment label. The optional quote after the
+            // name covers JSON camelCase: "SecretAccessKey".
             category = "AWS_SECRET_KEY",
             detector = DetectorSource.REGEX_FIREWALL,
             pattern = Regex(
-                """(?i)\b(?:aws_?)?secret_?access_?key\b\s*[:=]\s*["']?[A-Za-z0-9/+=]{40}(?![A-Za-z0-9/+=])""",
+                """(?i)\b(?:aws[_-]?)?secret[_-]?access[_-]?key\b["']?\s*[:=]\s*["']?[A-Za-z0-9/+=]{40}(?![A-Za-z0-9/+=])""",
             ),
         ),
         RegexRule(

@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.text.InputType
 import android.util.Log
 import android.util.TypedValue
@@ -71,6 +72,9 @@ class CordonAccessibilityService : AccessibilityService() {
     private var pendingRescan: Runnable? = null
     private var pendingRescanPackage: String? = null
     private var pendingRescanSpans: List<RedactionSpan> = emptyList()
+
+    /** Uptime of the text change that produced the current findings, for the modalShown latency. */
+    private var fieldObservedAt = 0L
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -154,6 +158,8 @@ class CordonAccessibilityService : AccessibilityService() {
         val previous = lastTextByPackage[pkg].orEmpty()
         if (text == previous) return
         lastTextByPackage[pkg] = text
+        fieldObservedAt = SystemClock.uptimeMillis()
+        Log.d(TAG, "textChanged pkg=$pkg len=${text.length}")
 
         overrideMemory.onTextChanged(pkg, text)
         if (overrideMemory.isOverridden(pkg, text)) return
@@ -171,7 +177,7 @@ class CordonAccessibilityService : AccessibilityService() {
         riskyPackage = pkg
 
         val burst = GuardTriggerPolicy.isPasteBurst(previous.length, text.length)
-        when (GuardTriggerPolicy.trigger(burst, findings.size)) {
+        when (GuardTriggerPolicy.trigger(burst, findings, text.length)) {
             GuardTriggerPolicy.Trigger.LOCK_NOW -> {
                 cancelPendingRescan()
                 showBlockModal(pkg, text, sanitized, findings)
@@ -264,8 +270,12 @@ class CordonAccessibilityService : AccessibilityService() {
             wm.addView(scrim, modalLayoutParams())
             modalView = scrim
             modalPackage = pkg
-            // Zero-PII diagnostic: counts and categories only.
-            Log.d(TAG, "modalShown pkg=$pkg findings=${spans.size} chips=${FindingChips.summary(spans)}")
+            // Zero-PII diagnostic: counts, categories and timing only, never the text.
+            val elapsedMs = SystemClock.uptimeMillis() - fieldObservedAt
+            Log.d(
+                TAG,
+                "modalShown pkg=$pkg findings=${spans.size} elapsedMs=$elapsedMs chips=${FindingChips.summary(spans)}",
+            )
         }.onFailure { err ->
             Log.e(TAG, "modalAddViewFailed pkg=$pkg err=${err.message}")
             modalView = null

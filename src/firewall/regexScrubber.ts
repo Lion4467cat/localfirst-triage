@@ -86,10 +86,11 @@ const DETERMINISTIC_REGEX_RULES: RegexRule[] = [
   {
     // The 40-char secret that follows AWS_SECRET_ACCESS_KEY=. Anchored to the
     // key NAME so a bare 40-char base64 hash elsewhere is not falsely redacted.
+    // The optional quote after the name covers JSON camelCase: "SecretAccessKey".
     category: "AWS_SECRET_KEY",
     detector: "REGEX_FIREWALL",
     pattern:
-      /\b(?:aws_?)?secret_?access_?key\b\s*[:=]\s*["']?[A-Za-z0-9/+=]{40}(?![A-Za-z0-9/+=])/gi,
+      /\b(?:aws[_-]?)?secret[_-]?access[_-]?key\b["']?\s*[:=]\s*["']?[A-Za-z0-9/+=]{40}(?![A-Za-z0-9/+=])/gi,
   },
   {
     category: "API_KEY",
