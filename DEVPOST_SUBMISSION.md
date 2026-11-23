@@ -109,13 +109,14 @@ Every category scored 100%: `ADDRESS`, `API_KEY`, `AWS_ACCESS_KEY`, `AWS_SECRET_
 
 | Metric | S26 Ultra (Hybrid `ON_DEVICE`) | Moto G82 5G (Fail-Closed Deterministic) |
 | :--- | :---: | :---: |
-| AICore status | `AVAILABLE` → `NanoStatus.READY` | `UNAVAILABLE` |
+| AICore status | `AVAILABLE` → `NanoStatus.READY` (`nano-v4-fast`) | `UNAVAILABLE` |
 | "Cover for Maya… oncology clinic in Indiranagar" | **3/3 semantic spans** (person, PHI, neighbourhood) | 0/3 — fail-closed |
-| Sandbox pass: sentence + card + Stripe key, Airplane Mode | **6 spans, 2,513 ms** | 6 spans, ~1.4 ms |
-| Deterministic recall / FP | 100% / 0% | **100% (81/81)** / **0% (0/46)** |
+| Sandbox pass: sentence + card + Stripe key, Airplane Mode | **6 spans, 2,589 ms** | 6 spans, ~1.4 ms |
+| Deterministic recall / FP (`CordonBench`) | **100% (81/81)** / **0% (0/46)** | **100% (81/81)** / **0% (0/46)** |
+| Deterministic latency p50 / p95 / max | **0.44 ms / 0.63 ms / 0.91 ms** | **1.42 ms / 4.01 ms / 6.94 ms** |
 | Raw PII left device | **0** | **0** |
 
-The app offered a real download (`DOWNLOADABLE` → `DOWNLOADING` with live bytes, MB/s and ETA → `AVAILABLE`), then ran stage 1 with Wi-Fi off and rendered the `ON_DEVICE` badge next to `Scrubbed · 6 blocked · 0 Leaked`. Logcat: `sandbox status=READY model=… semantic=5 spans=6 latency=2513ms`.
+The app offered a real download (`DOWNLOADABLE` → `DOWNLOADING` with live bytes, MB/s and ETA → `AVAILABLE`), then ran stage 1 with Wi-Fi off and rendered the `ON_DEVICE` badge next to `Scrubbed · 6 blocked · 0 Leaked`. Logcat: `onDevice modelName=nano-v4-fast` · `sandbox status=READY semantic=5 spans=6 latency=2589ms` · `CordonBench: device=SM-S948B api=37 abi=arm64-v8a`.
 
 Reproduce: `cd android && ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.localfirst.triage.OnDeviceFirewallBenchmarkTest`, then `adb logcat -d | grep CordonBench`.
 

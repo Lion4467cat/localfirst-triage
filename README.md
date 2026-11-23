@@ -118,15 +118,15 @@ Retail AICore ships Gemini Nano on the S26 Ultra, so the same APK runs the hybri
 
 | Metric | S26 Ultra (Hybrid) | Moto G82 5G (Fail-Closed Deterministic) |
 | :--- | :---: | :---: |
-| **Stage 1 engine** | `ON_DEVICE` (Nano 4 via AICore) + deterministic union | `HEURISTIC_GUARD` + deterministic |
+| **Stage 1 engine** | `ON_DEVICE` (`nano-v4-fast` via AICore) + deterministic union | `HEURISTIC_GUARD` + deterministic |
 | **AICore status** | `AVAILABLE` → `NanoStatus.READY` | `UNAVAILABLE` |
 | **Demo sentence** ("cover for Maya… oncology clinic in Indiranagar") | **`3/3` semantic spans** (person, PHI, neighbourhood) | **`0/3`** semantic, fail-closed |
-| **Sandbox hybrid pass** (sentence + card + Stripe key, Airplane Mode) | **`6` spans in `2,513 ms`** | `6` spans, `~1.4 ms` |
-| **Deterministic recall / FP** | `100%` / `0%` (same rules) | **`100%` (81/81)** / **`0%` (0/46)** |
-| **Latency p50 / p95 / max** | `2.5 s` Nano pass (one-time per message) | **`1.42 ms` / `4.01 ms` / `6.94 ms`** |
+| **Sandbox hybrid pass** (sentence + card + Stripe key, Airplane Mode) | **`6` spans in `2,589 ms`** | `6` spans, `~1.4 ms` |
+| **Deterministic recall / FP** | **`100%` (81/81)** / **`0%` (0/46)** | **`100%` (81/81)** / **`0%` (0/46)** |
+| **Deterministic latency p50 / p95 / max** | **`0.44 ms` / `0.63 ms` / `0.91 ms`** | **`1.42 ms` / `4.01 ms` / `6.94 ms`** |
 | **Raw PII left device** | **`0`** | **`0`** |
 
-Measured with Wi-Fi off. `adb logcat -s CordonNano` on the S26 shows `probe option=preview status=READY` and `sandbox status=READY model=… semantic=5 spans=6 latency=2513ms`; the result card renders the `ON_DEVICE` badge next to `Scrubbed · 6 blocked · 0 Leaked`. The full 81-case `CordonBench` numbers above are the deterministic floor both devices share.
+Measured with Wi-Fi off. `adb logcat -s CordonNano` on the S26 shows `probe option=preview status=READY`, `onDevice modelName=nano-v4-fast` and `sandbox status=READY model=nano-v4-fast semantic=5 spans=6 latency=2589ms`; the result card renders the `ON_DEVICE` badge next to `Scrubbed · 6 blocked · 0 Leaked`. `CordonBench` on the same phone: `device=SM-S948B api=37 abi=arm64-v8a`, `overall recall=100.0% (81/81)`, `false positive rate=0.0% (0/46)`, `storedEntries=81 rawSecretSubstringsInStore=0`.
 
 ---
 

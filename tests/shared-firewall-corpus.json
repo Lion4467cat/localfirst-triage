@@ -371,5 +371,122 @@
         ]
       }
     }
+  },
+  {
+    "id": "round3-card-dot-separators",
+    "input": "Charge card 4111.1111.1111.1111 for the incident review.",
+    "levels": {
+      "low": {
+        "mustNotContain": [
+          "4111.1111.1111.1111"
+        ]
+      },
+      "medium": {
+        "mustNotContain": [
+          "4111.1111.1111.1111"
+        ]
+      },
+      "high": {
+        "mustNotContain": [
+          "4111.1111.1111.1111"
+        ]
+      }
+    }
+  },
+  {
+    "id": "round3-spaced-pan",
+    "input": "KYC: PAN: ABCPD 1234 F verified against the bank record.",
+    "levels": {
+      "low": {
+        "mustNotContain": [
+          "ABCPD 1234 F"
+        ]
+      },
+      "medium": {
+        "mustNotContain": [
+          "ABCPD 1234 F"
+        ]
+      },
+      "high": {
+        "mustNotContain": [
+          "ABCPD 1234 F"
+        ]
+      }
+    }
+  },
+  {
+    "id": "round3-spaced-stripe-prefix",
+    "input": "the key is sk_live_ 51NxMockSecret9988776655 and it is live",
+    "levels": {
+      "low": {
+        "mustNotContain": [
+          "51NxMockSecret9988776655"
+        ]
+      },
+      "medium": {
+        "mustNotContain": [
+          "51NxMockSecret9988776655"
+        ]
+      },
+      "high": {
+        "mustNotContain": [
+          "51NxMockSecret9988776655"
+        ]
+      }
+    }
+  },
+  {
+    "id": "round3-card-dots-no-version-fp",
+    "input": "build 1.2.3.4.5 shipped on schedule",
+    "levels": {
+      "low": {
+        "mustPreserve": [
+          "1.2.3.4.5"
+        ]
+      },
+      "medium": {
+        "mustPreserve": [
+          "1.2.3.4.5"
+        ]
+      },
+      "high": {
+        "mustPreserve": [
+          "1.2.3.4.5"
+        ]
+      }
+    }
+  },
+  {
+    "id": "round4-address-tail-stops-at-card",
+    "input": "Hi Maya, ship the invoice to 143/A, Apt 4B, Bengaluru 560001. Card 4111 1111 1111 1111 exp 04/29 cvv 123.",
+    "levels": {
+      "low": {
+        "mustPreserve": [
+          "143/A, Apt 4B, Bengaluru 560001"
+        ]
+      },
+      "medium": {
+        "mustNotContain": [
+          "143/A",
+          "Apt 4B",
+          "560001",
+          "4111 1111 1111 1111",
+          "04/29"
+        ],
+        "mustPreserve": [
+          "Card ",
+          "exp "
+        ]
+      },
+      "high": {
+        "mustNotContain": [
+          "143/A",
+          "Apt 4B",
+          "560001",
+          "4111 1111 1111 1111",
+          "04/29"
+        ]
+      }
+    }
   }
 ]

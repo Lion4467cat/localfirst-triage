@@ -166,7 +166,7 @@ object LocalFirewallEngine {
             category = "API_KEY",
             detector = DetectorSource.REGEX_FIREWALL,
             pattern = Regex(
-                """\b(?:AIza[0-9A-Za-z\-_]{20,}|(?:sk|pk|rk)_(?:live|test)_[0-9A-Za-z]{16,}|sk-(?:proj-|ant-)?[0-9A-Za-z\-_]{20,}|(?:ghp|gho|ghu|ghs|ghr)_[0-9A-Za-z]{20,}|github_pat_[0-9A-Za-z_]{22,}|xox[baprs]-[0-9A-Za-z\-]{10,}|glpat-[A-Za-z0-9_-]{15,}|hf_[A-Za-z0-9]{20,}|SK[0-9a-fA-F]{32}|SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{20,}|npm_[A-Za-z0-9]{20,}|pypi-[A-Za-z0-9_-]{20,}|shp(?:at|ca|pa|ss)_[0-9a-fA-F]{20,}|ddapi_[A-Za-z0-9_-]{16,}|lin_api_[A-Za-z0-9]{20,}|sbp_[0-9a-fA-F]{20,}|glsa_[A-Za-z0-9_-]{20,}|[A-Za-z0-9]{14}\.atlasv1\.[A-Za-z0-9_-]{20,}|PMAK-[0-9a-fA-F]{20,}-[0-9a-fA-F]{20,}|pul-[0-9a-fA-F]{20,}|pplx-[A-Za-z0-9]{20,}|gsk_[A-Za-z0-9]{20,}|dop_v1_[0-9a-fA-F]{32,})\b""",
+                """\b(?:AIza[0-9A-Za-z\-_]{20,}|(?:sk|pk|rk)_(?:live|test)_[ \t]?[0-9A-Za-z]{16,}|sk-(?:proj-|ant-)?[0-9A-Za-z\-_]{20,}|(?:ghp|gho|ghu|ghs|ghr)_[0-9A-Za-z]{20,}|github_pat_[0-9A-Za-z_]{22,}|xox[baprs]-[0-9A-Za-z\-]{10,}|glpat-[A-Za-z0-9_-]{15,}|hf_[A-Za-z0-9]{20,}|SK[0-9a-fA-F]{32}|SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{20,}|npm_[A-Za-z0-9]{20,}|pypi-[A-Za-z0-9_-]{20,}|shp(?:at|ca|pa|ss)_[0-9a-fA-F]{20,}|ddapi_[A-Za-z0-9_-]{16,}|lin_api_[A-Za-z0-9]{20,}|sbp_[0-9a-fA-F]{20,}|glsa_[A-Za-z0-9_-]{20,}|[A-Za-z0-9]{14}\.atlasv1\.[A-Za-z0-9_-]{20,}|PMAK-[0-9a-fA-F]{20,}-[0-9a-fA-F]{20,}|pul-[0-9a-fA-F]{20,}|pplx-[A-Za-z0-9]{20,}|gsk_[A-Za-z0-9]{20,}|dop_v1_[0-9a-fA-F]{32,})\b""",
             ),
         ),
         RegexRule(
@@ -182,7 +182,7 @@ object LocalFirewallEngine {
             detector = DetectorSource.REGEX_FIREWALL,
             // (?<![\d-]) rejects match starts inside a longer digit/separator run, so a
             // pathological "4-1-1-…" string costs one attempt instead of one per digit (ReDoS guard).
-            pattern = Regex("""(?<![\d-])\b\d(?:[ -]?\d){12,18}\b"""),
+            pattern = Regex("""(?<![\d.-])\b\d(?:[ .-]?\d){12,18}\b"""),
             validator = { matched ->
                 val digits = matched.replace(NON_DIGIT, "")
                 digits.length in 13..19 &&
@@ -201,6 +201,17 @@ object LocalFirewallEngine {
                 RegexOption.IGNORE_CASE,
             ),
             validator = { !it.startsWith(".") && !it.contains("..") },
+        ),
+        RegexRule(
+            // Forms often group a PAN as "ABCPD 1234 F". The cue keeps the spaced shape from
+            // firing on prose that happens to look like five letters and four digits.
+            category = "PAN_ID",
+            detector = DetectorSource.REGEX_FIREWALL,
+            captureGroup = 1,
+            pattern = Regex(
+                """\b(?:pan|permanent\s+account\s+number)\s*(?:no\.?|number)?\s*[:#-]?\s*([A-Z]{3}[PCHFATBLJG][A-Z][ ]?\d{4}[ ]?[A-Z])\b""",
+                RegexOption.IGNORE_CASE,
+            ),
         ),
         RegexRule(
             // Indian PAN: 5 letters (4th is the assessee type), 4 digits, 1 letter. Must run
@@ -323,7 +334,7 @@ object LocalFirewallEngine {
             captureGroup = 1,
             minLevel = ProtectionLevel.MEDIUM,
             pattern = Regex(
-                """\b(?:credit\s*card|debit\s*card|card\s*(?:number|no\.?|#)|cc\s*[:#])\b[^0-9\n]{0,30}(\d(?:[ -]?\d){12,18})\b""",
+                """\b(?:credit\s*card|debit\s*card|card\s*(?:number|no\.?|#)|cc\s*[:#])\b[^0-9\n]{0,30}(\d(?:[ .-]?\d){12,18})\b""",
                 RegexOption.IGNORE_CASE,
             ),
         ),
@@ -573,12 +584,14 @@ object LocalFirewallEngine {
         ),
         RegexRule(
             // Secondary address line: "Apt 4B", "Suite 200", "Flat 302". Unambiguous unit words
-            // only, so "unit 5 failed" in a test log stays prose.
+            // only, so "unit 5 failed" in a test log stays prose. The optional locality tail
+            // stops at a sentence break and at any financial cue, so "Apt 4B, Bengaluru 560001.
+            // Card 4111 1111 1111 1111" redacts the address and leaves the card to its own rule.
             category = "ADDRESS",
             detector = DetectorSource.HEURISTIC_GUARD,
             minLevel = ProtectionLevel.MEDIUM,
             pattern = Regex(
-                """(?<![\w.])((?:apt|apartment|suite|ste|flat)\.?\s*[A-Z]?\d{1,5}[A-Za-z]?(?:\s*[,·]\s*[A-Za-z0-9 .'-]{2,30})?)""",
+                """(?<![\w.])((?:apt|apartment|suite|ste|flat)\.?\s*[A-Z]?\d{1,5}[A-Za-z]?(?:\s*[,·]\s*(?:(?!(?:card|upi|pan|ifsc|cvv|cvc|cid|csc|exp|expiry|account|acct|iban|vpa)\b)[A-Za-z0-9 '-]){2,30})?)""",
                 RegexOption.IGNORE_CASE,
             ),
         ),

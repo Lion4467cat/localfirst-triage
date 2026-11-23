@@ -96,7 +96,7 @@ const DETERMINISTIC_REGEX_RULES: RegexRule[] = [
     category: "API_KEY",
     detector: "REGEX_FIREWALL",
     pattern:
-      /\b(?:AIza[0-9A-Za-z\-_]{20,}|(?:sk|pk|rk)_(?:live|test)_[0-9A-Za-z]{16,}|sk-(?:proj-|ant-)?[0-9A-Za-z\-_]{20,}|(?:ghp|gho|ghu|ghs|ghr)_[0-9A-Za-z]{20,}|github_pat_[0-9A-Za-z_]{22,}|xox[baprs]-[0-9A-Za-z\-]{10,}|glpat-[A-Za-z0-9_-]{15,}|hf_[A-Za-z0-9]{20,}|SK[0-9a-fA-F]{32}|SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{20,}|npm_[A-Za-z0-9]{20,}|pypi-[A-Za-z0-9_-]{20,}|shp(?:at|ca|pa|ss)_[0-9a-fA-F]{20,}|ddapi_[A-Za-z0-9_-]{16,}|lin_api_[A-Za-z0-9]{20,}|sbp_[0-9a-fA-F]{20,}|glsa_[A-Za-z0-9_-]{20,}|[A-Za-z0-9]{14}\.atlasv1\.[A-Za-z0-9_-]{20,}|PMAK-[0-9a-fA-F]{20,}-[0-9a-fA-F]{20,}|pul-[0-9a-fA-F]{20,}|pplx-[A-Za-z0-9]{20,}|gsk_[A-Za-z0-9]{20,}|dop_v1_[0-9a-fA-F]{32,})\b/g,
+      /\b(?:AIza[0-9A-Za-z\-_]{20,}|(?:sk|pk|rk)_(?:live|test)_[ \t]?[0-9A-Za-z]{16,}|sk-(?:proj-|ant-)?[0-9A-Za-z\-_]{20,}|(?:ghp|gho|ghu|ghs|ghr)_[0-9A-Za-z]{20,}|github_pat_[0-9A-Za-z_]{22,}|xox[baprs]-[0-9A-Za-z\-]{10,}|glpat-[A-Za-z0-9_-]{15,}|hf_[A-Za-z0-9]{20,}|SK[0-9a-fA-F]{32}|SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{20,}|npm_[A-Za-z0-9]{20,}|pypi-[A-Za-z0-9_-]{20,}|shp(?:at|ca|pa|ss)_[0-9a-fA-F]{20,}|ddapi_[A-Za-z0-9_-]{16,}|lin_api_[A-Za-z0-9]{20,}|sbp_[0-9a-fA-F]{20,}|glsa_[A-Za-z0-9_-]{20,}|[A-Za-z0-9]{14}\.atlasv1\.[A-Za-z0-9_-]{20,}|PMAK-[0-9a-fA-F]{20,}-[0-9a-fA-F]{20,}|pul-[0-9a-fA-F]{20,}|pplx-[A-Za-z0-9]{20,}|gsk_[A-Za-z0-9]{20,}|dop_v1_[0-9a-fA-F]{32,})\b/g,
   },
   {
     category: "BEARER_OR_JWT",
@@ -107,7 +107,7 @@ const DETERMINISTIC_REGEX_RULES: RegexRule[] = [
   {
     category: "CREDIT_CARD",
     detector: "REGEX_FIREWALL",
-    pattern: /\b\d(?:[ -]?\d){12,18}\b/g,
+    pattern: /(?<![\d.-])\b\d(?:[ .-]?\d){12,18}\b/g,
     validator: (matched) => {
       const digits = matched.replace(/\D/g, "");
       if (digits.length < 13 || digits.length > 19) return false;
@@ -130,6 +130,15 @@ const DETERMINISTIC_REGEX_RULES: RegexRule[] = [
     pattern:
       /\b[A-Za-z0-9][A-Za-z0-9._-]{1,40}@(?:oksbi|okicici|okhdfcbank|okhdfc|okaxis|okbizaxis|ybl|ibl|axl|paytm|apl|upi|jupiteraxis|yapl|sliceaxis|fam|axisb|airtel|freecharge|ikwik|jio|waaxis|wahdfcbank|waicici|wasbi)(?!\.[A-Za-z])\b/gi,
     validator: (m) => !m.startsWith(".") && !m.includes(".."),
+  },
+  {
+    // Forms often group a PAN as "ABCPD 1234 F". The cue keeps the spaced shape from firing on
+    // prose that happens to look like five letters and four digits.
+    category: "PAN_ID",
+    detector: "REGEX_FIREWALL",
+    captureGroup: 1,
+    pattern:
+      /\b(?:pan|permanent\s+account\s+number)\s*(?:no\.?|number)?\s*[:#-]?\s*([A-Z]{3}[PCHFATBLJG][A-Z][ ]?\d{4}[ ]?[A-Z])\b/gi,
   },
   {
     // Indian PAN: 5 letters (4th is the assessee type), 4 digits, 1 letter.
@@ -236,7 +245,7 @@ const DETERMINISTIC_REGEX_RULES: RegexRule[] = [
     captureGroup: 1,
     minLevel: "medium",
     pattern:
-      /\b(?:credit\s*card|debit\s*card|card\s*(?:number|no\.?|#)|cc\s*[:#])\b[^0-9\n]{0,30}(\d(?:[ -]?\d){12,18})\b/gi,
+      /\b(?:credit\s*card|debit\s*card|card\s*(?:number|no\.?|#)|cc\s*[:#])\b[^0-9\n]{0,30}(\d(?:[ .-]?\d){12,18})\b/gi,
   },
   {
     category: "ACCOUNT_NUMBER",
@@ -462,7 +471,7 @@ const CONTEXTUAL_HEURISTIC_RULES: RegexRule[] = [
     captureGroup: 1,
     minLevel: "medium",
     pattern:
-      /(?<![\w.])((?:apt|apartment|suite|ste|flat)\.?\s*[A-Z]?\d{1,5}[A-Za-z]?(?:\s*[,·]\s*[A-Za-z0-9 .'-]{2,30})?)/gi,
+      /(?<![\w.])((?:apt|apartment|suite|ste|flat)\.?\s*[A-Z]?\d{1,5}[A-Za-z]?(?:\s*[,·]\s*(?:(?!(?:card|upi|pan|ifsc|cvv|cvc|cid|csc|exp|expiry|account|acct|iban|vpa)\b)[A-Za-z0-9 '-]){2,30})?)/gi,
   },
   {
     category: "POSTAL_CODE",

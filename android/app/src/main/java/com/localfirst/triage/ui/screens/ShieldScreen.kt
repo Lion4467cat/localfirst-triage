@@ -553,8 +553,17 @@ private fun SandboxCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                TextButton(onClick = onToggleExpanded) {
-                    Text(if (expanded) "Hide" else "Open", fontSize = 12.sp)
+                TextButton(
+                    onClick = onToggleExpanded,
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    ),
+                ) {
+                    Text(
+                        text = if (expanded) "Hide" else "Open",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     Icon(
                         imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                         contentDescription = null,
@@ -590,6 +599,10 @@ private fun SandboxCard(
                         OutlinedButton(
                             onClick = onLoadSample,
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                            border = BorderStroke(1.dp, tokens.borderSubtle),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = MaterialTheme.colorScheme.onSurface,
+                            ),
                             modifier = Modifier.heightIn(min = 40.dp),
                         ) {
                             Text("Load Sample", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)

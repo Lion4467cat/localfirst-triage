@@ -120,6 +120,14 @@ class CordonAccessibilityService : AccessibilityService() {
         if (GuardExclusions.isInputMethodPackage(pkg)) return
         val shownFor = modalPackage
         if (shownFor != null && shownFor != pkg) {
+            // Splash screens, the launcher and the IME all raise transient window events while the
+            // guarded app is still in front. Dropping the lock on one of those would leave the raw
+            // secret in the field with no scrub, so confirm the foreground really changed.
+            if (foregroundPackage() == shownFor) {
+                Log.d(TAG, "switchIgnored from=$shownFor event=$pkg")
+                return
+            }
+            Log.d(TAG, "modalDismissedBySwitch from=$shownFor to=$pkg")
             dismissModal("appSwitch")
             overrideMemory.clear()
         }
@@ -129,11 +137,20 @@ class CordonAccessibilityService : AccessibilityService() {
         }
     }
 
+    /** The package of the window actually in front, or null when it cannot be read. */
+    private fun foregroundPackage(): String? =
+        runCatching { rootInActiveWindow?.packageName?.toString() }.getOrNull()
+
     private fun evaluateField(event: AccessibilityEvent, pkg: String) {
         if (modalView != null) {
             // A window-state event can arrive late or not at all, so a modal left over from the
             // previous app must never label (or scrub into) the app that is on screen now.
             if (modalPackage == pkg) return
+            if (foregroundPackage() == modalPackage) {
+                Log.d(TAG, "switchIgnored from=$modalPackage event=$pkg")
+                return
+            }
+            Log.d(TAG, "modalDismissedBySwitch from=$modalPackage to=$pkg")
             dismissModal("appSwitch")
         }
 
@@ -271,7 +288,7 @@ class CordonAccessibilityService : AccessibilityService() {
         val scrim = buildModalView(
             appName = appName,
             spans = spans,
-            onScrub = { onScrubChosen(pkg, sanitizedText, spans) },
+            onScrub = { onScrubChosen(pkg, sanitizedText) },
             onAllowOnce = { onAllowOnceChosen(pkg, rawText, spans) },
         )
         runCatching {
@@ -326,13 +343,31 @@ class CordonAccessibilityService : AccessibilityService() {
         Log.d(TAG, "modalDismissed reason=$reason pkg=$pkg")
     }
 
-    private fun onScrubChosen(pkg: String, sanitizedText: String, spans: List<RedactionSpan>) {
+    private fun onScrubChosen(pkg: String, snapshotSanitized: String) {
         dismissModal("scrub")
         val root = rootInActiveWindow
         val editable = findEditable(root)
         if (editable == null) {
             Log.e(TAG, "setTextFailed pkg=$pkg err=noEditable action=clipboardFallback")
-            copyScrubbedToClipboard(sanitizedText)
+            copyScrubbedToClipboard(snapshotSanitized)
+            return
+        }
+
+        // Re-read and re-scrub now. The user keeps typing while the modal is up, so the text
+        // captured when the modal was raised is only a prefix; writing it back would silently
+        // delete everything typed since (and leave the newer secrets unredacted in the draft).
+        val live = editable.text?.toString().orEmpty()
+        if (live.isBlank()) {
+            Log.d(TAG, "modalAction action=scrubbed pkg=$pkg findings=0 setTextOk=skipped reason=fieldEmpty")
+            return
+        }
+        val (sanitizedText, freshSpans) = LocalFirewallEngine.scrub(
+            rawText = live,
+            protectionLevel = ShieldStore.getProtectionLevel(this),
+        )
+        val spans = freshSpans.filter { it.masked }
+        if (spans.isEmpty() || sanitizedText == live) {
+            Log.d(TAG, "modalAction action=scrubbed pkg=$pkg findings=0 setTextOk=skipped reason=alreadyClean")
             return
         }
 
@@ -363,7 +398,20 @@ class CordonAccessibilityService : AccessibilityService() {
         Log.d(TAG, "modalAction action=scrubbed pkg=$pkg findings=${spans.size} setTextOk=true")
     }
 
-    private fun onAllowOnceChosen(pkg: String, rawText: String, spans: List<RedactionSpan>) {
+    private fun onAllowOnceChosen(pkg: String, snapshotRaw: String, snapshotSpans: List<RedactionSpan>) {
+        // Read the field again so the override remembers exactly what is in it now; otherwise a
+        // message typed after the modal appeared would re-lock on the next keystroke.
+        val live = rootInActiveWindow?.let { findEditable(it) }?.text?.toString()
+            ?.takeIf { it.isNotBlank() }
+        val rawText = live ?: snapshotRaw
+        val spans = if (live != null && live != snapshotRaw) {
+            LocalFirewallEngine.scrub(
+                rawText = live,
+                protectionLevel = ShieldStore.getProtectionLevel(this),
+            ).second.filter { it.masked }
+        } else {
+            snapshotSpans
+        }
         // Remember BEFORE dismissing: the dismissal itself can trigger the content-changed
         // event that would otherwise re-lock the very same message.
         overrideMemory.remember(pkg, rawText)
