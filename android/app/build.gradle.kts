@@ -40,6 +40,19 @@ android {
     testOptions {
         unitTests.isReturnDefaultValues = true
     }
+
+    // One synthetic detection corpus shared by the JVM parity test and the on-device benchmark.
+    // Kept out of the shipped APK: it is test data, not product code.
+    sourceSets {
+        getByName("test") {
+            java.srcDir("src/sharedTest/java")
+            kotlin.srcDir("src/sharedTest/java")
+        }
+        getByName("androidTest") {
+            java.srcDir("src/sharedTest/java")
+            kotlin.srcDir("src/sharedTest/java")
+        }
+    }
 }
 
 dependencies {
@@ -66,4 +79,9 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+
+    androidTestImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test:core:1.6.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
 }

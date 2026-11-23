@@ -11,11 +11,13 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.DarkMode
@@ -30,6 +32,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -217,27 +220,36 @@ class MainActivity : ComponentActivity() {
                                         )
                                     }
                                 }
-                                TextButton(
+                                Surface(
                                     onClick = {
                                         val nextMode = themeMode.next()
                                         themeMode = nextMode
                                         prefs.edit().putString("theme_mode", nextMode.name).apply()
                                     },
+                                    shape = RoundedCornerShape(50),
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    contentColor = MaterialTheme.colorScheme.onSurface,
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                                    modifier = Modifier.padding(end = 8.dp),
                                 ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    ) {
                                         Icon(
                                             imageVector = when (themeMode) {
                                                 AppThemeMode.SYSTEM -> Icons.Default.BrightnessAuto
                                                 AppThemeMode.LIGHT -> Icons.Default.LightMode
                                                 AppThemeMode.DARK -> Icons.Default.DarkMode
                                             },
-                                            contentDescription = "Cycle theme",
-                                            modifier = Modifier.padding(end = 4.dp),
+                                            contentDescription = "Theme: ${themeMode.shortLabel}",
+                                            modifier = Modifier.size(14.dp),
                                         )
                                         Text(
                                             text = themeMode.shortLabel,
-                                            fontSize = 12.sp,
+                                            fontSize = 11.sp,
                                             fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier.padding(start = 5.dp),
                                         )
                                     }
                                 }
@@ -312,9 +324,15 @@ class MainActivity : ComponentActivity() {
                                     isAccessibilityEnabled = isAccessibilityEnabled,
                                     isShieldPaused = isShieldPaused,
                                     totalSecretsBlocked = totalSecretsBlocked,
+                                    guardedAppCount = guardedAppsState.count { it.value },
                                     onEnableAccessibility = ::openAccessibilitySettingsSafely,
                                     onResumeShield = {
                                         ShieldStore.setShieldPaused(this@MainActivity, false)
+                                        refreshLocalShieldState()
+                                    },
+                                    onSelectProtectionLevel = { level ->
+                                        ShieldStore.setProtectionLevel(this@MainActivity, level)
+                                        vm.setProtectionLevel(level)
                                         refreshLocalShieldState()
                                     },
                                     onScrubSandbox = { rawText, _, spans, engineUsed ->

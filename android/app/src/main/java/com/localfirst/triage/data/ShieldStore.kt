@@ -34,45 +34,13 @@ data class BlockHistoryEntry(
     fun formatSummary(): String {
         val statusSuffix = if (actionType == ACTION_OVERRIDE) "Unsafe Override" else "0 Leaked"
         if (categoryCounts.isEmpty()) {
-            return "$totalBlocked Secret(s) · $statusSuffix"
+            return "$totalBlocked ${Pluralize.of(totalBlocked, "Secret")} · $statusSuffix"
         }
         val parts = categoryCounts.entries
             .sortedByDescending { it.value }
             .take(3)
-            .map { (category, count) -> "$count ${ShieldStore.friendlyCategoryName(category)}" }
+            .map { (category, count) -> ShieldStore.categoryChip(category, count) }
         return (parts + statusSuffix).joinToString(" · ")
-    }
-}
-
-/**
- * One plain-language sentence per shield state, so a first-time user always knows the
- * single next action. Kept out of Compose so it is unit-testable.
- */
-object ShieldSetupCopy {
-    fun helperLine(accessibilityEnabled: Boolean, paused: Boolean, guardedAppCount: Int): String = when {
-        !accessibilityEnabled ->
-            "Tap Enable, then turn on Cordon in the Android list, and come back here. " +
-                "After that, open ChatGPT and type a secret."
-        paused ->
-            "Shield is paused. Tap Resume so your next message is protected."
-        else ->
-            "Shield is on and watching $guardedAppCount apps. Open ChatGPT, Claude or a browser, " +
-                "type a secret, and tap Send."
-    }
-}
-
-/** Status wording for the Shield hero card. "OFF" and "PAUSED" are different states. */
-object ShieldStatusCopy {
-    fun label(accessibilityEnabled: Boolean, paused: Boolean): String = when {
-        !accessibilityEnabled -> "OFF"
-        paused -> "PAUSED"
-        else -> "ACTIVE"
-    }
-
-    fun headline(accessibilityEnabled: Boolean, paused: Boolean, guardedAppCount: Int): String = when {
-        !accessibilityEnabled -> "Shield is off. Turn it on to protect $guardedAppCount apps."
-        paused -> "Shield is paused — your next message is not protected."
-        else -> "Watching $guardedAppCount apps. Nothing leaves your phone unscrubbed."
     }
 }
 
@@ -138,10 +106,21 @@ object ShieldStore {
 
     fun getGuardedAppsState(context: Context): Map<String, Boolean> {
         val p = prefs(context)
-        return DEFAULT_GUARDED_APPS.associate { app ->
-            app.packageName to p.getBoolean("$KEY_GUARDED_PREFIX${app.packageName}", app.defaultEnabled)
+        val state = LinkedHashMap<String, Boolean>()
+        DEFAULT_GUARDED_APPS.forEach { app ->
+            state[app.packageName] = p.getBoolean("$KEY_GUARDED_PREFIX${app.packageName}", app.defaultEnabled)
         }
+        // Every app the user enabled from the dynamic "Guard any app" list also lives here.
+        p.all.forEach { (key, value) ->
+            if (key.startsWith(KEY_GUARDED_PREFIX) && value is Boolean) {
+                val pkg = key.removePrefix(KEY_GUARDED_PREFIX)
+                if (pkg.isNotBlank()) state[pkg] = value
+            }
+        }
+        return state
     }
+
+    fun getEnabledGuardedCount(context: Context): Int = getGuardedAppsState(context).count { it.value }
 
     fun setGuardedAppEnabled(context: Context, packageName: String, enabled: Boolean) {
         prefs(context).edit().putBoolean("$KEY_GUARDED_PREFIX$packageName", enabled).apply()
@@ -150,10 +129,10 @@ object ShieldStore {
     fun isPackageGuarded(context: Context, packageName: String?): Boolean {
         if (packageName.isNullOrBlank()) return false
         val p = prefs(context)
+        val key = "$KEY_GUARDED_PREFIX$packageName"
+        if (p.contains(key)) return p.getBoolean(key, false)
         val exact = DEFAULT_GUARDED_APPS.firstOrNull { it.packageName == packageName }
-        if (exact != null) {
-            return p.getBoolean("$KEY_GUARDED_PREFIX${exact.packageName}", exact.defaultEnabled)
-        }
+        if (exact != null) return exact.defaultEnabled
         // Match closely related variants when their corresponding Guarded App toggle is enabled
         val aliasTarget = when {
             packageName.startsWith("com.chrome.") -> "com.android.chrome"
@@ -164,10 +143,20 @@ object ShieldStore {
         return p.getBoolean("$KEY_GUARDED_PREFIX${spec.packageName}", spec.defaultEnabled)
     }
 
-    fun appDisplayNameForPackage(packageName: String?): String =
-        DEFAULT_GUARDED_APPS.firstOrNull { it.packageName == packageName }?.displayName
-            ?: packageName?.substringAfterLast('.')?.replaceFirstChar { it.uppercase() }
-            ?: "Unknown App"
+    fun appDisplayNameForPackage(context: Context?, packageName: String?): String {
+        if (packageName.isNullOrBlank()) return "Unknown App"
+        DEFAULT_GUARDED_APPS.firstOrNull { it.packageName == packageName }?.let { return it.displayName }
+        if (context != null) {
+            val label = runCatching {
+                val pm = context.packageManager
+                pm.getApplicationLabel(pm.getApplicationInfo(packageName, 0)).toString()
+            }.getOrNull()
+            if (!label.isNullOrBlank()) return label
+        }
+        return packageName.substringAfterLast('.')
+            .replaceFirstChar { it.uppercase() }
+            .ifBlank { "Unknown App" }
+    }
 
     fun getTotalBlocked(context: Context): Int =
         prefs(context).getInt(KEY_TOTAL_BLOCKED, 0)
@@ -300,18 +289,27 @@ object ShieldStore {
         "BEARER_OR_JWT" -> "Bearer/JWT"
         "DB_URI", "DB_CONNECTION_URI" -> "DB URI"
         "CREDIT_CARD" -> "Card"
-        "GOV_ID" -> "Gov ID"
+        "GOV_ID", "US_SSN" -> "Gov ID"
         "PHONE" -> "Phone"
         "EMAIL" -> "Email"
         "PASSWORD" -> "Password"
-        "SECRET" -> "Secret"
-        "HIGH_ENTROPY" -> "Token"
+        "SECRET", "NATURAL_SECRET" -> "Secret"
+        "M_AND_A_SECRET" -> "Deal Secret"
+        "HIGH_ENTROPY", "HIGH_ENTROPY_SECRET" -> "Token"
         "IP_ADDRESS" -> "IP"
         "IBAN" -> "IBAN"
         "PERSON" -> "Name"
         "ADDRESS" -> "Address"
-        "PHI" -> "Health Info"
+        "PHI", "CONTEXTUAL_PHI" -> "Health Info"
         "ORG_TERM" -> "Org Term"
+        "POSTAL_CODE" -> "Postal Code"
+        "ACCOUNT_NUMBER" -> "Account"
+        "PERSONAL_PII_LOCATION" -> "Location"
+        "POLICY_TERM", "REMOTE_POLICY" -> "Policy Term"
         else -> category.replace('_', ' ').lowercase().replaceFirstChar { it.uppercase() }
     }
+
+    /** "1 AWS Key" / "2 AWS Keys" - the chip copy used by the modal and History. */
+    fun categoryChip(category: String, count: Int): String =
+        "$count ${Pluralize.of(count, friendlyCategoryName(category))}"
 }
