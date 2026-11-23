@@ -67,7 +67,7 @@ Every row below is a call site in tracked source, verified on the connected devi
 
 **Why no Firestore or Auth on the hot path.** The scrub-and-escalate path never opens a database and never needs an identity; Stage 2 rides the anonymous session AI Logic mints for its own auth token (`HybridAiClient.kt:68-70`). Firestore serves only opt-in sync of already-sanitized records, gated twice: `buildZeroPiiTicketPayload` refuses the write when `verifyZeroLeakage()` finds a surviving span (`FirestoreSyncRepository.kt:293-298`), and `firestore.rules` rejects `rawText`/`matchedText`/`constituentTexts` server-side. The database therefore never holds the data the product exists to protect.
 
-**Remote Config is read-only and fail-closed.** Five knobs (`cloud_primary_model`, `cloud_fallback_model`, `enable_cloud_escalation`, `entropy_threshold`, `enterprise_blocked_terms`) load at startup; every failure path returns compiled defaults, the threshold is clamped to `[2.0, 5.5]`, and the term list is capped at 200. A bad remote value degrades the firewall, it does not disarm it.
+**Remote Config is read-only and fails safe.** Five knobs (`cloud_primary_model`, `cloud_fallback_model`, `enable_cloud_escalation`, `entropy_threshold`, `enterprise_blocked_terms`) load at startup; every failure path returns the compiled defaults, the threshold is clamped to `[2.0, 5.5]`, and the term list is capped at 200. A bad remote value degrades the firewall, it does not disarm it.
 
 ---
 
