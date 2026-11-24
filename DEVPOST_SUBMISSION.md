@@ -131,11 +131,11 @@ Reproduce: `cd android && ./gradlew connectedDebugAndroidTest -Pandroid.testInst
 
 | Time | Beat | On screen |
 | :--- | :--- | :--- |
-| 0:00–0:25 | Hook | Paste a key + PII into ChatGPT on Android → full-screen lock in 34 ms → Scrub in Field → redaction token in the composer, nothing sent |
-| 0:25–1:05 | Hybrid airgap | Web Workbench → paste a multi-secret prompt → Stage 1 scrubs locally → Approve → Stage 2 answers via Firebase AI Logic, with `inferenceSource` and App Check visible |
-| 1:05–1:55 | Multi-surface sweep | Android Chrome omnibox lock + scrub, Settings guard-any-app, Quick Sandbox; then the extension blocking Send on a real ChatGPT DOM and the `#handoff=` bridge |
-| 1:55–2:30 | Hard proof | `CordonBench` table: 100.0% recall (81/81), 0.0% false positives (0/46), 1.42 ms p50, and fail-closed `ONLY_ON_DEVICE` on devices without AICore |
-| 2:30–2:55 | Close | Apache-2.0 repo, v4.6.2 release assets, one line: sensitive data never leaves the device; cloud AI only ever sees redacted intent |
+| 0:00–0:33 | Hook & Moto G82 5G | Fail-closed lock (`1.42 ms`) across live Android apps (`ChatGPT`, `Gemini`, `Perplexity`, `WhatsApp`, `Chrome`) |
+| 0:34–1:19 | Galaxy S26 Ultra hybrid AI | `0.44 ms` Stage 1 rules + offline `Gemini Nano` / `Gemma 4` via Android AICore & ML Kit GenAI in Airplane Mode → `Firebase AI Logic` cloud escalation |
+| 1:20–1:42 | Chrome MV3 Extension | Docked live Side Panel + isolated Shadow DOM block modal + zero raw cloud leaks |
+| 1:43–1:59 | `#handoff=` Web Workbench | Sanitized `#handoff=` bridge to Firebase Hosted Web Workbench (`Firebase App Check` + cryptographic audit receipts) |
+| 2:00–2:33 | Adversarial benchmark proof | `127` Android + `128` Chrome MV3 cases = `100%` recall, `0%` false positives across Stripe/OpenAI/AWS keys, Luhn cards, Indian PAN/Aadhaar/IFSC/UPI, street addresses, zero-width Unicode, and clinical notes |
 
 ---
 
@@ -150,8 +150,8 @@ Reproduce: `cd android && ./gradlew connectedDebugAndroidTest -Pandroid.testInst
 
 ## Submission Disclosures (required)
 
-**Pre-existing work.** Cordon extends an earlier LocalFirst Triage prototype (`v2.4`, first committed 2026-11-15): the deterministic Kotlin/TypeScript redaction engine and an early two-screen Android shell. No proprietary third-party code is included; all dependencies are open-source and listed in `package.json` and the Gradle files.
+**Pre-existing work.** None. Cordon (localfirst-triage) was created from scratch during the #BuildHybridAI 2026 submission window (Nov 11–30, 2026), starting with the initial architecture commit on 2026-11-15 through v4.6.2. All third-party dependencies are open-source and listed in package.json and the Gradle build files.
 
 **Built during the submission period (2026-11-11 → 2026-11-30).** The Chrome MV3 extension (paste shield, send interception, side panel, `#handoff=` bridge), the three-surface Zero-PII sync model and `firestore.rules`, the hybrid Nano 4 defense-in-depth pipeline, ECDSA audit receipts with embedded public keys, the Android accessibility send-button shield, the 3-tab Compose UI, the third-party benchmark harness, and all test suites were built during the submission period.
 
-**Known limits (stated up front).** The Android shield covers the 12 listed packages; other apps are covered by the manual text-action and Share Sheet scrub. The accessibility path is deterministic — Nano 4 runs in the in-app workbench. Shield placement no longer needs a detectable Send control (it is geometric), but a Send control outside the composer's trailing corner is not covered, and a soft keyboard's own Send arrow can only be caught after the fact.
+**Known limits (stated up front).** The Android shield covers the default guarded apps and browsers (plus any installed app toggled on in Settings); other apps are covered by the manual text-action and Share Sheet scrub. The accessibility path is deterministic — Nano 4 runs in the in-app workbench. Interception relies on the full-screen `TYPE_ACCESSIBILITY_OVERLAY` decision modal, which occludes the underlying app (including its Send button) and the soft keyboard until the draft is scrubbed or explicitly allowed.
