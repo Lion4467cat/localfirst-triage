@@ -59,18 +59,19 @@ Every surface enforces the same rule: a secret is masked locally before any byte
 
 | Surface | Role & Capabilities | Core Engine |
 | :--- | :--- | :--- |
-| **Chrome Extension (`extension/`)** | Capture-phase Paste shield + Send interception on `chatgpt.com`, `claude.ai`, `gemini.google.com`, `github.com`, `app.slack.com`, `discord.com`; Side Panel control center (`Low` / `Medium` / `High`, 0-PII stats, `#handoff=` bridge) | `firewall-core.js` + Chrome `LanguageModel` (Nano 4 semantic pass at Medium & High) |
-| **Native Android (`android/`)** | Watches the composer field in every guarded app and opens a full-screen decision modal before text leaves: `Scrub in Field` rewrites the field in place, `Allow Once (Unsafe)` releases that exact draft. Password fields, keyboards, launchers and system surfaces are never locked. Guard any installed app from Settings, plus `Scrub with Cordon` text action (`ACTION_PROCESS_TEXT`), Share Sheet (`ACTION_SEND`), offline runbook resolution and Zero-PII Firestore sync | `LocalFirewallEngine.kt` + `firebase-ai` (`18.2.0`) & `firebase-ai-ondevice` (`16.0.0-beta08`) |
+| **Chrome Extension (`extension/`)** | `document_start` capture-phase Paste shield + Enter/Send & search interception (`all_frames: true`) across Google Search, ChatGPT, Claude, Gemini, Perplexity, GitHub, Slack, and Discord; isolated Shadow DOM block modal; live Side Panel control center (`Low` / `Medium` / `High`, 0-PII stats, `#handoff=` bridge) | `firewall-core.js` + Chrome `LanguageModel` (Nano 4 semantic pass at Medium & High) |
+| **Native Android (`android/`)** | Zero-debounce browser scanning, omnibox/in-flight search abort guard, and field-watching shield across default apps/browsers (plus any installed app toggled ON in Settings), opening a full-screen `TYPE_ACCESSIBILITY_OVERLAY` decision modal before text leaves: `Scrub in Field` rewrites in place, `Allow Once (Unsafe)` releases that exact draft. Password fields, keyboards, launchers, and system surfaces are never locked; includes `Scrub with Cordon` text action (`ACTION_PROCESS_TEXT`), Share Sheet (`ACTION_SEND`), offline runbook resolution, and Zero-PII Firestore sync | `LocalFirewallEngine.kt` + `firebase-ai` (`18.2.0`) & `firebase-ai-ondevice` (`16.0.0-beta08`) |
 | **Web PWA (`src/`)** | Hybrid Workbench (`ONLY_ON_DEVICE`, `PREFER_ON_DEVICE`, `PREFER_IN_CLOUD`), `<5ms` IndexedDB dedup cache, RAM-only rehydration vault, ECDSA P-256 audit receipts (public key embedded, independently verifiable), lazy-loaded Firestore sync | `src/firewall/` + `firebase/ai` (`firebase@13.3.0`) |
 
-### Android guarded apps (12)
+### Android guarded apps (15 default + any installed app via Settings)
 
-Chat: ChatGPT (`com.openai.chatgpt`), Claude (`com.anthropic.claude`), Gemini (`com.google.android.apps.bard`), Slack (`com.Slack`), WhatsApp (`com.whatsapp`), Discord (`com.discord`).
-Browsers: Chrome, Firefox, Brave, Edge, Samsung Internet, Opera.
+- **AI & Messaging (6):** ChatGPT (`com.openai.chatgpt`), Claude (`com.anthropic.claude`), Gemini (`com.google.android.apps.bard`), Slack (`com.Slack`), WhatsApp (`com.whatsapp`), Discord (`com.discord`).
+- **Browsers (9):** Chrome (`com.android.chrome`), Chrome Beta (`com.chrome.beta`), Chrome Dev (`com.chrome.dev`), Firefox (`org.mozilla.firefox`), Brave (`com.brave.browser`), Edge (`com.microsoft.emmx`), Samsung Internet (`com.sec.android.app.sbrowser`), Opera (`com.opera.browser`), DuckDuckGo (`com.duckduckgo.mobile.android`).
+- **Any Installed App:** Toggle any other app ON/OFF from Cordon's **Settings** tab.
 
-### Chrome extension guarded sites (6)
+### Chrome extension guarded sites (8)
 
-ChatGPT, Claude, Gemini, GitHub, Slack, Discord. Textareas are protected on `Ctrl/Cmd+Enter`; rich-text composers on plain `Enter`.
+Google Search (`google.com` / `www.google.com` / `google.co.in`), ChatGPT, Claude, Gemini, Perplexity, GitHub, Slack, and Discord. Single-line search/combobox fields and chat composers intercept plain `Enter`, Send clicks, autocomplete clicks (`[role="option"]`), `beforeinput` submissions, and form `submit` in `window` capture phase; multi-line comment boxes (e.g., GitHub) intercept on Submit or `Ctrl/Cmd+Enter`.
 
 ---
 
@@ -138,16 +139,15 @@ Measured with Wi-Fi off. `adb logcat -s CordonNano` on the S26 shows `probe opti
 
 ### A. Web app — 30 seconds
 
-1. Open [`https://para-1-2e22b.web.app/`](https://para-1-2e22b.web.app/).
-2. Click **Sign in as Guest** (or Google).
-3. Click **Run Privacy Firewall** on any built-in scenario and watch the secrets turn into `[REDACTED:...]` before the AI answer appears.
+1. Open [`https://para-1-2e22b.web.app/`](https://para-1-2e22b.web.app/) (zero login wall).
+2. Test the **Hero Airgap Playground** or open **Run Live Workbench** → **Scrub & Analyze** and watch secrets turn into `[REDACTED:...]` before the AI answer appears. *(Optional: click **Cloud Sync → Sync as Guest** or **Google** for Zero-PII Firestore sync.)*
 
 ### B. Chrome extension — 1 minute
 
-1. Open the [Releases page](https://github.com/Lion4467cat/localfirst-triage/releases) and download the extension ZIP, then unzip it anywhere.
+1. Open the [Releases page](https://github.com/Lion4467cat/localfirst-triage/releases) and download `cordon-extension-v4.6.2.zip`, then unzip it anywhere.
 2. In Chrome, open `chrome://extensions` and switch on **Developer mode** (top-right).
 3. Click **Load unpacked** and pick the unzipped `extension` folder. Pin Cordon to the toolbar.
-4. Click the Cordon icon. The side panel opens and shows the switch at **ON**. Follow the three steps shown there: open ChatGPT, type or paste a secret, press **Send**.
+4. Click the Cordon icon. The side panel opens and shows the switch at **ON**. Open Google Search, ChatGPT, Claude, Gemini, Perplexity, GitHub, Slack, or Discord, type or paste a secret, and press **Enter** or **Send**.
 
 You will see exactly **one** confirmation: **Scrub & Send** (safe version goes out) or **Send anyway** (raw text goes out once). Typing alone never opens anything.
 
@@ -164,9 +164,9 @@ To scrub text without sending: highlight it in any app and tap **Scrub with Cord
 
 | Symptom | Fix |
 | :--- | :--- |
-| Extension does nothing on a site | The switch must be **ON**; only the 6 listed sites are auto-guarded; reload the tab after installing. |
-| No prompt on Send in a textarea | Use `Ctrl/Cmd+Enter` — plain Enter inserts a newline there. |
-| Android never prompts | Accessibility is on for **Cordon**, the app is in the guarded list, and the message actually contains a secret. |
+| Extension does nothing on a site | The switch must be **ON**; guarded sites cover Google Search, ChatGPT, Claude, Gemini, Perplexity, GitHub, Slack, and Discord; reload the tab after installing. |
+| No prompt on Enter in a multi-line textarea | Non-chat multi-line editors (like GitHub comments) insert newlines on plain Enter — use the **Submit** button or `Ctrl/Cmd+Enter`; search bars and AI chat composers intercept plain **Enter** and **Send** automatically. |
+| Android never prompts | Accessibility is on for **Cordon**, the app is in the default guarded set or toggled ON in **Settings**, and the message actually contains a secret. |
 | Cloud answer missing | You are offline or App Check is not configured; local scrubbing still works and fails closed. |
 
 ---
@@ -212,22 +212,21 @@ cd android && ./gradlew testDebugUnitTest lintDebug assembleDebug
 
 ## Scope & Limits (stated honestly)
 
-- The Android shield guards the **12 listed packages**. Other browsers and niche apps are covered by the manual `ACTION_PROCESS_TEXT` / Share Sheet scrub, not by automatic interception.
-- The Android accessibility path is **deterministic (regex + entropy + heuristics)**; Nano 4 runs in the in-app workbench, not inside the accessibility service.
-- Automatic interception requires a detectable Send control. Icon-only custom canvases without a label or `contentDescription` fall back to manual scrub.
-- The Android decision is a full-screen `TYPE_ACCESSIBILITY_OVERLAY` covering `[0,0][1080,2400]` with `BLOCK_UNTRUSTED` occlusion, not a shield placed over the Send control. While it is up, no control in the app underneath can be tapped, including the app's own Send button.
-- The soft keyboard's own Send arrow is covered by the same window. Measured on the Moto G82: with no modal, one tap on the keyboard action key at `(996,2154)` navigates Chrome to `about:blank`; with the modal up, the identical tap at the identical coordinate leaves the omnibox text intact, the page unchanged, and the screen byte-identical.
-- `onKeyEvent` hardware-Enter filtering is configured (`canRequestFilterKeyEvents`) but could not be exercised on this device: no evdev node emits `KEY_ENTER` (gpio-keys exposes only `0x73`, qpnp_pon `0x72`/`0x74`, uinput-focal `0x26e`, double-tap `0x3b`–`0x3e`), and `adb shell input keyevent` injects below the accessibility input filter, so the callback is never invoked. The touch-path measurement above is the proof that matters on a touch-only device.
-- Extension textareas need `Ctrl/Cmd+Enter`; plain `Enter` keeps inserting newlines by design.
+- The Android shield guards **15 default packages** (6 AI/messaging apps + 9 browsers) plus **any installed app toggled ON in Settings**; niche apps outside Settings toggles are covered by the manual `ACTION_PROCESS_TEXT` ("Scrub with Cordon") and Share Sheet scrub.
+- The Android accessibility path is **deterministic (regex + entropy + heuristics)**; Gemini Nano 4 runs in the in-app workbench, not inside the accessibility service.
+- The Android decision UI is a **full-screen `TYPE_ACCESSIBILITY_OVERLAY` decision modal** covering `[0,0][1080,2400]` with `BLOCK_UNTRUSTED` occlusion rather than trying to detect or overlay individual Send icons. While it is up, no control in the app underneath — including its Send button — can be tapped, and the soft keyboard's own Send arrow is covered by the same window.
+- Measured on Moto G82: with no modal, one tap on the keyboard action key at `(996,2154)` navigates Chrome to `about:blank`; with the modal up, the identical tap at the identical coordinate leaves the omnibox text intact, the page unchanged, and the screen byte-identical. Inside browsers, zero-debounce Stage-1 scanning and an in-flight search abort guard (`GLOBAL_ACTION_BACK`) also catch fast type+Enter omnibox/Google Search navigations.
+- `onKeyEvent` hardware-Enter filtering is configured (`canRequestFilterKeyEvents`) but could not be exercised on Moto G82 hardware: no evdev node emits `KEY_ENTER` (gpio-keys exposes only `0x73`, qpnp_pon `0x72`/`0x74`, uinput-focal `0x26e`, double-tap `0x3b`–`0x3e`), and `adb shell input keyevent` injects below the accessibility input filter, so the callback is never invoked. Touch-occlusion and in-flight browser search abort are verified directly on hardware.
+- In Chrome MV3, `content-shield.js` intercepts in `window` capture phase (`run_at: "document_start"`, `all_frames: true`) across search fields (`input`, comboboxes), AI chat composers (plain `Enter` + Send/autocomplete clicks), and multi-line comment boxes (`Submit` / `Ctrl/Cmd+Enter`). Non-chat multi-line editors intentionally keep plain `Enter` for newlines.
 - On devices without the Chrome built-in model, the extension's Nano pass is skipped and the deterministic floor applies.
 
 ---
 
 ## Disclosure (required by the hackathon rules)
 
-**Pre-existing work.** Cordon builds on an earlier LocalFirst Triage prototype (`v2.4`, first committed 2026-11-15). The pre-existing code covered the deterministic Kotlin/TypeScript redaction engine and an early two-screen Android shell. No third-party proprietary code is incorporated; all dependencies are open-source and listed in `package.json` / Gradle files.
+**Pre-existing work.** None. Cordon (`localfirst-triage`) was created from scratch during the `#BuildHybridAI 2026` submission window (Nov 11–30, 2026), starting with the initial architecture commit on `2026-11-15` through `v4.6.2`. All third-party dependencies are open-source and listed in `package.json` and the Gradle build files.
 
-**Built during the submission period (2026-11-11 → 2026-11-30).** The Chrome MV3 extension (paste shield, send interception, side panel, `#handoff=` bridge), the three-surface Zero-PII sync model with `firestore.rules`, the hybrid pipeline with Nano 4 defense-in-depth union, ECDSA audit receipts, the accessibility send-button shield, the 3-tab Compose UI, the third-party benchmark harness, and all test suites were written during the submission period.
+**Built during the submission period (2026-11-11 → 2026-11-30).** The Chrome MV3 extension (paste shield, capture-phase Enter/Send interception, side panel, `#handoff=` bridge), the three-surface Zero-PII sync model with `firestore.rules`, the hybrid pipeline with Nano 4 defense-in-depth union, ECDSA audit receipts, the full-screen Android accessibility decision shield, the 3-tab Compose UI, the third-party benchmark harness, and all test suites were written during the submission period.
 
 ---
 
