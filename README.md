@@ -5,8 +5,9 @@
 Built for **#BuildHybridAI 2026** on **Firebase Spark** infrastructure (`para-1-2e22b`) using **Firebase AI Logic** (`firebase/ai` & `firebase-ai`), **Gemini Nano 4** on-device inference, **Cloud Gemini** (`gemini-3.5-flash-lite` primary → `gemini-3.8-flash` fallback, live-tunable via Remote Config), **Firebase App Check**, and **Zero-PII Cloud Firestore**.
 
 - **Live Web PWA:** [`https://para-1-2e22b.web.app/`](https://para-1-2e22b.web.app/)
+- **4K Demo Video (2:33):** [`https://youtu.be/-O2F9ngdGJ4`](https://youtu.be/-O2F9ngdGJ4)
 - **Public GitHub Repo:** [`https://github.com/Lion4467cat/localfirst-triage`](https://github.com/Lion4467cat/localfirst-triage)
-- **Releases (Extension ZIP + Android APK):** [`github.com/Lion4467cat/localfirst-triage/releases`](https://github.com/Lion4467cat/localfirst-triage/releases)
+- **Latest Release (`v4.6.2` — Extension ZIP + Android APK):** [`github.com/Lion4467cat/localfirst-triage/releases/tag/v4.6.2`](https://github.com/Lion4467cat/localfirst-triage/releases/tag/v4.6.2)
 - **License:** [Apache-2.0](./LICENSE)
 
 ---
@@ -152,10 +153,10 @@ You will see exactly **one** confirmation: **Scrub & Send** (safe version goes o
 
 ### C. Android app — 2 minutes
 
-1. On the phone, open the [Releases page](https://github.com/Lion4467cat/localfirst-triage/releases) and download `cordon-android-v4.6.2.apk`, then tap it to install (allow "install unknown apps" when Android asks).
+1. On the phone, open the [`v4.6.2` Release page](https://github.com/Lion4467cat/localfirst-triage/releases/tag/v4.6.2) and download [`cordon-android-v4.6.2.apk`](https://github.com/Lion4467cat/localfirst-triage/releases/download/v4.6.2/cordon-android-v4.6.2.apk), then tap it to install (allow "install unknown apps" when Android asks).
 2. Open **Cordon**. On the **Shield** tab, tap **Enable Background Shield**.
-3. Android opens Accessibility settings: tap **Cordon**, then switch it **on** and confirm.
-4. Go back to Cordon. The Shield tab now says the shield is on. Open ChatGPT (or any listed app), type a secret, and tap **Send**.
+3. Android opens Accessibility settings: tap **Cordon**, then switch it **on** and confirm. *(Samsung One UI / Android 13+ sideload note: if **Cordon** is greyed out in Accessibility, open **Settings → Apps → Cordon → ⋮ (top-right) → Allow restricted settings**, then return to Accessibility and toggle **Cordon** ON.)*
+4. Go back to Cordon. The Shield tab now says the shield is on. Open ChatGPT (or any listed app), type a secret, and tap **Send**. *(Note on App Check & sideloaded APKs: debug/sideloaded APKs fail closed on `ONLY_IN_CLOUD` unless Play Store–distributed or debug-token registered — the UI reports `LOCAL FALLBACK` / `CLOUD_ERROR`, while 100% of on-device Gemini Nano `ONLY_ON_DEVICE` and Accessibility firewall protections keep running locally.)*
 
 To scrub text without sending: highlight it in any app and tap **Scrub with Cordon**, or use the Share Sheet.
 

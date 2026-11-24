@@ -2,7 +2,7 @@
 
 - **Live Web PWA:** [`https://para-1-2e22b.web.app/`](https://para-1-2e22b.web.app/)
 - **Public GitHub Repository:** [`https://github.com/Lion4467cat/localfirst-triage`](https://github.com/Lion4467cat/localfirst-triage)
-- **Releases (Extension ZIP + Android APK `v4.6.2`):** [`github.com/Lion4467cat/localfirst-triage/releases`](https://github.com/Lion4467cat/localfirst-triage/releases)
+- **Releases (`v4.6.2` — Extension ZIP + Android APK):** [`github.com/Lion4467cat/localfirst-triage/releases/tag/v4.6.2`](https://github.com/Lion4467cat/localfirst-triage/releases/tag/v4.6.2)
 - **Demo video (≤3 min, YouTube, public):** [`https://youtu.be/-O2F9ngdGJ4`](https://youtu.be/-O2F9ngdGJ4)
 
 ---
@@ -37,9 +37,11 @@ Engineers and support teams paste raw production stack traces, crash logs, and c
 
 ## Try It (no setup knowledge required)
 
-- **Web (30 s):** open the live PWA → **Sign in as Guest** → **Run Privacy Firewall** on any scenario.
-- **Chrome extension (1 min):** download the ZIP from Releases → unzip → `chrome://extensions` → Developer mode → **Load unpacked** → pick the folder → click the Cordon icon → open ChatGPT and paste a key.
-- **Android (2 min):** install `cordon-android-v4.6.2.apk` from Releases → open Cordon → **Enable Background Shield** → turn on **Cordon** in Accessibility settings → open ChatGPT, type a secret, tap Send.
+- **Web (30 s):** open [`https://para-1-2e22b.web.app/`](https://para-1-2e22b.web.app/) (zero login wall) → test the Hero Airgap Playground or **Run Live Workbench** → **Scrub & Analyze**. *(Optional: click **Cloud Sync → Sync as Guest** for zero-PII Firestore sync.)*
+- **Chrome extension (1 min):** download [`cordon-extension-v4.6.2.zip`](https://github.com/Lion4467cat/localfirst-triage/releases/download/v4.6.2/cordon-extension-v4.6.2.zip) from the [`v4.6.2` release](https://github.com/Lion4467cat/localfirst-triage/releases/tag/v4.6.2) → unzip → `chrome://extensions` → **Developer mode** → **Load unpacked** → pick the unzipped folder → click the Cordon icon → open ChatGPT/Google Search, type or paste a key, and press Enter/Send.
+- **Android (2 min):** install [`cordon-android-v4.6.2.apk`](https://github.com/Lion4467cat/localfirst-triage/releases/download/v4.6.2/cordon-android-v4.6.2.apk) from Releases → open Cordon → **Enable Background Shield** → turn on **Cordon** in Accessibility settings → open ChatGPT or Chrome, type a secret, tap Send.
+  - **Samsung One UI / Android 13+ sideload step:** If **Cordon** is greyed out in Accessibility settings for a sideloaded APK, open **Settings → Apps → Cordon → ⋮ (top-right) → Allow restricted settings**, then return to **Accessibility → Installed apps → Cordon** and switch it **ON**.
+  - **Sideloaded APK App Check fail-closed note:** Firebase App Check binds cloud escalation to Play Integrity (Play Store) or registered debug tokens, so a standalone sideloaded APK fails closed on `ONLY_IN_CLOUD` calls (rendering `LOCAL FALLBACK` / `CLOUD_ERROR` rather than bypassing App Check), while on-device **Gemini Nano 4 (`ONLY_ON_DEVICE`)**, Quick Sandbox, and the Accessibility shield run 100% locally. For instant unauthenticated cloud escalation, test [`https://para-1-2e22b.web.app/`](https://para-1-2e22b.web.app/).
 
 Each surface shows exactly one confirmation on Send (**Scrub & Send** / **Send anyway**) and never interrupts typing.
 
