@@ -185,6 +185,239 @@ async function main() {
       throw new Error(`Expected clean Send to succeed with 0 extra modals, got ${JSON.stringify(afterCleanSend)}`);
     }
 
+    // 5B. HEAVY MULTI-VECTOR SEND / SEARCH STRESS SUITE (0ms Enter, Google Search, Autocomplete,
+    //     beforeinput, nested Shadow DOM, mousedown-clearing input, Multi-PII + ZWS, Benign Control)
+    await page.evaluate(() => {
+      window.__stressStats = {
+        googleSubmits: [],
+        optionClicks: 0,
+        chatSubmits: [],
+        clearInputSubmits: [],
+        shadowSubmits: [],
+      };
+      const mount = document.createElement("section");
+      mount.id = "stress-suite-mount";
+      mount.innerHTML = `
+        <form id="stress-google-form" action="/search" role="search">
+          <div role="combobox">
+            <textarea id="stress-google-q" name="q" aria-label="Search"></textarea>
+          </div>
+          <div role="listbox">
+            <div id="stress-google-opt" role="option" tabindex="0">autocomplete suggestion</div>
+          </div>
+          <button id="stress-google-btn" type="submit" aria-label="Google Search">Search</button>
+        </form>
+
+        <form id="stress-single-form">
+          <input id="stress-single-in" type="search" placeholder="Quick search..." />
+          <button id="stress-single-btn" type="submit" aria-label="Search">Search</button>
+        </form>
+
+        <div id="stress-chat-wrap">
+          <textarea id="stress-chat-ta" data-composer="chat" placeholder="Message AI..."></textarea>
+          <button id="stress-chat-send" type="button" data-testid="send-button">Send</button>
+        </div>
+
+        <div id="stress-beforeinput-ce" contenteditable="true" role="textbox" aria-label="Lexical Chat"></div>
+
+        <div id="stress-clear-wrap">
+          <input id="stress-clear-in" type="text" placeholder="Ask..." />
+          <button id="stress-clear-btn" type="button" aria-label="Send">Send</button>
+        </div>
+
+        <div id="stress-shadow-host"></div>
+      `;
+      document.body.appendChild(mount);
+
+      const gForm = document.getElementById("stress-google-form");
+      gForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        window.__stressStats.googleSubmits.push(document.getElementById("stress-google-q").value);
+      });
+      document.getElementById("stress-google-opt").addEventListener("click", () => {
+        window.__stressStats.optionClicks++;
+      });
+
+      document.getElementById("stress-single-form").addEventListener("submit", (e) => {
+        e.preventDefault();
+      });
+
+      document.getElementById("stress-chat-send").addEventListener("click", () => {
+        window.__stressStats.chatSubmits.push(document.getElementById("stress-chat-ta").value);
+      });
+
+      // Site script that clears input.value = '' on mousedown BEFORE click fires
+      const clearIn = document.getElementById("stress-clear-in");
+      const clearBtn = document.getElementById("stress-clear-btn");
+      let stashed = "";
+      clearBtn.addEventListener("mousedown", () => {
+        stashed = clearIn.value;
+        clearIn.value = "";
+      });
+      clearBtn.addEventListener("click", () => {
+        window.__stressStats.clearInputSubmits.push(clearIn.value || stashed);
+      });
+
+      // Nested Shadow DOM composer
+      const shHost = document.getElementById("stress-shadow-host");
+      const sr = shHost.attachShadow({ mode: "open" });
+      sr.innerHTML = `
+        <textarea id="sh-composer" placeholder="Message Shadow AI..."></textarea>
+        <button id="sh-send-btn" type="button" aria-label="Send prompt">Send</button>
+      `;
+      sr.getElementById("sh-send-btn").addEventListener("click", () => {
+        window.__stressStats.shadowSubmits.push(sr.getElementById("sh-composer").value);
+      });
+    });
+
+    const dismissModal = () =>
+      page.evaluate(() => {
+        document.querySelector("#localfirst-paste-shield-host")?.shadowRoot?.querySelector("#lf-cancel")?.click();
+      });
+    const clickScrubAndSend = () =>
+      page.evaluate(() => {
+        document.querySelector("#localfirst-paste-shield-host")?.shadowRoot?.querySelector("#lf-primary")?.click();
+      });
+    const isModalUp = () =>
+      page.evaluate(() => document.querySelector("#localfirst-paste-shield-host")?.dataset?.lfState === "MODAL");
+
+    const stripeSample = ["sk_live_", "99887766554433221100aabb"].join("");
+    const zwsGithub = ["ghp_", "\u200B1234567890abcdefghijklmnopqrstuvwxyz"].join("");
+
+    // Vector 1: Google Search <textarea name="q"> character-by-character type + 0ms Enter
+    await page.locator("#stress-google-q").click();
+    await page.keyboard.type(`fix 502 error ${stripeSample}`, { delay: 0 });
+    await page.keyboard.press("Enter");
+    if (!(await isModalUp())) throw new Error("Vector 1 failed: Google Search 0ms Enter did not open MODAL");
+    await dismissModal();
+
+    // Vector 2: Google Search button click (pointerdown -> mousedown -> click)
+    await page.locator("#stress-google-btn").click();
+    if (!(await isModalUp())) throw new Error("Vector 2 failed: Google Search button click did not open MODAL");
+    await dismissModal();
+
+    // Vector 3: Google Search autocomplete [role="option"] click
+    await page.locator("#stress-google-opt").click();
+    if (!(await isModalUp())) throw new Error("Vector 3 failed: Autocomplete [role='option'] click did not open MODAL");
+    await clickScrubAndSend();
+    await page.waitForTimeout(250);
+    const gSubmitsAfterScrub = await page.evaluate(() => window.__stressStats.googleSubmits);
+    if (
+      gSubmitsAfterScrub.length !== 1 ||
+      gSubmitsAfterScrub[0].includes("99887766554433221100aabb") ||
+      !gSubmitsAfterScrub[0].includes("[REDACTED:API_KEY")
+    ) {
+      throw new Error(`Vector 3 scrub submit failed: ${JSON.stringify(gSubmitsAfterScrub)}`);
+    }
+
+    // Vector 4: Single-line <input type="search"> + Shift+Enter -> blocked!
+    await page.locator("#stress-single-in").click();
+    await page.keyboard.type(`lookup ${stripeSample}`, { delay: 0 });
+    await page.keyboard.press("Shift+Enter");
+    if (!(await isModalUp())) throw new Error("Vector 4 failed: Single-line Shift+Enter did not open MODAL");
+    await dismissModal();
+    await page.locator("#stress-single-in").fill("");
+
+    // Vector 5: Multiline AI Chat <textarea> -> Shift+Enter inserts newline (0 modal), Enter & Ctrl+Enter block, Multi-PII + ZWS scrubbed!
+    const multiPii = `Key ${stripeSample} Card 4532 0151 1283 0366 PAN ABCDE1234F Aadhaar 2345 6789 0123 UPI ravi.kumar@okicici ZWS ${zwsGithub}`;
+    await page.locator("#stress-chat-ta").click();
+    await page.keyboard.type("Line 1", { delay: 0 });
+    await page.keyboard.press("Shift+Enter");
+    if (await isModalUp()) throw new Error("Vector 5 failed: Shift+Enter on multiline chat textarea should not open MODAL");
+    await page.keyboard.type(multiPii, { delay: 0 });
+    await page.keyboard.press("Enter");
+    if (!(await isModalUp())) throw new Error("Vector 5 failed: Plain Enter on chat textarea did not open MODAL");
+    await dismissModal();
+    await page.locator("#stress-chat-ta").click();
+    await page.keyboard.press("Control+Enter");
+    if (!(await isModalUp())) throw new Error("Vector 5 failed: Ctrl+Enter on chat textarea did not open MODAL");
+    await clickScrubAndSend();
+    await page.waitForTimeout(250);
+    const chatSent = await page.evaluate(() => window.__stressStats.chatSubmits);
+    if (
+      chatSent.length !== 1 ||
+      chatSent[0].includes("99887766554433221100aabb") ||
+      chatSent[0].includes("4532 0151") ||
+      chatSent[0].includes("ABCDE1234F") ||
+      chatSent[0].includes("2345 6789 0123") ||
+      chatSent[0].includes("okicici") ||
+      chatSent[0].includes("1234567890abcdefghijklmnopqrstuvwxyz")
+    ) {
+      throw new Error(`Vector 5 multi-PII scrub leaked: ${JSON.stringify(chatSent)}`);
+    }
+
+    // Vector 6: Rich contenteditable dispatching beforeinput (insertParagraph)
+    await page.locator("#stress-beforeinput-ce").click();
+    await page.keyboard.type(`Patient PAN ABCDE1234F`, { delay: 0 });
+    const beforeInputCanceled = await page.evaluate(() => {
+      const ce = document.getElementById("stress-beforeinput-ce");
+      const ev = new InputEvent("beforeinput", {
+        inputType: "insertParagraph",
+        bubbles: true,
+        cancelable: true,
+      });
+      return !ce.dispatchEvent(ev);
+    });
+    if (!beforeInputCanceled || !(await isModalUp())) {
+      throw new Error("Vector 6 failed: beforeinput insertParagraph was not synchronously canceled");
+    }
+    await dismissModal();
+
+    // Vector 7: Input cleared on mousedown before click -> caught at pointerdown before clear!
+    await page.locator("#stress-clear-in").click();
+    await page.keyboard.type(`secret ${stripeSample}`, { delay: 0 });
+    await page.locator("#stress-clear-btn").click();
+    if (!(await isModalUp())) throw new Error("Vector 7 failed: mousedown-clearing input bypassed shield");
+    const clearSubmitsBlocked = await page.evaluate(() => window.__stressStats.clearInputSubmits.length);
+    if (clearSubmitsBlocked !== 0) throw new Error("Vector 7 failed: raw secret leaked on mousedown/click");
+    await clickScrubAndSend();
+    await page.waitForTimeout(250);
+    const clearSubmitsAfterScrub = await page.evaluate(() => window.__stressStats.clearInputSubmits);
+    if (
+      clearSubmitsAfterScrub.length !== 1 ||
+      clearSubmitsAfterScrub[0].includes("99887766554433221100aabb") ||
+      !clearSubmitsAfterScrub[0].includes("[REDACTED:API_KEY")
+    ) {
+      throw new Error(`Vector 7 scrub failed: ${JSON.stringify(clearSubmitsAfterScrub)}`);
+    }
+
+    // Vector 8: Nested Shadow DOM editor + Send button
+    await page.evaluate(() => {
+      const sr = document.getElementById("stress-shadow-host").shadowRoot;
+      const ta = sr.getElementById("sh-composer");
+      ta.focus();
+      ta.value = "UPI transfer to synth.user@okicici";
+      ta.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+      sr.getElementById("sh-send-btn").click();
+    });
+    if (!(await isModalUp())) throw new Error("Vector 8 failed: Nested Shadow DOM editor was not intercepted");
+    await dismissModal();
+
+    // Vector 9: Benign Search / Prompt Control Suite -> 0 false-positive blocks!
+    await page.evaluate(() => {
+      window.__modalOpenCount = 0;
+      window.__stressStats.googleSubmits = [];
+    });
+    for (const benignQuery of [
+      "how to fix python IndexError",
+      "v4.6.2 release notes",
+      "127.0.0.1 localhost port 8080",
+    ]) {
+      await page.locator("#stress-google-q").fill(benignQuery);
+      await page.locator("#stress-google-q").focus();
+      await page.keyboard.press("Enter");
+      await page.waitForTimeout(40);
+      await page.locator("#stress-google-btn").click();
+      await page.waitForTimeout(40);
+    }
+    const benignCheck = await page.evaluate(() => ({
+      modals: window.__modalOpenCount,
+      submits: window.__stressStats.googleSubmits.length,
+    }));
+    if (benignCheck.modals !== 0 || benignCheck.submits !== 6) {
+      throw new Error(`Vector 9 benign control failed (expected 0 modals & 6 submits): ${JSON.stringify(benignCheck)}`);
+    }
+
     // 6. Verify Side Panel at 360px width: 0 console/CSP errors, 0 overflow, Protection Dial persistence
     let [sw] = context.serviceWorkers();
     if (!sw) sw = await context.waitForEvent("serviceworker");

@@ -1,9 +1,11 @@
 package com.localfirst.triage.data
 
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.ComponentName
 import android.content.Context
 import android.content.SharedPreferences
 import android.provider.Settings
+import android.view.accessibility.AccessibilityManager
 import com.localfirst.triage.accessibility.CordonAccessibilityService
 import com.localfirst.triage.model.ProtectionLevel
 import com.localfirst.triage.model.RedactionSpan
@@ -63,11 +65,14 @@ object ShieldStore {
         GuardedAppSpec("com.discord", "Discord", true),
         // Every major mobile browser, so "OS-wide" is not Chrome-only.
         GuardedAppSpec("com.android.chrome", "Chrome", true),
+        GuardedAppSpec("com.chrome.beta", "Chrome Beta", true),
+        GuardedAppSpec("com.chrome.dev", "Chrome Dev", true),
         GuardedAppSpec("org.mozilla.firefox", "Firefox", true),
         GuardedAppSpec("com.brave.browser", "Brave", true),
         GuardedAppSpec("com.microsoft.emmx", "Edge", true),
         GuardedAppSpec("com.sec.android.app.sbrowser", "Samsung Internet", true),
         GuardedAppSpec("com.opera.browser", "Opera", true),
+        GuardedAppSpec("com.duckduckgo.mobile.android", "DuckDuckGo", true),
     )
 
     fun prefs(context: Context): SharedPreferences =
@@ -90,17 +95,136 @@ object ShieldStore {
         prefs(context).edit().putBoolean(KEY_SHIELD_PAUSED, paused).apply()
     }
 
-    fun isAccessibilityServiceEnabled(context: Context): Boolean {
-        val enabled = Settings.Secure.getString(
-            context.contentResolver,
-            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
-        ) ?: return false
-        val expectedFull = ComponentName(context, CordonAccessibilityService::class.java).flattenToString()
-        val expectedShort = ComponentName(context, CordonAccessibilityService::class.java).flattenToShortString()
-        return enabled.split(':').any { entry ->
-            entry.equals(expectedFull, ignoreCase = true) ||
-                entry.equals(expectedShort, ignoreCase = true)
+    /**
+     * Pure parser for `Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES`.
+     * Handles colon-delimited entries in both full (`pkg/pkg.SubClass`) and short (`pkg/.SubClass`)
+     * `ComponentName` formats, whitespace padding, and case differences on OEM skins such as One UI.
+     */
+    fun matchesEnabledAccessibilitySetting(
+        rawSetting: String?,
+        packageName: String,
+        serviceClassName: String,
+        accessibilityMasterEnabled: Boolean = true,
+    ): Boolean {
+        if (!accessibilityMasterEnabled || rawSetting.isNullOrBlank()) return false
+        val expectedFull = "$packageName/$serviceClassName"
+        val expectedShort = if (serviceClassName.startsWith("$packageName.")) {
+            "$packageName/${serviceClassName.removePrefix(packageName)}"
+        } else {
+            expectedFull
         }
+        return rawSetting.split(':').any { rawEntry ->
+            val entry = rawEntry.trim()
+            if (entry.isEmpty()) return@any false
+            if (entry.equals(expectedFull, ignoreCase = true) ||
+                entry.equals(expectedShort, ignoreCase = true)
+            ) {
+                return@any true
+            }
+            val slash = entry.indexOf('/')
+            if (slash <= 0 || slash >= entry.lastIndex) return@any false
+            val entryPkg = entry.substring(0, slash).trim()
+            val rawCls = entry.substring(slash + 1).trim()
+            val normalizedCls = if (rawCls.startsWith(".")) "$entryPkg$rawCls" else rawCls
+            entryPkg.equals(packageName, ignoreCase = true) &&
+                normalizedCls.equals(serviceClassName, ignoreCase = true)
+        }
+    }
+
+    /**
+     * Pure matcher for service IDs / flattened component names returned by
+     * `AccessibilityManager.getEnabledAccessibilityServiceList(FEEDBACK_ALL_MASK)`.
+     */
+    fun matchesEnabledServiceInfoList(
+        enabledServiceIds: Iterable<String>,
+        packageName: String,
+        serviceClassName: String,
+    ): Boolean {
+        val joined = enabledServiceIds.joinToString(":") { it.trim() }
+        if (joined.isBlank()) return false
+        return matchesEnabledAccessibilitySetting(
+            rawSetting = joined,
+            packageName = packageName,
+            serviceClassName = serviceClassName,
+            accessibilityMasterEnabled = true,
+        )
+    }
+
+    /**
+     * Combines `Settings.Secure`, `AccessibilityManager`, and live service bind state so Samsung
+     * One UI hibernating or recreating the UI process never produces a false "Accessibility OFF".
+     */
+    fun resolveAccessibilityEnabled(
+        settingMatched: Boolean,
+        managerMatched: Boolean,
+        serviceConnected: Boolean = false,
+    ): Boolean = settingMatched || managerMatched || serviceConnected
+
+    fun isAccessibilityServiceEnabled(context: Context): Boolean {
+        val pkg = context.packageName
+        val cls = CordonAccessibilityService::class.java.name
+
+        val masterEnabled = runCatching {
+            Settings.Secure.getInt(
+                context.contentResolver,
+                Settings.Secure.ACCESSIBILITY_ENABLED,
+                1,
+            ) != 0
+        }.getOrDefault(true)
+
+        val rawEnabledServices = runCatching {
+            Settings.Secure.getString(
+                context.contentResolver,
+                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+            )
+        }.getOrNull()
+
+        val settingMatched = matchesEnabledAccessibilitySetting(
+            rawSetting = rawEnabledServices,
+            packageName = pkg,
+            serviceClassName = cls,
+            accessibilityMasterEnabled = masterEnabled,
+        )
+
+        val managerMatched = runCatching {
+            val am = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as? AccessibilityManager
+            val enabledList = am?.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
+                .orEmpty()
+            val ids = buildList {
+                for (info in enabledList) {
+                    info.id?.takeIf { it.isNotBlank() }?.let { add(it) }
+                    val si = info.resolveInfo?.serviceInfo
+                    if (si != null && !si.packageName.isNullOrBlank() && !si.name.isNullOrBlank()) {
+                        add(ComponentName(si.packageName, si.name).flattenToString())
+                    }
+                }
+            }
+            matchesEnabledServiceInfoList(ids, pkg, cls)
+        }.getOrDefault(false)
+
+        return resolveAccessibilityEnabled(
+            settingMatched = settingMatched,
+            managerMatched = managerMatched,
+            serviceConnected = CordonAccessibilityService.isServiceConnected,
+        )
+    }
+
+    fun isPackageGuardedFromState(packageName: String?, guardedState: Map<String, Boolean>): Boolean {
+        if (packageName.isNullOrBlank()) return false
+        guardedState[packageName]?.let { return it }
+        val exact = DEFAULT_GUARDED_APPS.firstOrNull { it.packageName == packageName }
+        if (exact != null) return guardedState[exact.packageName] ?: exact.defaultEnabled
+        val aliasTarget = when {
+            packageName.startsWith("com.chrome.") -> "com.android.chrome"
+            packageName.startsWith("com.sec.android.app.sbrowser") -> "com.sec.android.app.sbrowser"
+            packageName.startsWith("com.brave.browser") -> "com.brave.browser"
+            packageName.startsWith("org.mozilla.") -> "org.mozilla.firefox"
+            packageName.startsWith("com.opera.") -> "com.opera.browser"
+            packageName == "com.google.android.googlequicksearchbox" -> "com.google.android.apps.bard"
+            else -> null
+        } ?: return false
+        val spec = DEFAULT_GUARDED_APPS.firstOrNull { it.packageName == aliasTarget } ?: return false
+        return guardedState[spec.packageName] ?: spec.defaultEnabled
     }
 
     fun getGuardedAppsState(context: Context): Map<String, Boolean> {
@@ -133,6 +257,10 @@ object ShieldStore {
         // Match closely related variants when their corresponding Guarded App toggle is enabled
         val aliasTarget = when {
             packageName.startsWith("com.chrome.") -> "com.android.chrome"
+            packageName.startsWith("com.sec.android.app.sbrowser") -> "com.sec.android.app.sbrowser"
+            packageName.startsWith("com.brave.browser") -> "com.brave.browser"
+            packageName.startsWith("org.mozilla.") -> "org.mozilla.firefox"
+            packageName.startsWith("com.opera.") -> "com.opera.browser"
             packageName == "com.google.android.googlequicksearchbox" -> "com.google.android.apps.bard"
             else -> null
         } ?: return false

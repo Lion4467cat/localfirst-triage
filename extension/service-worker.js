@@ -29,7 +29,7 @@ chrome.runtime.onInstalled.addListener(async () => {
       if (tab.id === undefined) continue;
       try {
         await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
+          target: { tabId: tab.id, allFrames: true },
           files: ["firewall-core.js", "content-shield.js"],
         });
       } catch (err) {

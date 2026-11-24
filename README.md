@@ -1,4 +1,4 @@
-# Cordon (`v4.6.1`)
+# Cordon (`v4.6.2`)
 
 **Unified 3-surface on-device hybrid AI privacy firewall across Chrome Extension (MV3), Native Android, and Web PWA.**
 
@@ -22,15 +22,15 @@ Every claim below is a runtime call in tracked source, not a dependency sitting 
 | **Web** | `getGenerativeModel(..., mode: InferenceMode.ONLY_ON_DEVICE)` — local semantic probe | `src/config/firebase.ts:219` |
 | **Web** | `getGenerativeModel(..., mode: InferenceMode.PREFER_ON_DEVICE)` — hybrid brief | `src/config/firebase.ts:229` |
 | **Web** | `getGenerativeModel(..., mode: InferenceMode.PREFER_IN_CLOUD)` — post-scrub cloud escalation | `src/config/firebase.ts:245` |
-| **Web** | Cloud call site: `createCloudEscalationModel(ai, modelName, …)` | `src/firewall/pipeline.ts:145` |
-| **Web** | `inferenceSource` surfaced in telemetry (`ON_DEVICE` vs `IN_CLOUD`) | `src/config/firebase.ts:260`, `src/firewall/pipeline.ts:722` |
-| **Android** | `Firebase.ai(backend = GenerativeBackend.googleAI())` | `ai/HybridAiClient.kt:78` |
-| **Android** | `InferenceMode.ONLY_ON_DEVICE` — status probe, model download, semantic PII pass; fails closed to `LocalFirewallEngine` | `ai/HybridAiClient.kt:111`, `:163`, `:248` |
-| **Android** | `InferenceMode.ONLY_IN_CLOUD` — post-scrub Stage 2 escalation (stream + unary) | `ai/HybridAiClient.kt:267`, `:283` |
-| **Android** | `InferenceMode.PREFER_ON_DEVICE` — stakeholder brief | `ai/HybridAiClient.kt:296` |
+| **Web** | Cloud call site: `createCloudEscalationModel(ai, modelName, …)` | `src/firewall/pipeline.ts:162` |
+| **Web** | `inferenceSource` surfaced in telemetry (`ON_DEVICE` vs `IN_CLOUD`) | `src/config/firebase.ts:260`, `src/firewall/pipeline.ts:778` |
+| **Android** | `Firebase.ai(backend = GenerativeBackend.googleAI())` | `ai/HybridAiClient.kt:81` |
+| **Android** | `InferenceMode.ONLY_ON_DEVICE` — status probe, model download, semantic PII pass; fails closed to `LocalFirewallEngine` | `ai/HybridAiClient.kt:118`, `:171`, `:256` |
+| **Android** | `InferenceMode.ONLY_IN_CLOUD` — post-scrub Stage 2 escalation (stream + unary) | `ai/HybridAiClient.kt:275`, `:291` |
+| **Android** | `InferenceMode.PREFER_ON_DEVICE` — stakeholder brief | `ai/HybridAiClient.kt:304` |
 | **Android** | App Check, release: `PlayIntegrityAppCheckProviderFactory` | `src/release/…/AppCheckInitializer.kt:11` |
 | **Android** | App Check, debug: `DebugAppCheckProviderFactory` (token never committed) | `src/debug/…/AppCheckInitializer.kt:11` |
-| **Extension** | Chrome built-in `LanguageModel` semantic pass (`runExtensionNanoScan`) | `extension/firewall-core.js:934`, `:952` |
+| **Extension** | Chrome built-in `LanguageModel` semantic pass (`runExtensionNanoScan`) | `extension/firewall-core.js:1026`, `:1044` |
 | **Web** | `loadRuntimeConfig()` on startup and on manual refresh — `fetchAndActivate` with a 3.5 s deadline | `src/App.tsx:246`, `:222` → `src/config/firebase.ts:366` |
 | **Android** | `remoteConfigRepo.loadRuntimeConfig()` on ViewModel init — `fetchAndActivate` with a 3.5 s deadline | `ui/TriageViewModel.kt:204` → `data/RemoteConfigRepository.kt:18` |
 
@@ -40,7 +40,7 @@ Every claim below is a runtime call in tracked source, not a dependency sitting 
 
 **Why Remote Config, and why it cannot break the demo.** Five non-sensitive knobs are fetched at startup on Web and Android: `cloud_primary_model` (with `cloud_model` kept as a legacy alias), `cloud_fallback_model`, `enable_cloud_escalation`, `entropy_threshold`, `enterprise_blocked_terms`. Every read is bounded by a 3.5 s `withTimeoutOrNull` and every failure path — offline, unconfigured Firebase, timeout, malformed JSON — returns `DEFAULT_FALLBACK` with the same values compiled into the binary (`RemoteConfigRepository.kt:23-27`, `:69-70`; `src/config/firebase.ts:371-375`). The entropy threshold is clamped to `[2.0, 5.5]` and the term list is length-capped at 200, so a bad remote value degrades rather than disarms the firewall. No PII is ever sent to Remote Config; it is read-only configuration.
 
-**Why there is no Firebase Auth or Firestore on the hot path.** Cordon's cloud surface is deliberately minimal: AI Logic plus App Check plus Hosting plus Remote Config. The scrub-and-escalate path never opens a database connection and never needs a user identity — Stage 2 runs on the anonymous session AI Logic creates for its own auth token (`HybridAiClient.kt:68-70`). Firestore exists only for *opt-in* sync of already-sanitized triage records, and that write is gated twice: `buildZeroPiiTicketPayload` refuses the write if `verifyZeroLeakage()` finds a single surviving span (`FirestoreSyncRepository.kt:293-298`), and `firestore.rules` rejects `rawText`, `matchedText` and `constituentTexts` server-side. So the auth-gated database never holds the thing the product exists to protect — that is the architectural point, not an omission.
+**Why there is no Firebase Auth or Firestore on the hot path.** Cordon's cloud surface is deliberately minimal: AI Logic plus App Check plus Hosting plus Remote Config. The scrub-and-escalate path never opens a database connection and never needs a user identity — Stage 2 runs on the anonymous session AI Logic creates for its own auth token (`HybridAiClient.kt:88-96`). Firestore exists only for *opt-in* sync of already-sanitized triage records, and that write is gated twice: `buildZeroPiiTicketPayload` refuses the write if `verifyZeroLeakage()` finds a single surviving span (`FirestoreSyncRepository.kt:293-298`), and `firestore.rules` rejects `rawText`, `matchedText` and `constituentTexts` server-side. So the auth-gated database never holds the thing the product exists to protect — that is the architectural point, not an omission.
 
 ---
 
@@ -152,7 +152,7 @@ You will see exactly **one** confirmation: **Scrub & Send** (safe version goes o
 
 ### C. Android app — 2 minutes
 
-1. On the phone, open the [Releases page](https://github.com/Lion4467cat/localfirst-triage/releases) and download `cordon-android-v4.6.1.apk`, then tap it to install (allow "install unknown apps" when Android asks).
+1. On the phone, open the [Releases page](https://github.com/Lion4467cat/localfirst-triage/releases) and download `cordon-android-v4.6.2.apk`, then tap it to install (allow "install unknown apps" when Android asks).
 2. Open **Cordon**. On the **Shield** tab, tap **Enable Background Shield**.
 3. Android opens Accessibility settings: tap **Cordon**, then switch it **on** and confirm.
 4. Go back to Cordon. The Shield tab now says the shield is on. Open ChatGPT (or any listed app), type a secret, and tap **Send**.
@@ -192,10 +192,10 @@ The Release APK ships this project's Firebase config, so AI Logic and App Check 
 
 ```bash
 npm ci && npm run build            # TypeScript + Vite production build
-npm test                           # Vitest: 24 files, 186 tests passing
+npm test                           # Vitest: 26 files, 227 tests passing
 npm run test:e2e                   # Playwright: 10/10 flows, 0 page errors
 cd android && ./gradlew testDebugUnitTest lintDebug assembleDebug
-                                   # 15 classes, 98 tests passing, 0 lint errors
+                                   # 17 classes, 123 tests passing, 0 lint errors
 ```
 
 ---

@@ -7,7 +7,9 @@ import com.localfirst.triage.model.NanoStatus
 import com.localfirst.triage.model.RedactionSpan
 import com.localfirst.triage.model.ResolutionMode
 import com.localfirst.triage.model.RuntimeConfigValues
+import com.localfirst.triage.model.SemanticExtractionItem
 import com.localfirst.triage.model.Stage2Source
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flow
@@ -271,5 +273,78 @@ class HybridAiClientTest {
         assertTrue(errorTicket.cloudError.orEmpty().contains("App Check rejected"))
         assertTrue(errorTicket.resolution.contains("DebugAppCheckProvider"))
         assertFalse(errorTicket.resolution.contains(firebasePrefix))
+    }
+
+    @Test
+    fun timesOutHangingOnDeviceAndCloudRequestsCleanlyWithoutDeadlocking() = runTest {
+        val hangingTransport = object : HybridAiTransport {
+            override suspend fun checkOnDeviceStatus(cloudModelName: String): NanoStatus = NanoStatus.READY
+            override suspend fun onDeviceModelName(cloudModelName: String): String = "gemini-nano-4"
+            override fun downloadOnDeviceModel(cloudModelName: String): Flow<NanoDownloadState> = emptyFlow()
+            override suspend fun generateOnDeviceOnly(prompt: String, cloudModelName: String): Pair<String, InferenceSource> {
+                delay(60_000L)
+                return "NONE" to InferenceSource.ON_DEVICE
+            }
+            override fun streamCloudEscalation(prompt: String, modelName: String, systemInstruction: String): Flow<Pair<String, InferenceSource>> =
+                flow {
+                    delay(60_000L)
+                    emit("late" to InferenceSource.IN_CLOUD)
+                }
+            override suspend fun generateCloudUnary(prompt: String, modelName: String, systemInstruction: String): Pair<String, InferenceSource> {
+                delay(60_000L)
+                return "late" to InferenceSource.IN_CLOUD
+            }
+            override suspend fun generateHybridBrief(prompt: String, cloudModelName: String): Pair<String, InferenceSource> {
+                delay(60_000L)
+                return "late" to InferenceSource.ON_DEVICE
+            }
+        }
+
+        val client = HybridAiClient(
+            transport = hangingTransport,
+            onDeviceTimeoutMs = 50L,
+            cloudTimeoutMs = 50L,
+            briefTimeoutMs = 50L,
+        )
+        val result = client.runStage1AndTriage(
+            id = "t-timeout-1",
+            title = "Hanging Network Test",
+            rawText = "P0 incident with key $testFirebaseKey",
+            offlineMode = false,
+            approveCloudEscalation = true,
+        )
+
+        assertFalse("Secret must be redacted via deterministic fallback", result.sanitizedText.contains(firebasePrefix))
+        assertEquals("HEURISTIC_GUARD", result.stage1Source)
+        assertEquals(ResolutionMode.CLOUD_ERROR, result.resolutionMode)
+        assertTrue(result.cloudError.orEmpty().contains("timed out"))
+
+        val brief = client.generateSanitizedHybridBrief(result, offlineMode = false)
+        assertEquals("LOCAL_FALLBACK", brief.inferenceSource)
+    }
+
+    @Test
+    fun toleratesMalformedAndJsonFormattedStage1ModelOutputs() {
+        val client = HybridAiClient(FakeHybridAiTransport())
+        val sandboxItems = mutableListOf<SemanticExtractionItem>()
+        client.parseSandboxPhrases(
+            raw = "```json\n{\"entities\":[{\"type\":\"PERSON_PII\",\"value\":\"Maya\"},{\"type\":\"CONTEXTUAL_PHI\",\"value\":\"oncology clinic\"}]}\n```",
+            itemsOut = sandboxItems,
+        )
+        assertEquals(2, sandboxItems.size)
+        assertEquals("Maya", sandboxItems[0].phrase)
+
+        val malformedItems = mutableListOf<SemanticExtractionItem>()
+        client.parseSandboxPhrases("<<<not valid| [REDACTED:API_KEY_1]|API_KEY", malformedItems)
+        assertTrue(malformedItems.isEmpty())
+
+        val stage1Items = mutableListOf<SemanticExtractionItem>()
+        val meta = client.parseStage1Response(
+            raw = "{\"severity\":\"P0\",\"runbookId\":null,\"entities\":[{\"type\":\"M_AND_A_SECRET\",\"value\":\"Project-Chimera\"}]}",
+            itemsOut = stage1Items,
+        )
+        assertEquals("P0", meta?.first?.name)
+        assertEquals(1, stage1Items.size)
+        assertEquals("Project-Chimera", stage1Items[0].phrase)
     }
 }

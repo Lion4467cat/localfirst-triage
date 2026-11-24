@@ -1,5 +1,10 @@
 import type { DetectorSource, ProtectionLevel, RedactionSpan } from "../types/triage";
-import { maskProtectedTokens, mergeAndRedactSpans } from "./spanMerger";
+import {
+  mergeAndRedactSpans,
+  prepareNormalizedScanView,
+  stripZeroWidthAndObfuscation,
+  type NormalizedScanView,
+} from "./spanMerger";
 
 interface RegexRule {
   category: string;
@@ -45,7 +50,7 @@ export function shannonEntropy(input: string): number {
 }
 
 export function passesIbanMod97(raw: string): boolean {
-  const cleaned = raw.replace(/[\s-]/g, "").toUpperCase();
+  const cleaned = raw.replace(/[\s\u00A0\u00AD\u200B-\u200D\uFEFF-]/g, "").toUpperCase();
   if (!/^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/.test(cleaned)) return false;
   const rearranged = cleaned.slice(4) + cleaned.slice(0, 4);
   let remainder = 0;
@@ -70,7 +75,7 @@ const DETERMINISTIC_REGEX_RULES: RegexRule[] = [
     category: "PEM_PRIVATE_KEY",
     detector: "REGEX_FIREWALL",
     pattern:
-      /-----BEGIN(?:%20|\s)+(?:RSA(?:%20|\s)+|EC(?:%20|\s)+|DSA(?:%20|\s)+|OPENSSH(?:%20|\s)+|ENCRYPTED(?:%20|\s)+|PGP(?:%20|\s)+)?PRIVATE(?:%20|\s)+KEY(?:(?:%20|\s)+BLOCK)?-----[\s\S]*?-----END(?:%20|\s)+(?:RSA(?:%20|\s)+|EC(?:%20|\s)+|DSA(?:%20|\s)+|OPENSSH(?:%20|\s)+|ENCRYPTED(?:%20|\s)+|PGP(?:%20|\s)+)?PRIVATE(?:%20|\s)+KEY(?:(?:%20|\s)+BLOCK)?-----/gi,
+      /-----BEGIN(?:%20|\s)+(?:RSA(?:%20|\s)+|EC(?:%20|\s)+|DSA(?:%20|\s)+|OPENSSH(?:%20|\s)+|ENCRYPTED(?:%20|\s)+|PGP(?:%20|\s)+)?PRIVATE(?:%20|\s)+KEY(?:(?:%20|\s)+BLOCK)?-----[\s\S]{1,16384}?-----END(?:%20|\s)+(?:RSA(?:%20|\s)+|EC(?:%20|\s)+|DSA(?:%20|\s)+|OPENSSH(?:%20|\s)+|ENCRYPTED(?:%20|\s)+|PGP(?:%20|\s)+)?PRIVATE(?:%20|\s)+KEY(?:(?:%20|\s)+BLOCK)?-----/gi,
   },
   {
     category: "DB_CONNECTION_URI",
@@ -548,9 +553,10 @@ function runRules(
   rules: RegexRule[],
   startCounter = 1,
   protectionLevel: ProtectionLevel = "medium",
+  precomputedView?: NormalizedScanView,
 ): RedactionSpan[] {
   const spans: RedactionSpan[] = [];
-  const { scanBuffer, protectedRanges } = maskProtectedTokens(text);
+  const view = precomputedView ?? prepareNormalizedScanView(text);
   let counter = startCounter;
   const activeRank = LEVEL_RANK[protectionLevel];
 
@@ -561,7 +567,7 @@ function runRules(
     }
     const regex = new RegExp(rule.pattern.source, rule.pattern.flags);
     let match: RegExpExecArray | null;
-    while ((match = regex.exec(scanBuffer)) !== null) {
+    while ((match = regex.exec(view.scanBuffer)) !== null) {
       const fullMatch = match[0];
       if (!fullMatch) {
         break;
@@ -575,12 +581,22 @@ function runRules(
       if (rule.validator && !rule.validator(matchedText)) {
         continue;
       }
-      const start =
+      const normStart =
         typeof groupIdx === "number"
           ? match.index + Math.max(0, fullMatch.lastIndexOf(matchedText))
           : match.index;
-      const end = start + matchedText.length;
-      if (protectedRanges.some((pr) => start < pr.end && end > pr.start)) {
+      const normEnd = normStart + matchedText.length;
+      if (normStart < 0 || normEnd <= normStart || normEnd > view.scanBuffer.length) {
+        continue;
+      }
+      const start = view.rawStart(normStart);
+      const end = view.rawEnd(normEnd);
+      if (
+        start < 0 ||
+        end <= start ||
+        end > text.length ||
+        view.protectedRanges.some((pr) => start < pr.end && end > pr.start)
+      ) {
         continue;
       }
       spans.push({
@@ -602,19 +618,20 @@ export function detectRegexSpans(
   text: string,
   protectionLevel: ProtectionLevel = "medium",
 ): RedactionSpan[] {
-  const spans = runRules(text, DETERMINISTIC_REGEX_RULES, 1, protectionLevel);
+  const view = prepareNormalizedScanView(text);
+  const spans = runRules(text, DETERMINISTIC_REGEX_RULES, 1, protectionLevel, view);
   const cards = spans.filter((span) => span.category === "CREDIT_CARD");
   if (cards.length === 0) return spans;
-  for (const extra of detectCardBundleSpans(text, cards, spans.length + 1)) {
+  for (const extra of detectCardBundleSpans(text, cards, spans.length + 1, view)) {
     if (!spans.some((span) => span.start === extra.start)) spans.push(extra);
   }
   return spans;
 }
 
-const CARD_EXPIRY_TOKEN = /(?<!\d)(?:0?[1-9]|1[0-2])\s*[/\-]\s*(?:\d{2}|\d{4})(?!\d)/g;
+const CARD_EXPIRY_TOKEN = /(?<![\d.\-/])(?:0?[1-9]|1[0-2])\s*[/\-]\s*(?:\d{2}|\d{4})(?![\d.\-/T])/g;
 const CARD_CVV_LABEL =
   /\b(?:cvv2?|cvc2?|cid|csc|security\s*code|card\s*verification(?:\s*(?:value|code))?)\b\s*(?:is|:|=|#|-)?\s*(\d{3,4})(?!\d)/gi;
-const CARD_BARE_DIGITS = /(?<![\d.\-/])(\d{3,4})(?![\d.\-/])/g;
+const CARD_BARE_DIGITS = /(?<![\d.\-/=])(\d{3,4})(?![\d.\-/])/g;
 const CARD_UNIT_AFTER =
   /^\s*(?:%|ms\b|px\b|k\b|m\b|gb\b|mb\b|kb\b|hrs?\b|am\b|pm\b|orders?\b|days?\b|hours?\b|mins?\b|seconds?\b|items?\b|users?\b|requests?\b|retries?\b)/i;
 const CARD_YEAR_LIKE = /^(?:19|20)\d{2}$/;
@@ -630,10 +647,18 @@ export function detectCardBundleSpans(
   text: string,
   cardSpans: RedactionSpan[],
   startCounter: number,
+  precomputedView?: NormalizedScanView,
 ): RedactionSpan[] {
+  const view = precomputedView ?? prepareNormalizedScanView(text);
+  const buf = view.scanBuffer;
   const extras: RedactionSpan[] = [];
   let counter = startCounter;
-  const push = (start: number, end: number, category: string) => {
+  const push = (normStart: number, normEnd: number, category: string) => {
+    if (normStart < 0 || normEnd <= normStart || normEnd > buf.length) return;
+    const start = view.rawStart(normStart);
+    const end = view.rawEnd(normEnd);
+    if (start < 0 || end <= start || end > text.length) return;
+    if (view.protectedRanges.some((pr) => start < pr.end && end > pr.start)) return;
     if (extras.some((span) => start < span.end && end > span.start)) return;
     extras.push({
       start,
@@ -645,18 +670,23 @@ export function detectCardBundleSpans(
       masked: true,
     });
   };
+  const normCards = cardSpans.map((card) => ({
+    start: view.toNormIndex(card.start),
+    end: view.toNormIndex(card.end),
+  }));
   const overlapsCard = (start: number, end: number) =>
-    cardSpans.some((card) => start < card.end && end > card.start);
+    normCards.some((card) => start < card.end && end > card.start);
 
-  for (const card of cardSpans) {
+  for (const card of normCards) {
     const from = Math.max(0, card.start - 80);
-    const to = Math.min(text.length, card.end + 80);
+    const to = Math.min(buf.length, card.end + 80);
     const inWindow = (start: number, end: number) => start >= from && end <= to;
     const expiries: Array<{ start: number; end: number }> = [];
 
     CARD_EXPIRY_TOKEN.lastIndex = 0;
     let match: RegExpExecArray | null;
-    while ((match = CARD_EXPIRY_TOKEN.exec(text)) !== null) {
+    while ((match = CARD_EXPIRY_TOKEN.exec(buf)) !== null) {
+      if (match[0].includes("\u0000")) continue;
       const start = match.index;
       const end = start + match[0].length;
       if (!inWindow(start, end) || overlapsCard(start, end)) continue;
@@ -665,7 +695,8 @@ export function detectCardBundleSpans(
     }
 
     CARD_CVV_LABEL.lastIndex = 0;
-    while ((match = CARD_CVV_LABEL.exec(text)) !== null) {
+    while ((match = CARD_CVV_LABEL.exec(buf)) !== null) {
+      if (match[0].includes("\u0000")) continue;
       const start = match.index + match[0].lastIndexOf(match[1]);
       const end = start + match[1].length;
       if (!inWindow(start, end)) continue;
@@ -676,13 +707,14 @@ export function detectCardBundleSpans(
     // separates a card bundle from an order number sitting near a card number.
     if (expiries.length === 0) continue;
     CARD_BARE_DIGITS.lastIndex = 0;
-    while ((match = CARD_BARE_DIGITS.exec(text)) !== null) {
+    while ((match = CARD_BARE_DIGITS.exec(buf)) !== null) {
+      if (match[0].includes("\u0000")) continue;
       const start = match.index;
       const end = start + match[0].length;
       if (!inWindow(start, end) || overlapsCard(start, end)) continue;
       if (expiries.some((e) => start < e.end && end > e.start)) continue;
       if (CARD_YEAR_LIKE.test(match[1])) continue;
-      if (CARD_UNIT_AFTER.test(text.slice(end, end + 12))) continue;
+      if (CARD_UNIT_AFTER.test(buf.slice(end, end + 12))) continue;
       push(start, end, "CVV");
     }
   }
@@ -701,14 +733,14 @@ export function detectHighEntropySecrets(
   entropyThreshold = 3.25,
 ): RedactionSpan[] {
   const spans: RedactionSpan[] = [];
-  const { scanBuffer, protectedRanges } = maskProtectedTokens(text);
+  const view = prepareNormalizedScanView(text);
   const normalizedThreshold = Number.isFinite(entropyThreshold) ? entropyThreshold : 3.25;
   const assignmentRegex =
     /\b(?:api[_-]?key|x[_-]?api[_-]?key|secret|token|access[_-]?token|refresh[_-]?token|session[_-]?token|id[_-]?token|password|passwd|pwd|client[_-]?secret|signing[_-]?key|webhook[_-]?secret|private[_-]?key|auth[_-]?secret)\\?["']?\s*(?:[:=]|%3D)\s*\\?["']?([^\s"',;\[\]\\/\u0000]{16,})\\?["']?/gi;
   let counter = 50;
   let match: RegExpExecArray | null;
 
-  while ((match = assignmentRegex.exec(scanBuffer)) !== null) {
+  while ((match = assignmentRegex.exec(view.scanBuffer)) !== null) {
     const secretValue = match[1];
     if (
       !secretValue ||
@@ -733,9 +765,19 @@ export function detectHighEntropySecrets(
 
     if (meetsThreshold) {
       const valueOffset = match[0].lastIndexOf(secretValue);
-      const start = match.index + Math.max(0, valueOffset);
-      const end = start + secretValue.length;
-      if (protectedRanges.some((pr) => start < pr.end && end > pr.start)) {
+      const normStart = match.index + Math.max(0, valueOffset);
+      const normEnd = normStart + secretValue.length;
+      if (normStart < 0 || normEnd <= normStart || normEnd > view.scanBuffer.length) {
+        continue;
+      }
+      const start = view.rawStart(normStart);
+      const end = view.rawEnd(normEnd);
+      if (
+        start < 0 ||
+        end <= start ||
+        end > text.length ||
+        view.protectedRanges.some((pr) => start < pr.end && end > pr.start)
+      ) {
         continue;
       }
       spans.push({
@@ -768,11 +810,11 @@ export function detectPolicyTermSpans(
 ): RedactionSpan[] {
   if (!customTerms || customTerms.length === 0) return [];
   const spans: RedactionSpan[] = [];
-  const { scanBuffer, protectedRanges } = maskProtectedTokens(text);
+  const view = prepareNormalizedScanView(text);
   let counter = startCounter;
 
   for (const rawTerm of customTerms) {
-    const term = rawTerm.trim();
+    const term = stripZeroWidthAndObfuscation(rawTerm).trim();
     if (term.length < 3) continue;
     const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const leading = /^[A-Za-z0-9_]/.test(term) ? "\\b" : "";
@@ -780,12 +822,18 @@ export function detectPolicyTermSpans(
     const regex = new RegExp(`${leading}${escaped}${trailing}`, "gi");
     let match: RegExpExecArray | null;
 
-    while ((match = regex.exec(scanBuffer)) !== null) {
-      const start = match.index;
-      const end = start + match[0].length;
+    while ((match = regex.exec(view.scanBuffer)) !== null) {
+      if (match[0].includes("\u0000")) continue;
+      const normStart = match.index;
+      const normEnd = normStart + match[0].length;
+      if (normStart < 0 || normEnd <= normStart || normEnd > view.scanBuffer.length) continue;
+      const start = view.rawStart(normStart);
+      const end = view.rawEnd(normEnd);
       if (
-        match[0].includes("\u0000") ||
-        protectedRanges.some((pr) => start < pr.end && end > pr.start)
+        start < 0 ||
+        end <= start ||
+        end > text.length ||
+        view.protectedRanges.some((pr) => start < pr.end && end > pr.start)
       ) {
         continue;
       }
@@ -877,11 +925,15 @@ export function decodeHandoffPayload(
 ): { title: string; sanitizedText: string } | null {
   if (!hash || !hash.includes("handoff=")) return null;
   try {
-    const encoded = hash.split("handoff=")[1]?.split("&")[0] ?? "";
+    let encoded = hash.split("handoff=")[1]?.split("&")[0] ?? "";
+    if (!encoded || encoded.length > MAX_HANDOFF_ENCODED_CHARS) return null;
+    if (encoded.includes("%")) {
+      encoded = decodeURIComponent(encoded);
+    }
     if (
       !encoded ||
       encoded.length > MAX_HANDOFF_ENCODED_CHARS ||
-      !/^[A-Za-z0-9\-_]+=*$/.test(encoded)
+      !/^[A-Za-z0-9\-_+/]+=*$/.test(encoded)
     ) {
       return null;
     }
@@ -889,23 +941,36 @@ export function decodeHandoffPayload(
     const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
     const bytes = Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
     const json = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    const parsed = JSON.parse(json) as { title?: unknown; sanitizedText?: unknown };
-    if (typeof parsed.sanitizedText === "string" && parsed.sanitizedText.trim()) {
-      const cleanBody = stripUnsafeControlChars(parsed.sanitizedText).slice(
+    const parsed: unknown = JSON.parse(json);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+    const record = parsed as { title?: unknown; sanitizedText?: unknown };
+    if (typeof record.sanitizedText === "string" && record.sanitizedText.trim()) {
+      const cleanBody = stripUnsafeControlChars(record.sanitizedText).slice(
         0,
         MAX_HANDOFF_TEXT_CHARS,
       );
       if (!cleanBody.trim()) return null;
-      const { sanitizedText } = scanAndRedactLocal(cleanBody, {
-        includeHeuristics: false,
+      const handoffScanOpts: LocalFirewallScanOptions = {
+        protectionLevel: "medium",
+        includeHeuristics: true,
         enableEntropyScanner: true,
-      });
+        remoteBlockedTerms: ["Project-Apollo", "Project-Valkyrie"],
+      };
+      const { sanitizedText } = scanAndRedactLocal(cleanBody, handoffScanOpts);
       const rawTitle =
-        typeof parsed.title === "string" && parsed.title.trim()
-          ? stripUnsafeControlChars(parsed.title.trim()).slice(0, MAX_HANDOFF_TITLE_CHARS)
+        typeof record.title === "string" && record.title.trim()
+          ? stripUnsafeControlChars(record.title.trim()).slice(0, MAX_HANDOFF_TITLE_CHARS)
           : "Chrome Extension Capture";
+      const scrubbedTitle = rawTitle
+        ? scanAndRedactLocal(rawTitle, handoffScanOpts).sanitizedText.slice(
+            0,
+            MAX_HANDOFF_TITLE_CHARS,
+          )
+        : "Chrome Extension Capture";
       return {
-        title: rawTitle || "Chrome Extension Capture",
+        title: scrubbedTitle || "Chrome Extension Capture",
         sanitizedText,
       };
     }

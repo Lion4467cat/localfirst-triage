@@ -199,4 +199,73 @@ class PiiHardeningTest {
         listOf("143/A", "560038", "4111", "09/29", "ravi.kumar@oksbi", "ABCPE1234F", "HDFC0001234")
             .forEach { assertFalse("leaked $it in: $sanitized", sanitized.contains(it)) }
     }
+
+    @Test
+    fun `detects secrets obfuscated with zero width chars soft hyphens and non breaking spaces`() {
+        val zwsp = "\u200B"
+        val zwnj = "\u200C"
+        val zwj = "\u200D"
+        val bom = "\uFEFF"
+        val shy = "\u00AD"
+        val nbsp = "\u00A0"
+
+        val obfStripe = "sk_${zwsp}live_${shy}51NxMock${zwnj}Secret9988776655"
+        val obfAws = "AKIA${zwj}IOSFODNN7${bom}EXAMPLE"
+        val obfCard = "4111${nbsp}1111${zwsp}1111${shy}1111"
+        val obfPan = "ABC${zwsp}PE12${shy}34F"
+        val obfIfsc = "HDFC${zwnj}0${shy}001234"
+        val obfUpi = "ravi.${zwsp}kumar@ok${shy}sbi"
+        val obfAddr = "address${nbsp}143/A,${nbsp}2nd${zwsp} Cross, Indiranagar,${nbsp}Bengaluru 560${shy}038"
+
+        val payload = listOf(
+            "Keep prefix intact | key=$obfStripe | aws=$obfAws",
+            "pay $obfCard exp${nbsp}09/${zwsp}29 cvv${nbsp}1${zwj}23",
+            "pan $obfPan | ifsc $obfIfsc | upi $obfUpi",
+            "$obfAddr | Keep suffix intact.",
+        ).joinToString("\n")
+
+        val (sanitized, spans) = LocalFirewallEngine.scrub(payload)
+        val found = spans.filter { it.masked }.map { it.category }.toSet()
+
+        listOf("API_KEY", "AWS_ACCESS_KEY", "CREDIT_CARD", "CARD_EXPIRY", "CVV", "PAN_ID", "IFSC", "UPI_ID", "ADDRESS")
+            .forEach { assertTrue("missing obfuscated category $it in $found", found.contains(it)) }
+
+        assertTrue(sanitized.contains("Keep prefix intact"))
+        assertTrue(sanitized.contains("Keep suffix intact."))
+        assertFalse(sanitized.contains("51NxMock"))
+        assertFalse(sanitized.contains("IOSFODNN7"))
+        assertFalse(sanitized.contains("4111"))
+        assertFalse(sanitized.contains("09/${zwsp}29"))
+        assertFalse(sanitized.contains("PE12"))
+        assertFalse(sanitized.contains("001234"))
+        assertFalse(sanitized.contains("oksbi"))
+        assertFalse(sanitized.contains("Indiranagar"))
+        assertTrue(LocalFirewallEngine.verifyZeroLeakage(sanitized, spans).verified)
+    }
+
+    @Test
+    fun `scrubs 25k char paste with overlapping spans quickly and without index bounds errors`() {
+        val awsKey = "AKIA" + "IOSFODNN7EXAMPLE"
+        val filler = "2026-11-24T12:00:00Z INFO gateway request_id=req-99812 status=200 latency=4ms\n".repeat(320)
+        val largePaste = buildString {
+            append(filler)
+            append("Customer Priya Sharma at address 143/A, 2nd Cross, Indiranagar, Bengaluru 560038 ")
+            append("shared key $awsKey and card 4111\u00A01111\u200B1111 1111 exp 09/29 cvv 123.\n")
+            append(filler.take(4000))
+        }
+        assertTrue("expected >25k chars, got ${largePaste.length}", largePaste.length > 25_000)
+
+        val t0 = System.nanoTime()
+        val (sanitized, spans) = LocalFirewallEngine.scanAndRedactLocal(
+            largePaste,
+            LocalFirewallEngine.ScanOptions(customTerms = listOf("Indiranagar", "Bengaluru 560038")),
+        )
+        val elapsedMs = (System.nanoTime() - t0) / 1_000_000L
+
+        assertTrue("25k scrub took ${elapsedMs}ms", elapsedMs < 500L)
+        assertFalse(sanitized.contains(awsKey))
+        assertFalse(sanitized.contains("Indiranagar"))
+        assertFalse(sanitized.contains("4111"))
+        assertTrue(LocalFirewallEngine.verifyZeroLeakage(sanitized, spans).verified)
+    }
 }

@@ -4,6 +4,9 @@ import android.accessibilityservice.AccessibilityService
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.content.SharedPreferences
+import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Typeface
@@ -33,6 +36,7 @@ import android.widget.Toast
 import com.localfirst.triage.R
 import com.localfirst.triage.data.ShieldStore
 import com.localfirst.triage.firewall.LocalFirewallEngine
+import com.localfirst.triage.model.ProtectionLevel
 import com.localfirst.triage.model.RedactionSpan
 
 /**
@@ -50,20 +54,44 @@ import com.localfirst.triage.model.RedactionSpan
  */
 class CordonAccessibilityService : AccessibilityService() {
 
-    private companion object {
-        const val TAG = "CordonA11y"
-        const val MAX_EDITABLE_SCAN_NODES = 400
-        const val SELF_EDIT_EXPIRY_MS = 800L
+    companion object {
+        private const val TAG = "CordonA11y"
+        private const val MAX_EDITABLE_SCAN_NODES = 400
+        private const val SELF_EDIT_EXPIRY_MS = 800L
+        private const val TRANSITION_RECHECK_SHORT_MS = 180L
+        private const val TRANSITION_RECHECK_LONG_MS = 420L
+
+        @Volatile
+        var isServiceConnected: Boolean = false
+            private set
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private var windowManager: WindowManager? = null
+    private var prefListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
+
+    @Volatile
+    private var cachedShieldPaused: Boolean = false
+
+    @Volatile
+    private var cachedProtectionLevel: ProtectionLevel = ProtectionLevel.MEDIUM
+
+    @Volatile
+    private var cachedGuardedApps: Map<String, Boolean> = emptyMap()
+
+    @Volatile
+    private var cacheHydrated: Boolean = false
 
     private var modalView: View? = null
     private var modalPackage: String? = null
+    private var modalAppName: String = ""
+    private var modalRawText: String = ""
+    private var modalSanitizedText: String = ""
+    private var modalSpans: List<RedactionSpan> = emptyList()
 
     private val overrideMemory = OverrideMemory()
     private val selfEdits = SelfEditTracker()
+    private val browserAbortGuard = BrowserSearchAbortGuard()
 
     private var activePackage: String? = null
     private var riskyPackage: String? = null
@@ -72,19 +100,67 @@ class CordonAccessibilityService : AccessibilityService() {
     private var pendingRescan: Runnable? = null
     private var pendingRescanPackage: String? = null
     private var pendingRescanSpans: List<RedactionSpan> = emptyList()
+    private var pendingTransitionCheck: Runnable? = null
 
     /** Uptime of the text change that produced the current findings, for the modalShown latency. */
     private var fieldObservedAt = 0L
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        isServiceConnected = true
         windowManager = getSystemService(Context.WINDOW_SERVICE) as? WindowManager
-        Log.d(TAG, "serviceConnected=true")
+        cancelPendingRescan()
+        cancelTransitionCheck()
+        attachPreferenceCacheObserver()
+        hydrateServiceState()
+        activePackage = foregroundPackage()
+        Log.d(TAG, "serviceConnected=true guardedCached=${cachedGuardedApps.size}")
     }
+
+    private fun attachPreferenceCacheObserver() {
+        val prefs = runCatching { ShieldStore.prefs(this) }.getOrNull() ?: return
+        prefListener?.let { existing ->
+            runCatching { prefs.unregisterOnSharedPreferenceChangeListener(existing) }
+        }
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+            hydrateServiceState()
+        }
+        prefListener = listener
+        runCatching { prefs.registerOnSharedPreferenceChangeListener(listener) }
+    }
+
+    private fun detachPreferenceCacheObserver() {
+        val listener = prefListener ?: return
+        prefListener = null
+        runCatching { ShieldStore.prefs(this).unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+
+    private fun hydrateServiceState() {
+        runCatching {
+            cachedShieldPaused = ShieldStore.isShieldPaused(this)
+            cachedProtectionLevel = ShieldStore.getProtectionLevel(this)
+            cachedGuardedApps = ShieldStore.getGuardedAppsState(this)
+            cacheHydrated = true
+            LocalFirewallEngine.warmUp()
+        }.onFailure { err ->
+            Log.w(TAG, "hydrateServiceState failed: ${err.message}")
+        }
+    }
+
+    private fun isShieldPausedNow(): Boolean =
+        if (cacheHydrated) cachedShieldPaused else ShieldStore.isShieldPaused(this)
+
+    private fun currentProtectionLevel(): ProtectionLevel =
+        if (cacheHydrated) cachedProtectionLevel else ShieldStore.getProtectionLevel(this)
+
+    private fun isPackageGuardedNow(pkg: String): Boolean =
+        if (cacheHydrated) ShieldStore.isPackageGuardedFromState(pkg, cachedGuardedApps)
+        else ShieldStore.isPackageGuarded(this, pkg)
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val ev = event ?: return
         val pkg = ev.packageName?.toString() ?: return
+        if (!cacheHydrated) hydrateServiceState()
 
         if (ev.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             handleWindowStateChanged(pkg)
@@ -92,17 +168,19 @@ class CordonAccessibilityService : AccessibilityService() {
 
         if (GuardExclusions.isExcludedPackage(pkg)) return
 
-        if (ShieldStore.isShieldPaused(this)) {
+        if (isShieldPausedNow()) {
             dismissModal("paused")
             return
         }
-        if (!ShieldStore.isPackageGuarded(this, pkg)) {
+        if (!isPackageGuardedNow(pkg)) {
             if (modalPackage != null && modalPackage != pkg) dismissModal("leftGuardedApp")
             return
         }
 
         when (ev.eventType) {
             AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED,
+            AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED,
+            AccessibilityEvent.TYPE_VIEW_FOCUSED,
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
             -> evaluateField(ev, pkg)
 
@@ -119,17 +197,25 @@ class CordonAccessibilityService : AccessibilityService() {
         if (pkg == GuardExclusions.SELF_PACKAGE) return
         if (GuardExclusions.isInputMethodPackage(pkg)) return
         val shownFor = modalPackage
-        if (shownFor != null && shownFor != pkg) {
-            // Splash screens, the launcher and the IME all raise transient window events while the
-            // guarded app is still in front. Dropping the lock on one of those would leave the raw
-            // secret in the field with no scrub, so confirm the foreground really changed.
-            if (foregroundPackage() == shownFor) {
-                Log.d(TAG, "switchIgnored from=$shownFor event=$pkg")
-                return
+        if (shownFor != null) {
+            if (shownFor != pkg) {
+                // Splash screens, the launcher and the IME all raise transient window events while the
+                // guarded app is still in front. Confirm the foreground really changed, and schedule a
+                // settled re-check so rapid Back / predictive-back animations on One UI still release
+                // the modal once the transition completes.
+                if (foregroundPackage() == shownFor) {
+                    Log.d(TAG, "switchIgnored from=$shownFor event=$pkg")
+                    scheduleTransitionRecheck(shownFor)
+                    return
+                }
+                Log.d(TAG, "modalDismissedBySwitch from=$shownFor to=$pkg")
+                dismissModal("appSwitch")
+                overrideMemory.clear()
+            } else {
+                // Same-package window transition (e.g. Back popped the chat screen back to a list):
+                // verify after transition settles that the active window still holds a risky composer.
+                scheduleTransitionRecheck(shownFor)
             }
-            Log.d(TAG, "modalDismissedBySwitch from=$shownFor to=$pkg")
-            dismissModal("appSwitch")
-            overrideMemory.clear()
         }
         if (pkg != activePackage) {
             cancelPendingRescan()
@@ -137,11 +223,57 @@ class CordonAccessibilityService : AccessibilityService() {
         }
     }
 
+    private fun scheduleTransitionRecheck(expectedPkg: String, delayMs: Long = TRANSITION_RECHECK_SHORT_MS) {
+        cancelTransitionCheck()
+        val runnable = Runnable {
+            pendingTransitionCheck = null
+            val shownFor = modalPackage ?: return@Runnable
+            if (shownFor != expectedPkg || modalView == null) return@Runnable
+            val fg = foregroundPackage()
+            if (fg != null && fg != shownFor && !GuardExclusions.isInputMethodPackage(fg)) {
+                dismissModal("settledAppSwitch")
+                overrideMemory.clear()
+                return@Runnable
+            }
+            val root = rootInActiveWindow
+            if (root != null && root.packageName?.toString() == shownFor) {
+                val editable = findEditable(root)
+                val live = editable?.text?.toString().orEmpty()
+                if (editable == null || live.isBlank()) {
+                    lastTextByPackage[shownFor] = ""
+                    if (riskyPackage == shownFor) riskyPackage = null
+                    dismissModal("composerClosed")
+                    overrideMemory.clear()
+                    return@Runnable
+                }
+            } else if (delayMs == TRANSITION_RECHECK_SHORT_MS) {
+                scheduleTransitionRecheck(expectedPkg, TRANSITION_RECHECK_LONG_MS)
+            }
+        }
+        pendingTransitionCheck = runnable
+        mainHandler.postDelayed(runnable, delayMs)
+    }
+
+    private fun cancelTransitionCheck() {
+        pendingTransitionCheck?.let { mainHandler.removeCallbacks(it) }
+        pendingTransitionCheck = null
+    }
+
     /** The package of the window actually in front, or null when it cannot be read. */
     private fun foregroundPackage(): String? =
         runCatching { rootInActiveWindow?.packageName?.toString() }.getOrNull()
 
     private fun evaluateField(event: AccessibilityEvent, pkg: String) {
+        val isBrowser = BrowserGuardPolicy.isBrowserPackage(pkg)
+        val root = rootInActiveWindow
+
+        // Run in-flight search navigation abort guard FIRST — even if the lock modal already
+        // opened on an earlier prefix keystroke (`len=28`) while a queued Enter/Go raced into
+        // `google.com/search?q=...` navigation on the same frame.
+        if (isBrowser && checkAndAbortBrowserSearchLeak(root, pkg)) {
+            return
+        }
+
         if (modalView != null) {
             // A window-state event can arrive late or not at all, so a modal left over from the
             // previous app must never label (or scrub into) the app that is on screen now.
@@ -157,18 +289,15 @@ class CordonAccessibilityService : AccessibilityService() {
         val source = event.source
         if (source != null && isPasswordNode(source)) return
 
-        val root = rootInActiveWindow
-        val editable = when {
-            source != null && source.isEditable && !isPasswordNode(source) -> source
-            else -> findEditable(root)
-        }
+        val editable = resolveEditableNode(source, root, pkg, isBrowser)
         if (editable != null && isPasswordNode(editable)) return
 
-        val text = readFieldText(event, editable) ?: return
+        val text = readFieldText(event, source, editable, root, pkg, isBrowser) ?: return
 
         if (selfEdits.consume(text)) {
             // Our own ACTION_SET_TEXT echo: the field now holds the scrubbed version.
             lastTextByPackage[pkg] = text
+            browserAbortGuard.clearForPackage(pkg)
             return
         }
 
@@ -180,10 +309,18 @@ class CordonAccessibilityService : AccessibilityService() {
             return
         }
 
+        if (isBrowser && BrowserGuardPolicy.isCleanBrowsingUrlWithoutSearchQuery(text)) {
+            lastTextByPackage[pkg] = text
+            cancelPendingRescan()
+            if (riskyPackage == pkg) riskyPackage = null
+            return
+        }
+
         val previous = lastTextByPackage[pkg].orEmpty()
         if (text == previous) return
         lastTextByPackage[pkg] = text
-        fieldObservedAt = SystemClock.uptimeMillis()
+        val observedNow = SystemClock.uptimeMillis()
+        fieldObservedAt = observedNow
         Log.d(TAG, "textChanged pkg=$pkg len=${text.length}")
 
         overrideMemory.onTextChanged(pkg, text)
@@ -191,7 +328,7 @@ class CordonAccessibilityService : AccessibilityService() {
 
         val (sanitized, spans) = LocalFirewallEngine.scrub(
             rawText = text,
-            protectionLevel = ShieldStore.getProtectionLevel(this),
+            protectionLevel = currentProtectionLevel(),
         )
         val findings = spans.filter { it.masked }
         if (findings.isEmpty()) {
@@ -200,9 +337,18 @@ class CordonAccessibilityService : AccessibilityService() {
             return
         }
         riskyPackage = pkg
+        if (isBrowser) {
+            browserAbortGuard.recordDetectedBrowserPii(
+                pkg = pkg,
+                rawText = text,
+                sanitizedText = sanitized,
+                spans = findings,
+                nowMs = observedNow,
+            )
+        }
 
         val burst = GuardTriggerPolicy.isPasteBurst(previous.length, text.length)
-        when (GuardTriggerPolicy.trigger(burst, findings, text.length)) {
+        when (GuardTriggerPolicy.trigger(burst, findings, text.length, isBrowserSurface = isBrowser)) {
             GuardTriggerPolicy.Trigger.LOCK_NOW -> {
                 cancelPendingRescan()
                 showBlockModal(pkg, text, sanitized, findings)
@@ -214,11 +360,142 @@ class CordonAccessibilityService : AccessibilityService() {
         }
     }
 
-    /** Node text first (authoritative), then the event payload. Null when unreadable. */
-    private fun readFieldText(event: AccessibilityEvent, editable: AccessibilityNodeInfo?): String? {
-        editable?.text?.toString()?.let { return it }
-        val fromEvent = event.text?.joinToString("")
-        if (!fromEvent.isNullOrEmpty()) return fromEvent
+    private fun checkAndAbortBrowserSearchLeak(root: AccessibilityNodeInfo?, pkg: String): Boolean {
+        val addressBar = findBrowserAddressBar(root, pkg) ?: return false
+        val navUrl = extractNodeTextIgnoringHint(addressBar) ?: return false
+        // When the address bar is actively focused, only abort if it already holds an explicit
+        // search engine result URL (`google.com/search?q=...`); normal typing in the bar is
+        // handled by the synchronous zero-debounce path below.
+        if (addressBar.isFocused && BrowserGuardPolicy.extractSearchQueryFromUrl(navUrl) == null) {
+            return false
+        }
+        val nowMs = SystemClock.uptimeMillis()
+        val abortDecision = browserAbortGuard.evaluateInFlightUrl(
+            pkg = pkg,
+            urlBarText = navUrl,
+            nowMs = nowMs,
+            isOverridden = overrideMemory::isOverridden,
+            scrubFn = { q -> LocalFirewallEngine.scrub(q, currentProtectionLevel()) },
+        )
+        if (!abortDecision.shouldAbort) return false
+
+        cancelPendingRescan()
+        fieldObservedAt = nowMs
+        val backOk = runCatching { performGlobalAction(GLOBAL_ACTION_BACK) }.getOrDefault(false)
+        Log.w(
+            TAG,
+            "browserSearchAborted pkg=$pkg findings=${abortDecision.spans.size} backOk=$backOk",
+        )
+        lastTextByPackage[pkg] = abortDecision.rawQuery
+        riskyPackage = pkg
+        if (modalView != null && modalPackage == pkg) {
+            dismissModal("refreshAfterSearchAbort")
+        }
+        showBlockModal(
+            pkg = pkg,
+            rawText = abortDecision.rawQuery,
+            sanitizedText = abortDecision.sanitizedQuery,
+            spans = abortDecision.spans,
+        )
+        return true
+    }
+
+    private fun extractNodeTextIgnoringHint(node: AccessibilityNodeInfo?): String? {
+        if (node == null) return null
+        return BrowserGuardPolicy.extractLiveNodeText(
+            rawText = node.text,
+            hintText = node.hintText,
+            isShowingHintText = node.isShowingHintText,
+        )
+    }
+
+    private fun isBrowserAddressBarNode(node: AccessibilityNodeInfo?, pkg: String): Boolean {
+        val viewId = node?.viewIdResourceName ?: return false
+        return BrowserGuardPolicy.addressBarViewIdsForPackage(pkg).any { id ->
+            viewId.equals(id, ignoreCase = true)
+        }
+    }
+
+    private fun findBrowserAddressBar(root: AccessibilityNodeInfo?, pkg: String): AccessibilityNodeInfo? {
+        if (root == null) return null
+        for (viewId in BrowserGuardPolicy.addressBarViewIdsForPackage(pkg)) {
+            val matches = runCatching { root.findAccessibilityNodeInfosByViewId(viewId) }.getOrNull()
+            val candidate = matches?.firstOrNull { !isPasswordNode(it) }
+            if (candidate != null) return candidate
+        }
+        return null
+    }
+
+    private fun resolveEditableNode(
+        source: AccessibilityNodeInfo?,
+        root: AccessibilityNodeInfo?,
+        pkg: String,
+        isBrowser: Boolean,
+    ): AccessibilityNodeInfo? {
+        val focused = root?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+        if (focused != null && focused.isEditable && !isPasswordNode(focused)) {
+            return focused
+        }
+        if (source != null && source.isEditable && !isPasswordNode(source)) {
+            if (!isBrowser || !isBrowserAddressBarNode(source, pkg) || source.isFocused) {
+                return source
+            }
+        }
+        if (isBrowser) {
+            val bar = findBrowserAddressBar(root, pkg)
+            if (bar != null && bar.isFocused && !isPasswordNode(bar)) {
+                return bar
+            }
+            return bfsFindEditable(root, skipUnfocusedBrowserBarPkg = pkg)
+        }
+        return findEditable(root)
+    }
+
+    /**
+     * Synchronously reads live text across focused input, `url_bar`, `event.source`, and
+     * `event.text`, strictly excluding `hintText` / idle placeholders so `"Search or type URL"`
+     * never causes false positives.
+     */
+    private fun readFieldText(
+        event: AccessibilityEvent,
+        source: AccessibilityNodeInfo?,
+        editable: AccessibilityNodeInfo?,
+        root: AccessibilityNodeInfo?,
+        pkg: String,
+        isBrowser: Boolean,
+    ): String? {
+        if (isBrowser) {
+            val focused = root?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            if (focused != null && !isPasswordNode(focused)) {
+                extractNodeTextIgnoringHint(focused)?.let { return it }
+            }
+            val bar = findBrowserAddressBar(root, pkg)
+            if (bar != null && bar.isFocused && !isPasswordNode(bar)) {
+                extractNodeTextIgnoringHint(bar)?.let { return it }
+            }
+        }
+
+        if (editable != null && (!isBrowser || !isBrowserAddressBarNode(editable, pkg) || editable.isFocused)) {
+            extractNodeTextIgnoringHint(editable)?.let { return it }
+        }
+
+        if (source != null && source.isEditable && !isPasswordNode(source)) {
+            if (!isBrowser || !isBrowserAddressBarNode(source, pkg) || source.isFocused) {
+                extractNodeTextIgnoringHint(source)?.let { return it }
+            }
+        }
+
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED ||
+            (event.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED && source?.isEditable == true)
+        ) {
+            val rawEventText = event.text.joinToString("")
+            BrowserGuardPolicy.extractLiveNodeText(
+                rawText = rawEventText,
+                hintText = source?.hintText ?: editable?.hintText,
+                isShowingHintText = source?.isShowingHintText == true || editable?.isShowingHintText == true,
+            )?.let { return it }
+        }
+
         return null
     }
 
@@ -238,8 +515,8 @@ class CordonAccessibilityService : AccessibilityService() {
             pendingRescanSpans = emptyList()
 
             if (modalView != null) return@Runnable
-            if (ShieldStore.isShieldPaused(this)) return@Runnable
-            if (!ShieldStore.isPackageGuarded(this, targetPkg)) return@Runnable
+            if (isShieldPausedNow()) return@Runnable
+            if (!isPackageGuardedNow(targetPkg)) return@Runnable
 
             val root = rootInActiveWindow ?: return@Runnable
             val editable = findEditable(root) ?: return@Runnable
@@ -254,7 +531,7 @@ class CordonAccessibilityService : AccessibilityService() {
 
             val (sanitized, fresh) = LocalFirewallEngine.scrub(
                 rawText = current,
-                protectionLevel = ShieldStore.getProtectionLevel(this),
+                protectionLevel = currentProtectionLevel(),
             )
             val findings = fresh.filter { it.masked }
             if (findings.isEmpty()) return@Runnable
@@ -279,22 +556,37 @@ class CordonAccessibilityService : AccessibilityService() {
         spans: List<RedactionSpan>,
     ) {
         if (modalView != null) return
-        val wm = windowManager
+        val wm = windowManager ?: (getSystemService(Context.WINDOW_SERVICE) as? WindowManager).also {
+            windowManager = it
+        }
         if (wm == null) {
             Log.e(TAG, "modalAddViewFailed pkg=$pkg err=noWindowManager")
             return
         }
         val appName = ShieldStore.appDisplayNameForPackage(this, pkg)
+        val actionGate = ModalActionGate()
         val scrim = buildModalView(
             appName = appName,
             spans = spans,
-            onScrub = { onScrubChosen(pkg, sanitizedText) },
-            onAllowOnce = { onAllowOnceChosen(pkg, rawText, spans) },
+            onScrub = {
+                if (actionGate.tryAcquire()) {
+                    onScrubChosen(pkg, sanitizedText)
+                }
+            },
+            onAllowOnce = {
+                if (actionGate.tryAcquire()) {
+                    onAllowOnceChosen(pkg, rawText, spans)
+                }
+            },
         )
         runCatching {
             wm.addView(scrim, modalLayoutParams())
             modalView = scrim
             modalPackage = pkg
+            modalAppName = appName
+            modalRawText = rawText
+            modalSanitizedText = sanitizedText
+            modalSpans = spans
             // Zero-PII diagnostic: counts, categories and timing only, never the text.
             val elapsedMs = SystemClock.uptimeMillis() - fieldObservedAt
             Log.d(
@@ -305,6 +597,50 @@ class CordonAccessibilityService : AccessibilityService() {
             Log.e(TAG, "modalAddViewFailed pkg=$pkg err=${err.message}")
             modalView = null
             modalPackage = null
+            modalAppName = ""
+            modalRawText = ""
+            modalSanitizedText = ""
+            modalSpans = emptyList()
+        }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        val existing = modalView as? FrameLayout ?: return
+        val pkg = modalPackage ?: return
+        val appName = modalAppName.ifBlank { ShieldStore.appDisplayNameForPackage(this, pkg) }
+        val rawSnapshot = modalRawText
+        val sanitizedSnapshot = modalSanitizedText
+        val spansSnapshot = modalSpans
+        if (spansSnapshot.isEmpty()) return
+
+        val actionGate = ModalActionGate()
+        runCatching {
+            existing.removeAllViews()
+            val replacement = buildModalScrollContent(
+                appName = appName,
+                spans = spansSnapshot,
+                onScrub = {
+                    if (actionGate.tryAcquire()) {
+                        onScrubChosen(pkg, sanitizedSnapshot)
+                    }
+                },
+                onAllowOnce = {
+                    if (actionGate.tryAcquire()) {
+                        onAllowOnceChosen(pkg, rawSnapshot, spansSnapshot)
+                    }
+                },
+            )
+            existing.addView(
+                replacement,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                ),
+            )
+            windowManager?.updateViewLayout(existing, modalLayoutParams())
+        }.onFailure { err ->
+            Log.w(TAG, "modalConfigRefreshFailed pkg=$pkg err=${err.message}")
         }
     }
 
@@ -334,10 +670,15 @@ class CordonAccessibilityService : AccessibilityService() {
         }
 
     private fun dismissModal(reason: String) {
+        cancelTransitionCheck()
         val current = modalView ?: return
         val pkg = modalPackage
         modalView = null
         modalPackage = null
+        modalAppName = ""
+        modalRawText = ""
+        modalSanitizedText = ""
+        modalSpans = emptyList()
         runCatching { windowManager?.removeView(current) }
             .onFailure { err -> Log.e(TAG, "modalRemoveViewFailed pkg=$pkg err=${err.message}") }
         Log.d(TAG, "modalDismissed reason=$reason pkg=$pkg")
@@ -345,8 +686,11 @@ class CordonAccessibilityService : AccessibilityService() {
 
     private fun onScrubChosen(pkg: String, snapshotSanitized: String) {
         dismissModal("scrub")
+        browserAbortGuard.clearForPackage(pkg)
+        val isBrowser = BrowserGuardPolicy.isBrowserPackage(pkg)
         val root = rootInActiveWindow
-        val editable = findEditable(root)
+        val editable = resolveEditableNode(null, root, pkg, isBrowser)
+            ?: if (isBrowser) findBrowserAddressBar(root, pkg) else null
         if (editable == null) {
             Log.e(TAG, "setTextFailed pkg=$pkg err=noEditable action=clipboardFallback")
             copyScrubbedToClipboard(snapshotSanitized)
@@ -356,14 +700,18 @@ class CordonAccessibilityService : AccessibilityService() {
         // Re-read and re-scrub now. The user keeps typing while the modal is up, so the text
         // captured when the modal was raised is only a prefix; writing it back would silently
         // delete everything typed since (and leave the newer secrets unredacted in the draft).
-        val live = editable.text?.toString().orEmpty()
-        if (live.isBlank()) {
+        val live = extractNodeTextIgnoringHint(editable).orEmpty()
+        if (live.isBlank() || (isBrowser && BrowserGuardPolicy.isCleanBrowsingUrlWithoutSearchQuery(live))) {
+            if (isBrowser && snapshotSanitized.isNotBlank()) {
+                copyScrubbedToClipboard(snapshotSanitized)
+                return
+            }
             Log.d(TAG, "modalAction action=scrubbed pkg=$pkg findings=0 setTextOk=skipped reason=fieldEmpty")
             return
         }
         val (sanitizedText, freshSpans) = LocalFirewallEngine.scrub(
             rawText = live,
-            protectionLevel = ShieldStore.getProtectionLevel(this),
+            protectionLevel = currentProtectionLevel(),
         )
         val spans = freshSpans.filter { it.masked }
         if (spans.isEmpty() || sanitizedText == live) {
@@ -407,7 +755,7 @@ class CordonAccessibilityService : AccessibilityService() {
         val spans = if (live != null && live != snapshotRaw) {
             LocalFirewallEngine.scrub(
                 rawText = live,
-                protectionLevel = ShieldStore.getProtectionLevel(this),
+                protectionLevel = currentProtectionLevel(),
             ).second.filter { it.masked }
         } else {
             snapshotSpans
@@ -415,6 +763,7 @@ class CordonAccessibilityService : AccessibilityService() {
         // Remember BEFORE dismissing: the dismissal itself can trigger the content-changed
         // event that would otherwise re-lock the very same message.
         overrideMemory.remember(pkg, rawText)
+        browserAbortGuard.clearForPackage(pkg)
         lastTextByPackage[pkg] = rawText
         ShieldStore.recordOverrideEvent(
             context = this,
@@ -447,6 +796,22 @@ class CordonAccessibilityService : AccessibilityService() {
             // Consume anything that misses the card: nothing behind this window is reachable.
             setOnTouchListener { _, _ -> true }
         }
+        scrim.addView(
+            buildModalScrollContent(appName, spans, onScrub, onAllowOnce),
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            ),
+        )
+        return scrim
+    }
+
+    private fun buildModalScrollContent(
+        appName: String,
+        spans: List<RedactionSpan>,
+        onScrub: () -> Unit,
+        onAllowOnce: () -> Unit,
+    ): View {
         val scroll = ScrollView(this).apply {
             isFillViewport = true
             isVerticalScrollBarEnabled = false
@@ -470,14 +835,7 @@ class CordonAccessibilityService : AccessibilityService() {
                 FrameLayout.LayoutParams.WRAP_CONTENT,
             ),
         )
-        scrim.addView(
-            scroll,
-            FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT,
-            ),
-        )
-        return scrim
+        return scroll
     }
 
     private fun buildCard(
@@ -678,17 +1036,26 @@ class CordonAccessibilityService : AccessibilityService() {
         if (root == null) return null
         val focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
         if (focused != null && focused.isEditable && !isPasswordNode(focused)) return focused
-        return bfsFindEditable(root)
+        return bfsFindEditable(root, skipUnfocusedBrowserBarPkg = null)
     }
 
-    private fun bfsFindEditable(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+    private fun bfsFindEditable(
+        root: AccessibilityNodeInfo?,
+        skipUnfocusedBrowserBarPkg: String?,
+    ): AccessibilityNodeInfo? {
+        if (root == null) return null
         val queue = ArrayDeque<AccessibilityNodeInfo>()
         queue.add(root)
         var visited = 0
         while (queue.isNotEmpty() && visited < MAX_EDITABLE_SCAN_NODES) {
             val current = queue.removeFirst()
             visited++
-            if (current.isEditable && !isPasswordNode(current)) return current
+            if (current.isEditable && !isPasswordNode(current)) {
+                val skipIdleBar = skipUnfocusedBrowserBarPkg != null &&
+                    isBrowserAddressBarNode(current, skipUnfocusedBrowserBarPkg) &&
+                    !current.isFocused
+                if (!skipIdleBar) return current
+            }
             for (i in 0 until current.childCount) {
                 current.getChild(i)?.let { queue.add(it) }
             }
@@ -707,6 +1074,10 @@ class CordonAccessibilityService : AccessibilityService() {
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
         val modalUp = modalView != null
+        if (modalUp && (event.keyCode == KeyEvent.KEYCODE_BACK || event.keyCode == KeyEvent.KEYCODE_ESCAPE)) {
+            modalPackage?.let { scheduleTransitionRecheck(it) }
+            return super.onKeyEvent(event)
+        }
         if (GuardTriggerPolicy.shouldSwallowKey(event.keyCode, modalUp)) {
             Log.d(TAG, "keySwallowed keyCode=${event.keyCode} modal=$modalUp")
             return true
@@ -721,18 +1092,31 @@ class CordonAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() {
+        cancelPendingRescan()
+        cancelTransitionCheck()
+        dismissModal("interrupt")
+    }
+
+    override fun onUnbind(intent: Intent?): Boolean {
+        isServiceConnected = false
+        detachPreferenceCacheObserver()
         teardown()
+        return super.onUnbind(intent)
     }
 
     override fun onDestroy() {
+        isServiceConnected = false
+        detachPreferenceCacheObserver()
         teardown()
         super.onDestroy()
     }
 
     private fun teardown() {
         cancelPendingRescan()
+        cancelTransitionCheck()
         selfEdits.clear()
         overrideMemory.clear()
+        browserAbortGuard.clearAll()
         dismissModal("teardown")
         activePackage = null
         riskyPackage = null

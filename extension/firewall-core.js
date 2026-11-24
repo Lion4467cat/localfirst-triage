@@ -38,7 +38,7 @@
   }
 
   function passesIbanMod97(raw) {
-    const cleaned = raw.replace(/[\s-]/g, "").toUpperCase();
+    const cleaned = raw.replace(/[\s\u00A0\u00AD\u200B-\u200D\uFEFF-]/g, "").toUpperCase();
     if (!/^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/.test(cleaned)) return false;
     const rearranged = cleaned.slice(4) + cleaned.slice(0, 4);
     let remainder = 0;
@@ -97,7 +97,7 @@
       category: "PEM_PRIVATE_KEY",
       detector: "REGEX_FIREWALL",
       pattern:
-        /-----BEGIN(?:%20|\s)+(?:RSA(?:%20|\s)+|EC(?:%20|\s)+|DSA(?:%20|\s)+|OPENSSH(?:%20|\s)+|ENCRYPTED(?:%20|\s)+|PGP(?:%20|\s)+)?PRIVATE(?:%20|\s)+KEY(?:(?:%20|\s)+BLOCK)?-----[\s\S]*?-----END(?:%20|\s)+(?:RSA(?:%20|\s)+|EC(?:%20|\s)+|DSA(?:%20|\s)+|OPENSSH(?:%20|\s)+|ENCRYPTED(?:%20|\s)+|PGP(?:%20|\s)+)?PRIVATE(?:%20|\s)+KEY(?:(?:%20|\s)+BLOCK)?-----/gi,
+        /-----BEGIN(?:%20|\s)+(?:RSA(?:%20|\s)+|EC(?:%20|\s)+|DSA(?:%20|\s)+|OPENSSH(?:%20|\s)+|ENCRYPTED(?:%20|\s)+|PGP(?:%20|\s)+)?PRIVATE(?:%20|\s)+KEY(?:(?:%20|\s)+BLOCK)?-----[\s\S]{1,16384}?-----END(?:%20|\s)+(?:RSA(?:%20|\s)+|EC(?:%20|\s)+|DSA(?:%20|\s)+|OPENSSH(?:%20|\s)+|ENCRYPTED(?:%20|\s)+|PGP(?:%20|\s)+)?PRIVATE(?:%20|\s)+KEY(?:(?:%20|\s)+BLOCK)?-----/gi,
     },
     {
       category: "DB_CONNECTION_URI",
@@ -330,7 +330,7 @@
   // A door/plot/block identifier. The leading lookbehind stops the match starting inside a
   // version string ("v2.1/A") or an identifier ("INV-2026-0042").
   const ADDRESS_DOOR_REGEX =
-    /(?<![\w.])(?:\d{1,5}[A-Za-z]?[/-][A-Za-z0-9]{1,4}|#\s?\d{1,5}[A-Za-z]?|[A-Z]-\d{1,4}|(?:plot|flat|door|house|block|unit|apt|apartment|suite)\s*(?:no\.?|number|#)?\s*[A-Z]?\d{1,5}[A-Za-z]?)(?![\w/])/i;
+    /(?<![\w.])(?:\d{1,5}[A-Za-z]?[/-][A-Za-z0-9]{1,4}|#\s?\d{1,5}[A-Za-z]?|[A-Z]-\d{1,4}|(?:plot|flat|door|house)(?!\s*(?:no\.?|number|#))\s*[A-Z]?\d{1,5}[A-Za-z]?|(?:block|unit|apt|apartment|suite)\s*(?:no\.?|#)?\s*[A-Z]?\d{1,5}[A-Za-z]?)(?![\w/])/i;
 
   const ADDRESS_LOCALITY_REGEX =
     /\b(?:main|cross|layout|nagar|colony|phase|sector|block|enclave|extension|marg|gali|street|st\.?|avenue|ave\.?|road|rd\.?|boulevard|blvd\.?|lane|ln\.?|drive|dr\.?|way|highway|hwy\.?|parkway|pkwy\.?|court|ct\.?|place|terrace|apartments?|flats?|residency|vihar|pura|bagh|chowk)\b/i;
@@ -428,6 +428,24 @@
     return /[A-Z0-9]/.test(phrase) || /[^A-Za-z\s]/.test(phrase);
   }
 
+  const OBFUSCATION_STRIP_REGEX = /[\u200B-\u200D\uFEFF\u00AD]/g;
+  const OBFUSCATION_TEST_REGEX = /[\u00A0\u00AD\u200B-\u200D\uFEFF]/;
+
+  function isStrippableObfuscationCode(code) {
+    return (
+      code === 0x00ad ||
+      code === 0x200b ||
+      code === 0x200c ||
+      code === 0x200d ||
+      code === 0xfeff
+    );
+  }
+
+  function stripZeroWidthAndObfuscation(input) {
+    if (!input || !OBFUSCATION_TEST_REGEX.test(input)) return input;
+    return input.replace(OBFUSCATION_STRIP_REGEX, "").replace(/\u00A0/g, " ");
+  }
+
   function getProtectedPlaceholderRanges(rawText) {
     const ranges = [];
     const regex = /\[REDACTED:[A-Z0-9_]+\]/g;
@@ -454,6 +472,45 @@
     return { scanBuffer, protectedRanges };
   }
 
+  function prepareNormalizedScanView(rawText) {
+    const { scanBuffer: maskedRaw, protectedRanges } = maskProtectedTokens(rawText);
+    if (!OBFUSCATION_TEST_REGEX.test(maskedRaw)) {
+      return {
+        scanBuffer: maskedRaw,
+        protectedRanges,
+        rawStart: (idx) => idx,
+        rawEnd: (idx) => idx,
+        toNormIndex: (idx) => idx,
+      };
+    }
+    const map = new Int32Array(maskedRaw.length);
+    const chars = [];
+    let outLen = 0;
+    for (let i = 0; i < maskedRaw.length; i++) {
+      const code = maskedRaw.charCodeAt(i);
+      if (isStrippableObfuscationCode(code)) continue;
+      chars.push(code === 0x00a0 ? " " : maskedRaw[i]);
+      map[outLen++] = i;
+    }
+    const scanBuffer = chars.join("");
+    return {
+      scanBuffer,
+      protectedRanges,
+      rawStart: (normStart) => map[normStart] ?? normStart,
+      rawEnd: (normEnd) => (normEnd > 0 ? map[normEnd - 1] + 1 : 0),
+      toNormIndex: (rawIdx) => {
+        let lo = 0;
+        let hi = outLen;
+        while (lo < hi) {
+          const mid = (lo + hi) >>> 1;
+          if (map[mid] < rawIdx) lo = mid + 1;
+          else hi = mid;
+        }
+        return lo;
+      },
+    };
+  }
+
   function isLikelyNormalIdentifier(val) {
     if (val.includes("/") || /\s/.test(val)) return true;
     if (/^[a-z]+(?:[A-Z][a-z]+)+$/.test(val)) return true;
@@ -461,10 +518,10 @@
     return false;
   }
 
-  const CARD_EXPIRY_TOKEN = /(?<!\d)(?:0?[1-9]|1[0-2])\s*[/\-]\s*(?:\d{2}|\d{4})(?!\d)/g;
+  const CARD_EXPIRY_TOKEN = /(?<![\d.\-/])(?:0?[1-9]|1[0-2])\s*[/\-]\s*(?:\d{2}|\d{4})(?![\d.\-/T])/g;
   const CARD_CVV_LABEL =
     /\b(?:cvv2?|cvc2?|cid|csc|security\s*code|card\s*verification(?:\s*(?:value|code))?)\b\s*(?:is|:|=|#|-)?\s*(\d{3,4})(?!\d)/gi;
-  const CARD_BARE_DIGITS = /(?<![\d.\-/])(\d{3,4})(?![\d.\-/])/g;
+  const CARD_BARE_DIGITS = /(?<![\d.\-/=])(\d{3,4})(?![\d.\-/])/g;
   const CARD_UNIT_AFTER = /^\s*(?:%|ms\b|px\b|k\b|m\b|gb\b|mb\b|kb\b|hrs?\b|am\b|pm\b|orders?\b|days?\b|hours?\b|mins?\b|seconds?\b|items?\b|users?\b|requests?\b|retries?\b)/i;
   const CARD_YEAR_LIKE = /^(?:19|20)\d{2}$/;
 
@@ -475,10 +532,17 @@
    * The token regexes always run over the whole buffer: slicing a window would let a lookbehind
    * succeed at index 0 and turn "4111-1111" into an expiry, which then licenses unrelated digits.
    */
-  function detectCardBundleSpans(text, cardSpans, nextCounter) {
+  function detectCardBundleSpans(text, cardSpans, nextCounter, precomputedView) {
+    const view = precomputedView || prepareNormalizedScanView(text);
+    const buf = view.scanBuffer;
     const extras = [];
     let counter = nextCounter;
-    const push = (start, end, category) => {
+    const push = (normStart, normEnd, category) => {
+      if (normStart < 0 || normEnd <= normStart || normEnd > buf.length) return;
+      const start = view.rawStart(normStart);
+      const end = view.rawEnd(normEnd);
+      if (start < 0 || end <= start || end > text.length) return;
+      if (view.protectedRanges.some((pr) => start < pr.end && end > pr.start)) return;
       if (extras.some((span) => start < span.end && end > span.start)) return;
       extras.push({
         start,
@@ -489,18 +553,23 @@
         matchedText: text.slice(start, end),
       });
     };
+    const normCards = cardSpans.map((card) => ({
+      start: view.toNormIndex(card.start),
+      end: view.toNormIndex(card.end),
+    }));
     const overlapsCard = (start, end) =>
-      cardSpans.some((card) => start < card.end && end > card.start);
+      normCards.some((card) => start < card.end && end > card.start);
 
-    for (const card of cardSpans) {
+    for (const card of normCards) {
       const from = Math.max(0, card.start - 80);
-      const to = Math.min(text.length, card.end + 80);
+      const to = Math.min(buf.length, card.end + 80);
       const inWindow = (start, end) => start >= from && end <= to;
       const expiries = [];
 
       CARD_EXPIRY_TOKEN.lastIndex = 0;
       let m;
-      while ((m = CARD_EXPIRY_TOKEN.exec(text)) !== null) {
+      while ((m = CARD_EXPIRY_TOKEN.exec(buf)) !== null) {
+        if (m[0].includes("\u0000")) continue;
         const start = m.index;
         const end = start + m[0].length;
         if (!inWindow(start, end) || overlapsCard(start, end)) continue;
@@ -509,7 +578,8 @@
       }
 
       CARD_CVV_LABEL.lastIndex = 0;
-      while ((m = CARD_CVV_LABEL.exec(text)) !== null) {
+      while ((m = CARD_CVV_LABEL.exec(buf)) !== null) {
+        if (m[0].includes("\u0000")) continue;
         const start = m.index + m[0].lastIndexOf(m[1]);
         const end = start + m[1].length;
         if (!inWindow(start, end)) continue;
@@ -520,13 +590,14 @@
       // separates a card bundle from an order number sitting near a card number.
       if (expiries.length === 0) continue;
       CARD_BARE_DIGITS.lastIndex = 0;
-      while ((m = CARD_BARE_DIGITS.exec(text)) !== null) {
+      while ((m = CARD_BARE_DIGITS.exec(buf)) !== null) {
+        if (m[0].includes("\u0000")) continue;
         const start = m.index;
         const end = start + m[0].length;
         if (!inWindow(start, end) || overlapsCard(start, end)) continue;
         if (expiries.some((e) => start < e.end && end > e.start)) continue;
         if (CARD_YEAR_LIKE.test(m[1])) continue;
-        if (CARD_UNIT_AFTER.test(text.slice(end, end + 12))) continue;
+        if (CARD_UNIT_AFTER.test(buf.slice(end, end + 12))) continue;
         push(start, end, "CVV");
       }
     }
@@ -696,7 +767,8 @@
 
   function runLocalDeterministicScan(text, includeHeuristics = true, protectionLevel = "medium") {
     const spans = [];
-    const { scanBuffer, protectedRanges } = maskProtectedTokens(text);
+    const view = prepareNormalizedScanView(text);
+    const { scanBuffer, protectedRanges } = view;
     let counter = 1;
     const activeRank = LEVEL_RANK[protectionLevel] ?? 1;
     const entropyThreshold = protectionLevel === "low" ? 3.8 : protectionLevel === "high" ? 2.9 : 3.25;
@@ -711,11 +783,15 @@
           typeof rule.captureGroup === "number" ? (match[rule.captureGroup] || "") : match[0];
         if (!matchedText || matchedText.includes("\u0000")) continue;
         if (rule.validator && !rule.validator(matchedText)) continue;
-        const start =
+        const normStart =
           typeof rule.captureGroup === "number"
             ? match.index + Math.max(0, match[0].lastIndexOf(matchedText))
             : match.index;
-        const end = start + matchedText.length;
+        const normEnd = normStart + matchedText.length;
+        if (normStart < 0 || normEnd <= normStart || normEnd > scanBuffer.length) continue;
+        const start = view.rawStart(normStart);
+        const end = view.rawEnd(normEnd);
+        if (start < 0 || end <= start || end > text.length) continue;
         if (protectedRanges.some((pr) => start < pr.end && end > pr.start)) continue;
         spans.push({
           start,
@@ -730,7 +806,7 @@
 
     const cards = spans.filter((span) => span.category === "CREDIT_CARD");
     if (cards.length > 0) {
-      const bundle = detectCardBundleSpans(text, cards, counter);
+      const bundle = detectCardBundleSpans(text, cards, counter, view);
       counter = bundle.nextCounter;
       for (const extra of bundle.extras) {
         if (spans.some((span) => span.start === extra.start)) continue;
@@ -739,7 +815,8 @@
     }
 
     const assignmentRegex =
-      /\b(?:api[_-]?key|x[_-]?api[_-]?key|secret|token|access[_-]?token|refresh[_-]?token|session[_-]?token|id[_-]?token|password|passwd|pwd|client[_-]?secret|signing[_-]?key|webhook[_-]?secret|private[_-]?key|auth[_-]?secret)\\?["']?\s*(?:[:=]|%3D)\s*\\?["']?([^\s"',;\[\]\\/\u0000]{16,})\\?["']?/gi;    let eMatch;
+      /\b(?:api[_-]?key|x[_-]?api[_-]?key|secret|token|access[_-]?token|refresh[_-]?token|session[_-]?token|id[_-]?token|password|passwd|pwd|client[_-]?secret|signing[_-]?key|webhook[_-]?secret|private[_-]?key|auth[_-]?secret)\\?["']?\s*(?:[:=]|%3D)\s*\\?["']?([^\s"',;\[\]\\/\u0000]{16,})\\?["']?/gi;
+    let eMatch;
     while ((eMatch = assignmentRegex.exec(scanBuffer)) !== null) {
       const val = eMatch[1];
       if (!val || val.includes("[REDACTED:") || val.includes("\u0000") || isLikelyNormalIdentifier(val)) {
@@ -758,8 +835,12 @@
           : !/^[a-z]+$/.test(val) && hasStrongMix && entropy >= entropyThreshold;
 
       if (meets) {
-        const start = eMatch.index + Math.max(0, eMatch[0].lastIndexOf(val));
-        const end = start + val.length;
+        const normStart = eMatch.index + Math.max(0, eMatch[0].lastIndexOf(val));
+        const normEnd = normStart + val.length;
+        if (normStart < 0 || normEnd <= normStart || normEnd > scanBuffer.length) continue;
+        const start = view.rawStart(normStart);
+        const end = view.rawEnd(normEnd);
+        if (start < 0 || end <= start || end > text.length) continue;
         if (protectedRanges.some((pr) => start < pr.end && end > pr.start)) continue;
         spans.push({
           start,
@@ -783,11 +864,15 @@
             typeof rule.captureGroup === "number" ? (match[rule.captureGroup] || "") : match[0];
           if (!matchedText || matchedText.includes("\u0000")) continue;
           if (rule.validator && !rule.validator(matchedText)) continue;
-          const start =
+          const normStart =
             typeof rule.captureGroup === "number"
               ? match.index + Math.max(0, match[0].lastIndexOf(matchedText))
               : match.index;
-          const end = start + matchedText.length;
+          const normEnd = normStart + matchedText.length;
+          if (normStart < 0 || normEnd <= normStart || normEnd > scanBuffer.length) continue;
+          const start = view.rawStart(normStart);
+          const end = view.rawEnd(normEnd);
+          if (start < 0 || end <= start || end > text.length) continue;
           if (protectedRanges.some((pr) => start < pr.end && end > pr.start)) continue;
           spans.push({
             start,
@@ -814,7 +899,10 @@
       protectedRanges.push({ start: pMatch.index, end: pMatch.index + pMatch[0].length });
     }
     const safeSpans = spans.filter((s) => {
-      if (s.matchedText && s.matchedText.includes("[REDACTED:")) return false;
+      if (s.start < 0 || s.end > rawText.length || s.start >= s.end) return false;
+      if (s.matchedText && (s.matchedText.includes("[REDACTED:") || s.matchedText.includes("\u0000"))) {
+        return false;
+      }
       return !protectedRanges.some((pr) => s.start < pr.end && s.end > pr.start);
     });
     if (safeSpans.length === 0) return { sanitizedText: rawText, mergedSpans: [] };
@@ -844,12 +932,16 @@
       }
     }
 
-    let sanitizedText = rawText;
-    for (let i = merged.length - 1; i >= 0; i--) {
-      const s = merged[i];
-      sanitizedText = sanitizedText.slice(0, s.start) + s.placeholder + sanitizedText.slice(s.end);
+    const chunks = [];
+    let cursor = 0;
+    for (const s of merged) {
+      if (s.start < cursor) continue;
+      if (s.start > cursor) chunks.push(rawText.slice(cursor, s.start));
+      chunks.push(s.placeholder);
+      cursor = s.end;
     }
-    return { sanitizedText, mergedSpans: merged };
+    if (cursor < rawText.length) chunks.push(rawText.slice(cursor));
+    return { sanitizedText: chunks.join(""), mergedSpans: merged };
   }
 
   const CREDENTIAL_CATS = new Set([
@@ -982,15 +1074,24 @@
         rawText.slice(0, 1400),
       ].join("\n");
       const rawJson = await session.prompt(prompt, controller ? { signal: controller.signal } : undefined);
-      const cleaned = rawJson.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
+      const cleaned = typeof rawJson === "string"
+        ? rawJson.replace(/```json\s*/gi, "").replace(/```/g, "").trim()
+        : "";
       const startIdx = cleaned.indexOf("{");
       const endIdx = cleaned.lastIndexOf("}");
-      const parsed = startIdx !== -1 && endIdx > startIdx ? JSON.parse(cleaned.slice(startIdx, endIdx + 1)) : {};
+      const jsonSlice =
+        startIdx !== -1 && endIdx > startIdx
+          ? cleaned.slice(startIdx, endIdx + 1).replace(/,\s*([}\]])/g, "$1")
+          : "";
+      const parsedRaw = jsonSlice ? JSON.parse(jsonSlice) : {};
+      const parsed = parsedRaw && typeof parsedRaw === "object" && !Array.isArray(parsedRaw) ? parsedRaw : {};
+      const entities = Array.isArray(parsed.entities) ? parsed.entities : [];
       const nanoSpans = [];
       let counter = 1;
-      const { scanBuffer, protectedRanges } = maskProtectedTokens(rawText);
-      for (const item of parsed.entities ?? []) {
-        const phrase = typeof item?.value === "string" ? item.value.trim() : "";
+      const view = prepareNormalizedScanView(rawText);
+      const { scanBuffer, protectedRanges } = view;
+      for (const item of entities) {
+        const phrase = typeof item?.value === "string" ? stripZeroWidthAndObfuscation(item.value).trim() : "";
         if (
           phrase.length < 3 ||
           phrase.includes("[REDACTED:") ||
@@ -1008,10 +1109,16 @@
         const rx = new RegExp(`${leading}${escaped}${trailing}`, "gi");
         let m;
         while ((m = rx.exec(scanBuffer)) !== null) {
-          const start = m.index;
-          const end = start + m[0].length;
+          if (m[0].includes("\u0000")) continue;
+          const normStart = m.index;
+          const normEnd = normStart + m[0].length;
+          if (normStart < 0 || normEnd <= normStart || normEnd > scanBuffer.length) continue;
+          const start = view.rawStart(normStart);
+          const end = view.rawEnd(normEnd);
           if (
-            m[0].includes("\u0000") ||
+            start < 0 ||
+            end <= start ||
+            end > rawText.length ||
             protectedRanges.some((pr) => start < pr.end && end > pr.start)
           ) {
             continue;
@@ -1066,14 +1173,28 @@
 
   /**
    * Decides whether a keydown is a send attempt worth intercepting.
-   * Plain Enter sends in rich-text composers; textareas need Ctrl/Cmd+Enter so
-   * Enter keeps inserting newlines. Shift+Enter is always a newline.
+   * Plain Enter sends in rich-text composers, single-line inputs, and search/chat textareas;
+   * multiline document textareas need Ctrl/Cmd+Enter so Enter keeps inserting newlines.
    */
-  function shouldInterceptSendKey({ key, isTextarea, ctrlKey, metaKey, shiftKey, altKey, level }) {
-    if (key !== "Enter" || level === "low") return false;
-    if (shiftKey || altKey) return false;
-    if (isTextarea) return Boolean(ctrlKey || metaKey);
-    return !ctrlKey && !metaKey;
+  function shouldInterceptSendKey({
+    key,
+    code,
+    keyCode,
+    isTextarea,
+    isSingleLineInput = false,
+    enterSubmitsTextarea = false,
+    ctrlKey,
+    metaKey,
+    shiftKey,
+    altKey,
+    level,
+  }) {
+    const isEnter = key === "Enter" || code === "Enter" || code === "NumpadEnter" || keyCode === 13;
+    if (!isEnter || level === "low" || altKey) return false;
+    if (isSingleLineInput) return true;
+    if (shiftKey) return false;
+    if (isTextarea) return Boolean(ctrlKey || metaKey || enterSubmitsTextarea);
+    return true;
   }
 
   /** Rejects form submits whose label is clearly not a Send action. */
@@ -1120,14 +1241,15 @@
       // Unparseable base falls back to the shipped workbench origin.
     }
 
-    const safeBody = scrubSync(String(sanitizedText ?? ""))
+    const boundedBody = String(sanitizedText ?? "").replace(CONTROL_CHARS, "").slice(0, MAX_HANDOFF_TEXT_CHARS + 256);
+    const safeBody = scrubSync(boundedBody, true, "medium")
       .sanitizedText.replace(CONTROL_CHARS, "")
       .slice(0, MAX_HANDOFF_TEXT_CHARS);
+    const rawTitle = String(title ?? "").replace(CONTROL_CHARS, "").trim().slice(0, MAX_HANDOFF_TITLE_CHARS);
     const safeTitle =
-      String(title ?? "")
-        .replace(CONTROL_CHARS, "")
-        .trim()
-        .slice(0, MAX_HANDOFF_TITLE_CHARS) || "Chrome Extension Capture";
+      (rawTitle
+        ? scrubSync(rawTitle, true, "medium").sanitizedText.replace(CONTROL_CHARS, "").trim().slice(0, MAX_HANDOFF_TITLE_CHARS)
+        : "") || "Chrome Extension Capture";
 
     const json = JSON.stringify({ title: safeTitle, sanitizedText: safeBody });
     const bytes = new TextEncoder().encode(json);

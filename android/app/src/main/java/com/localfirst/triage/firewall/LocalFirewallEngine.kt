@@ -26,7 +26,21 @@ object LocalFirewallEngine {
     private val WORD_START = Regex("""^[A-Za-z0-9_]""")
     private val WORD_END = Regex("""[A-Za-z0-9_]$""")
     private val NON_DIGIT = Regex("""\D""")
-    private val SEPARATOR = Regex("""[\s-]""")
+    private val SEPARATOR = Regex("""[\s\u00A0\u00AD\u200B-\u200D\uFEFF-]""")
+    private val OBFUSCATION_STRIP_REGEX = Regex("""[\u200B-\u200D\uFEFF\u00AD]""")
+
+    private fun isStrippableObfuscation(ch: Char): Boolean =
+        ch == '\u200B' || ch == '\u200C' || ch == '\u200D' || ch == '\uFEFF' || ch == '\u00AD'
+
+    fun stripZeroWidthAndObfuscation(input: String): String =
+        input.replace(OBFUSCATION_STRIP_REGEX, "").replace('\u00A0', ' ')
+
+    /**
+     * Pre-touches compiled rule tables on `AccessibilityService.onServiceConnected()` so the first
+     * post-rebind composer event hits warm patterns with sub-millisecond latency.
+     */
+    fun warmUp(): Int =
+        DETERMINISTIC_REGEX_RULES.size + CONTEXTUAL_HEURISTIC_RULES.size + ENTROPY_ASSIGNMENT_REGEX.pattern.length
 
     private data class RegexRule(
         val category: String,
@@ -67,6 +81,8 @@ object LocalFirewallEngine {
     private val RAW_CREDENTIAL_GUARDS = listOf(
         Regex("""AKIA[0-9A-Z]{16}"""),
         Regex("""AIza[0-9A-Za-z_-]{35}"""),
+        Regex("""(?:sk|rk)_(?:live|test)_[0-9A-Za-z]{16,}"""),
+        Regex("""ghp_[0-9A-Za-z]{20,}"""),
         Regex("""-----BEGIN [A-Z ]*PRIVATE KEY-----"""),
     )
 
@@ -135,7 +151,7 @@ object LocalFirewallEngine {
             category = "PEM_PRIVATE_KEY",
             detector = DetectorSource.REGEX_FIREWALL,
             pattern = Regex(
-                """-----BEGIN(?:%20|\s)+(?:RSA(?:%20|\s)+|EC(?:%20|\s)+|DSA(?:%20|\s)+|OPENSSH(?:%20|\s)+|ENCRYPTED(?:%20|\s)+|PGP(?:%20|\s)+)?PRIVATE(?:%20|\s)+KEY(?:(?:%20|\s)+BLOCK)?-----[\s\S]*?-----END(?:%20|\s)+(?:RSA(?:%20|\s)+|EC(?:%20|\s)+|DSA(?:%20|\s)+|OPENSSH(?:%20|\s)+|ENCRYPTED(?:%20|\s)+|PGP(?:%20|\s)+)?PRIVATE(?:%20|\s)+KEY(?:(?:%20|\s)+BLOCK)?-----""",
+                """-----BEGIN(?:%20|\s)+(?:RSA(?:%20|\s)+|EC(?:%20|\s)+|DSA(?:%20|\s)+|OPENSSH(?:%20|\s)+|ENCRYPTED(?:%20|\s)+|PGP(?:%20|\s)+)?PRIVATE(?:%20|\s)+KEY(?:(?:%20|\s)+BLOCK)?-----[\s\S]{1,16384}?-----END(?:%20|\s)+(?:RSA(?:%20|\s)+|EC(?:%20|\s)+|DSA(?:%20|\s)+|OPENSSH(?:%20|\s)+|ENCRYPTED(?:%20|\s)+|PGP(?:%20|\s)+)?PRIVATE(?:%20|\s)+KEY(?:(?:%20|\s)+BLOCK)?-----""",
                 RegexOption.IGNORE_CASE,
             ),
         ),
@@ -409,7 +425,7 @@ object LocalFirewallEngine {
     // A door/plot/block identifier. The leading lookbehind stops the match starting inside a
     // version string ("v2.1/A") or an identifier ("INV-2026-0042").
     private val ADDRESS_DOOR_REGEX = Regex(
-        """(?<![\w.])(?:\d{1,5}[A-Za-z]?[/-][A-Za-z0-9]{1,4}|#\s?\d{1,5}[A-Za-z]?|[A-Z]-\d{1,4}|(?:plot|flat|door|house)(?!\s*(?:no\.?|number|#))\s*[A-Z]?\d{1,5}[A-Za-z]?|(?:block|unit|apt|apartment)\s*(?:no\.?|#)?\s*[A-Z]?\d{1,5}[A-Za-z]?)(?![\w/])""",
+        """(?<![\w.])(?:\d{1,5}[A-Za-z]?[/-][A-Za-z0-9]{1,4}|#\s?\d{1,5}[A-Za-z]?|[A-Z]-\d{1,4}|(?:plot|flat|door|house)(?!\s*(?:no\.?|number|#))\s*[A-Z]?\d{1,5}[A-Za-z]?|(?:block|unit|apt|apartment|suite)\s*(?:no\.?|#)?\s*[A-Z]?\d{1,5}[A-Za-z]?)(?![\w/])""",
         RegexOption.IGNORE_CASE,
     )
 
@@ -873,10 +889,29 @@ object LocalFirewallEngine {
     }
 
     fun isTechnicalAllowlisted(phrase: String): Boolean {
-        val normalized = phrase.trim().lowercase()
+        val normalized = stripZeroWidthAndObfuscation(phrase).trim().lowercase()
         if (normalized.isEmpty()) return true
         if (normalized in TECHNICAL_ALLOWLIST) return true
         return Regex("""^(?:http\s+\d{3}|err_[a-z0-9_]+)$""", RegexOption.IGNORE_CASE).matches(normalized)
+    }
+
+    private class NormalizedScanView(
+        val scanBuffer: String,
+        val protectedRanges: List<IntRange>,
+        private val normToRaw: IntArray?,
+        private val normLen: Int,
+    ) {
+        fun rawStart(normStart: Int): Int = normToRaw?.get(normStart) ?: normStart
+
+        fun rawEnd(normEnd: Int): Int =
+            if (normToRaw != null) normToRaw[normEnd - 1] + 1 else normEnd
+
+        fun toNormIndex(rawIdx: Int): Int {
+            val map = normToRaw ?: return rawIdx
+            if (normLen == 0) return 0
+            val pos = java.util.Arrays.binarySearch(map, 0, normLen, rawIdx)
+            return if (pos >= 0) pos else (-pos - 1)
+        }
     }
 
     private fun maskProtectedTokens(rawText: String): Pair<String, List<IntRange>> {
@@ -895,6 +930,31 @@ object LocalFirewallEngine {
         return sb.toString() to protectedRanges
     }
 
+    private fun prepareScanView(rawText: String): NormalizedScanView {
+        val (maskedRaw, protectedRanges) = maskProtectedTokens(rawText)
+        var hasObfuscation = false
+        for (i in 0 until maskedRaw.length) {
+            val ch = maskedRaw[i]
+            if (ch == '\u00A0' || isStrippableObfuscation(ch)) {
+                hasObfuscation = true
+                break
+            }
+        }
+        if (!hasObfuscation) {
+            return NormalizedScanView(maskedRaw, protectedRanges, null, maskedRaw.length)
+        }
+        val sb = StringBuilder(maskedRaw.length)
+        val map = IntArray(maskedRaw.length)
+        var outIdx = 0
+        for (i in 0 until maskedRaw.length) {
+            val ch = maskedRaw[i]
+            if (isStrippableObfuscation(ch)) continue
+            sb.append(if (ch == '\u00A0') ' ' else ch)
+            map[outIdx++] = i
+        }
+        return NormalizedScanView(sb.toString(), protectedRanges, map, outIdx)
+    }
+
     private fun isLikelyNormalIdentifier(value: String): Boolean {
         if (value.contains('/') || value.any { it.isWhitespace() }) return true
         if (Regex("""^[a-z]+(?:[A-Z][a-z]+)+$""").matches(value)) return true
@@ -907,19 +967,24 @@ object LocalFirewallEngine {
         rules: List<RegexRule>,
         startCounter: Int,
         protectionLevel: ProtectionLevel = ProtectionLevel.MEDIUM,
+        precomputedView: NormalizedScanView? = null,
     ): List<RedactionSpan> {
         val spans = mutableListOf<RedactionSpan>()
-        val (scanBuffer, protectedRanges) = maskProtectedTokens(text)
+        val view = precomputedView ?: prepareScanView(text)
         var counter = startCounter
         for (rule in rules) {
             if (protectionLevel.ordinal < rule.minLevel.ordinal) continue
-            for (match in rule.pattern.findAll(scanBuffer)) {
+            for (match in rule.pattern.findAll(view.scanBuffer)) {
                 val group = rule.captureGroup?.let { match.groups[it] }
                 val matchedText = if (rule.captureGroup != null) group?.value.orEmpty() else match.value
-                val start = if (rule.captureGroup != null) group?.range?.first ?: continue else match.range.first
-                val end = if (rule.captureGroup != null) (group?.range?.last ?: continue) + 1 else match.range.last + 1
+                val normStart = if (rule.captureGroup != null) group?.range?.first ?: continue else match.range.first
+                val normEnd = if (rule.captureGroup != null) (group?.range?.last ?: continue) + 1 else match.range.last + 1
                 if (matchedText.isEmpty() || matchedText.contains('\u0000')) continue
-                if (protectedRanges.any { pr -> start < pr.last && end > pr.first }) continue
+                if (normStart < 0 || normEnd <= normStart || normEnd > view.scanBuffer.length) continue
+                val start = view.rawStart(normStart)
+                val end = view.rawEnd(normEnd)
+                if (start < 0 || end <= start || end > text.length) continue
+                if (view.protectedRanges.any { pr -> start < pr.last && end > pr.first }) continue
                 if (rule.validator != null && !rule.validator.invoke(matchedText)) continue
                 spans.add(
                     RedactionSpan(
@@ -937,12 +1002,12 @@ object LocalFirewallEngine {
         return spans
     }
 
-    private val CARD_EXPIRY_TOKEN = Regex("""(?<!\d)(?:0?[1-9]|1[0-2])\s*[/\-]\s*(?:\d{2}|\d{4})(?!\d)""")
+    private val CARD_EXPIRY_TOKEN = Regex("""(?<![\d.\-/])(?:0?[1-9]|1[0-2])\s*[/\-]\s*(?:\d{2}|\d{4})(?![\d.\-/T])""")
     private val CARD_CVV_LABEL = Regex(
         """\b(?:cvv2?|cvc2?|cid|csc|security\s*code|card\s*verification(?:\s*(?:value|code))?)\b\s*(?:is|:|=|#|-)?\s*(\d{3,4})(?!\d)""",
         RegexOption.IGNORE_CASE,
     )
-    private val CARD_BARE_DIGITS = Regex("""(?<![\d.\-/])(\d{3,4})(?![\d.\-/])""")
+    private val CARD_BARE_DIGITS = Regex("""(?<![\d.\-/=])(\d{3,4})(?![\d.\-/])""")
     private val CARD_UNIT_AFTER = Regex(
         """^\s*(?:%|ms\b|px\b|k\b|m\b|gb\b|mb\b|kb\b|hrs?\b|am\b|pm\b|orders?\b|days?\b|hours?\b|mins?\b|seconds?\b|items?\b|users?\b|requests?\b|retries?\b)""",
         RegexOption.IGNORE_CASE,
@@ -960,10 +1025,18 @@ object LocalFirewallEngine {
         text: String,
         cardSpans: List<RedactionSpan>,
         startCounter: Int,
+        precomputedView: NormalizedScanView? = null,
     ): List<RedactionSpan> {
+        val view = precomputedView ?: prepareScanView(text)
+        val buf = view.scanBuffer
         val extras = mutableListOf<RedactionSpan>()
         var counter = startCounter
-        fun push(start: Int, end: Int, category: String) {
+        fun push(normStart: Int, normEnd: Int, category: String) {
+            if (normStart < 0 || normEnd <= normStart || normEnd > buf.length) return
+            val start = view.rawStart(normStart)
+            val end = view.rawEnd(normEnd)
+            if (start < 0 || end <= start || end > text.length) return
+            if (view.protectedRanges.any { pr -> start < pr.last && end > pr.first }) return
             if (extras.any { start < it.end && end > it.start }) return
             extras.add(
                 RedactionSpan(
@@ -977,15 +1050,21 @@ object LocalFirewallEngine {
                 ),
             )
         }
-        fun overlapsCard(start: Int, end: Int) = cardSpans.any { start < it.end && end > it.start }
 
-        for (card in cardSpans) {
-            val from = maxOf(0, card.start - 80)
-            val to = minOf(text.length, card.end + 80)
+        val normCardRanges = cardSpans.map { card ->
+            view.toNormIndex(card.start) until view.toNormIndex(card.end)
+        }
+        fun overlapsCard(normStart: Int, normEnd: Int) =
+            normCardRanges.any { normStart < it.last + 1 && normEnd > it.first }
+
+        for (normCard in normCardRanges) {
+            val from = maxOf(0, normCard.first - 80)
+            val to = minOf(buf.length, normCard.last + 1 + 80)
             fun inWindow(start: Int, end: Int) = start >= from && end <= to
             val expiries = mutableListOf<IntRange>()
 
-            for (match in CARD_EXPIRY_TOKEN.findAll(text)) {
+            for (match in CARD_EXPIRY_TOKEN.findAll(buf)) {
+                if (match.value.contains('\u0000')) continue
                 val start = match.range.first
                 val end = match.range.last + 1
                 if (!inWindow(start, end) || overlapsCard(start, end)) continue
@@ -993,7 +1072,8 @@ object LocalFirewallEngine {
                 push(start, end, "CARD_EXPIRY")
             }
 
-            for (match in CARD_CVV_LABEL.findAll(text)) {
+            for (match in CARD_CVV_LABEL.findAll(buf)) {
+                if (match.value.contains('\u0000')) continue
                 val group = match.groups[1] ?: continue
                 val start = group.range.first
                 val end = group.range.last + 1
@@ -1004,13 +1084,14 @@ object LocalFirewallEngine {
             // A bare code is only accepted when the window also carries an expiry, which is what
             // separates a card bundle from an order number sitting near a card number.
             if (expiries.isEmpty()) continue
-            for (match in CARD_BARE_DIGITS.findAll(text)) {
+            for (match in CARD_BARE_DIGITS.findAll(buf)) {
+                if (match.value.contains('\u0000')) continue
                 val start = match.range.first
                 val end = match.range.last + 1
                 if (!inWindow(start, end) || overlapsCard(start, end)) continue
                 if (expiries.any { start < it.last + 1 && end > it.first }) continue
                 if (CARD_YEAR_LIKE.matches(match.value)) continue
-                if (CARD_UNIT_AFTER.containsMatchIn(text.substring(end, minOf(text.length, end + 12)))) continue
+                if (CARD_UNIT_AFTER.containsMatchIn(buf.substring(end, minOf(buf.length, end + 12)))) continue
                 push(start, end, "CVV")
             }
         }
@@ -1021,10 +1102,11 @@ object LocalFirewallEngine {
         text: String,
         protectionLevel: ProtectionLevel = ProtectionLevel.MEDIUM,
     ): List<RedactionSpan> {
-        val spans = runRules(text, DETERMINISTIC_REGEX_RULES, 1, protectionLevel).toMutableList()
+        val view = prepareScanView(text)
+        val spans = runRules(text, DETERMINISTIC_REGEX_RULES, 1, protectionLevel, view).toMutableList()
         val cards = spans.filter { it.category == "CREDIT_CARD" }
         if (cards.isEmpty()) return spans
-        for (extra in detectCardBundleSpans(text, cards, spans.size + 1)) {
+        for (extra in detectCardBundleSpans(text, cards, spans.size + 1, view)) {
             if (spans.none { it.start == extra.start }) spans.add(extra)
         }
         return spans
@@ -1036,10 +1118,10 @@ object LocalFirewallEngine {
     ): List<RedactionSpan> {
         val threshold = if (entropyThreshold.isFinite()) entropyThreshold else RuntimeConfigValues.DEFAULT_ENTROPY_THRESHOLD
         val spans = mutableListOf<RedactionSpan>()
-        val (scanBuffer, protectedRanges) = maskProtectedTokens(text)
+        val view = prepareScanView(text)
         var counter = 50
 
-        for (match in ENTROPY_ASSIGNMENT_REGEX.findAll(scanBuffer)) {
+        for (match in ENTROPY_ASSIGNMENT_REGEX.findAll(view.scanBuffer)) {
             val secretGroup = match.groups[1] ?: continue
             val secretValue = secretGroup.value
             if (
@@ -1050,9 +1132,13 @@ object LocalFirewallEngine {
             ) {
                 continue
             }
-            val start = secretGroup.range.first
-            val end = secretGroup.range.last + 1
-            if (protectedRanges.any { pr -> start < pr.last && end > pr.first }) continue
+            val normStart = secretGroup.range.first
+            val normEnd = secretGroup.range.last + 1
+            if (normStart < 0 || normEnd <= normStart || normEnd > view.scanBuffer.length) continue
+            val start = view.rawStart(normStart)
+            val end = view.rawEnd(normEnd)
+            if (start < 0 || end <= start || end > text.length) continue
+            if (view.protectedRanges.any { pr -> start < pr.last && end > pr.first }) continue
 
             val entropy = shannonEntropy(secretValue)
             val hasLower = HAS_LOWER.containsMatchIn(secretValue)
@@ -1106,21 +1192,30 @@ object LocalFirewallEngine {
     ): List<RedactionSpan> {
         if (terms.isEmpty()) return emptyList()
         val spans = mutableListOf<RedactionSpan>()
+        val view = prepareScanView(text)
         var counter = startCounter
 
         for (rawTerm in terms) {
-            val term = rawTerm.trim()
+            val term = stripZeroWidthAndObfuscation(rawTerm).trim()
             if (term.length < 3) continue
             val regex = Regex(boundedLiteral(term), RegexOption.IGNORE_CASE)
-            for (match in regex.findAll(text)) {
+            for (match in regex.findAll(view.scanBuffer)) {
+                if (match.value.contains('\u0000')) continue
+                val normStart = match.range.first
+                val normEnd = match.range.last + 1
+                if (normStart < 0 || normEnd <= normStart || normEnd > view.scanBuffer.length) continue
+                val start = view.rawStart(normStart)
+                val end = view.rawEnd(normEnd)
+                if (start < 0 || end <= start || end > text.length) continue
+                if (view.protectedRanges.any { pr -> start < pr.last && end > pr.first }) continue
                 spans.add(
                     RedactionSpan(
-                        start = match.range.first,
-                        end = match.range.last + 1,
+                        start = start,
+                        end = end,
                         category = category,
                         detector = DetectorSource.POLICY_TERM,
                         placeholder = "[REDACTED:${category}_${counter++}]",
-                        matchedText = match.value,
+                        matchedText = text.substring(start, end),
                         masked = true,
                     ),
                 )
@@ -1131,11 +1226,11 @@ object LocalFirewallEngine {
 
     fun buildSemanticSpans(text: String, items: List<SemanticExtractionItem>): List<RedactionSpan> {
         val spans = mutableListOf<RedactionSpan>()
-        val (scanBuffer, protectedRanges) = maskProtectedTokens(text)
+        val view = prepareScanView(text)
         var counter = 1
 
         for (item in items) {
-            val phrase = item.phrase.trim()
+            val phrase = stripZeroWidthAndObfuscation(item.phrase).trim()
             if (
                 phrase.length < 3 ||
                 phrase.contains("[REDACTED:") ||
@@ -1157,10 +1252,15 @@ object LocalFirewallEngine {
             val regex = Regex(pattern, RegexOption.IGNORE_CASE)
             val category = normalizeRedactionCategory(item.category)
 
-            for (match in regex.findAll(scanBuffer)) {
-                val start = match.range.first
-                val end = match.range.last + 1
-                if (match.value.contains('\u0000') || protectedRanges.any { pr -> start < pr.last && end > pr.first }) {
+            for (match in regex.findAll(view.scanBuffer)) {
+                if (match.value.contains('\u0000')) continue
+                val normStart = match.range.first
+                val normEnd = match.range.last + 1
+                if (normStart < 0 || normEnd <= normStart || normEnd > view.scanBuffer.length) continue
+                val start = view.rawStart(normStart)
+                val end = view.rawEnd(normEnd)
+                if (start < 0 || end <= start || end > text.length) continue
+                if (view.protectedRanges.any { pr -> start < pr.last && end > pr.first }) {
                     continue
                 }
                 spans.add(
@@ -1180,15 +1280,21 @@ object LocalFirewallEngine {
     }
 
     fun applyMaskedSpans(rawText: String, spans: List<RedactionSpan>): String {
+        if (spans.isEmpty()) return rawText
         val activeSpans = spans
             .filter { it.masked && it.start >= 0 && it.end <= rawText.length && it.start < it.end }
-            .sortedBy { it.start }
+            .sortedWith(compareBy<RedactionSpan> { it.start }.thenByDescending { it.end - it.start })
+        if (activeSpans.isEmpty()) return rawText
 
-        val sb = StringBuilder(rawText)
-        for (i in activeSpans.indices.reversed()) {
-            val s = activeSpans[i]
-            sb.replace(s.start, s.end, s.placeholder)
+        val sb = StringBuilder(rawText.length + activeSpans.size * 16)
+        var cursor = 0
+        for (s in activeSpans) {
+            if (s.start < cursor) continue
+            sb.append(rawText, cursor, s.start)
+            sb.append(s.placeholder)
+            cursor = s.end
         }
+        sb.append(rawText, cursor, rawText.length)
         return sb.toString()
     }
 
@@ -1321,21 +1427,26 @@ object LocalFirewallEngine {
     private fun encodeUrlComponent(value: String): String =
         URLEncoder.encode(value, "UTF-8").replace("+", "%20")
 
-    fun containsRawCredentialGuard(text: String): Boolean =
-        RAW_CREDENTIAL_GUARDS.any { it.containsMatchIn(text) }
+    fun containsRawCredentialGuard(text: String): Boolean {
+        val stripped = stripZeroWidthAndObfuscation(text)
+        return RAW_CREDENTIAL_GUARDS.any { it.containsMatchIn(text) || it.containsMatchIn(stripped) }
+    }
 
     fun verifyZeroLeakage(
         outboundPrompt: String,
         spans: List<RedactionSpan>,
         verifiedAt: Long = System.currentTimeMillis(),
     ): ZeroLeakageAudit {
-        val activeMasked = spans.filter { it.masked && it.matchedText.trim().length >= 3 }
+        val normalizedOutbound = stripZeroWidthAndObfuscation(outboundPrompt)
+        val activeMasked = spans.filter { it.masked && stripZeroWidthAndObfuscation(it.matchedText).trim().length >= 3 }
         val leakedCategories = mutableListOf<String>()
 
         for (span in activeMasked) {
             val candidates = LinkedHashSet<String>().apply {
                 add(span.matchedText)
+                add(stripZeroWidthAndObfuscation(span.matchedText))
                 addAll(span.constituentTexts)
+                span.constituentTexts.forEach { add(stripZeroWidthAndObfuscation(it)) }
             }
 
             var leaked = false
@@ -1346,6 +1457,7 @@ object LocalFirewallEngine {
                 val jsonEscaped = escapeJsonSlice(candidate)
                 if (
                     outboundPrompt.contains(candidate) ||
+                    normalizedOutbound.contains(candidate) ||
                     (urlEncoded.length >= 3 && outboundPrompt.contains(urlEncoded)) ||
                     (jsonEscaped.length >= 3 && outboundPrompt.contains(jsonEscaped))
                 ) {

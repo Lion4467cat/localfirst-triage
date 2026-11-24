@@ -20,12 +20,18 @@ const WORKBENCH_URLS = {
 };
 
 const PROTECTED_HOSTS = new Set([
+  "www.google.com",
+  "google.com",
+  "www.google.co.in",
   "chatgpt.com",
   "chat.openai.com",
   "claude.ai",
   "gemini.google.com",
   "github.com",
   "app.slack.com",
+  "discord.com",
+  "www.perplexity.ai",
+  "perplexity.ai",
   "localhost",
   "127.0.0.1",
 ]);

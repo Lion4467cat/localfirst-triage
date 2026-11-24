@@ -3,8 +3,12 @@ package com.localfirst.triage
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.database.ContentObserver
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
+import android.view.accessibility.AccessibilityManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -70,6 +74,14 @@ import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     private val pendingSharedText = mutableStateOf<Pair<String, String?>?>(null)
+    private val windowFocusTick = mutableIntStateOf(0)
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            windowFocusTick.intValue++
+        }
+    }
 
     private fun extractSharedText(intent: Intent?) {
         if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
@@ -162,21 +174,67 @@ class MainActivity : ComponentActivity() {
                     guardedAppsState = ShieldStore.getGuardedAppsState(this@MainActivity)
                 }
 
+                val focusTick by windowFocusTick
+                LaunchedEffect(focusTick) {
+                    if (focusTick > 0) {
+                        refreshLocalShieldState()
+                    }
+                }
+
                 val lifecycleOwner = LocalLifecycleOwner.current
                 DisposableEffect(lifecycleOwner, prefs) {
+                    val mainHandler = Handler(Looper.getMainLooper())
+                    val delayedRecheck = Runnable { refreshLocalShieldState() }
+                    val scheduleSettledRecheck = {
+                        refreshLocalShieldState()
+                        mainHandler.removeCallbacks(delayedRecheck)
+                        mainHandler.postDelayed(delayedRecheck, 250L)
+                    }
                     val observer = LifecycleEventObserver { _, event ->
-                        if (event == Lifecycle.Event.ON_RESUME) {
-                            refreshLocalShieldState()
+                        if (event == Lifecycle.Event.ON_START || event == Lifecycle.Event.ON_RESUME) {
+                            scheduleSettledRecheck()
                         }
                     }
                     val prefListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
                         refreshLocalShieldState()
                     }
+                    val settingsObserver = object : ContentObserver(mainHandler) {
+                        override fun onChange(selfChange: Boolean) {
+                            scheduleSettledRecheck()
+                        }
+                    }
+                    val accessibilityManager =
+                        getSystemService(Context.ACCESSIBILITY_SERVICE) as? AccessibilityManager
+                    val a11yStateListener = AccessibilityManager.AccessibilityStateChangeListener {
+                        scheduleSettledRecheck()
+                    }
+
                     lifecycleOwner.lifecycle.addObserver(observer)
                     prefs.registerOnSharedPreferenceChangeListener(prefListener)
+                    runCatching {
+                        contentResolver.registerContentObserver(
+                            Settings.Secure.getUriFor(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES),
+                            false,
+                            settingsObserver,
+                        )
+                        contentResolver.registerContentObserver(
+                            Settings.Secure.getUriFor(Settings.Secure.ACCESSIBILITY_ENABLED),
+                            false,
+                            settingsObserver,
+                        )
+                    }
+                    runCatching {
+                        accessibilityManager?.addAccessibilityStateChangeListener(a11yStateListener)
+                    }
+
                     onDispose {
+                        mainHandler.removeCallbacks(delayedRecheck)
                         lifecycleOwner.lifecycle.removeObserver(observer)
                         prefs.unregisterOnSharedPreferenceChangeListener(prefListener)
+                        runCatching { contentResolver.unregisterContentObserver(settingsObserver) }
+                        runCatching {
+                            accessibilityManager?.removeAccessibilityStateChangeListener(a11yStateListener)
+                        }
                     }
                 }
 

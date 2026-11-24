@@ -152,7 +152,11 @@ export function parseDefensiveSemanticJson(raw: string): ParsedNanoPayload {
     const jsonSlice = stripped
       .slice(startIdx, endIdx + 1)
       .replace(/,\s*([}\]])/g, "$1");
-    const parsed = JSON.parse(jsonSlice) as {
+    const rawParsed: unknown = JSON.parse(jsonSlice);
+    if (!rawParsed || typeof rawParsed !== "object" || Array.isArray(rawParsed)) {
+      return fallback;
+    }
+    const parsed = rawParsed as {
       entities?: Array<{ type?: unknown; value?: unknown }>;
       sensitive?: Array<{ phrase?: unknown; category?: unknown }>;
       severity?: unknown;
@@ -220,7 +224,19 @@ export function triggerChromeNanoBackgroundDownload(): void {
   }
 }
 
-export async function checkChromeNanoAvailability(): Promise<ChromeRawAvailability> {
+function withAvailDeadline<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    promise,
+    new Promise<T>((resolve) => {
+      timer = setTimeout(() => resolve(fallback), timeoutMs);
+    }),
+  ]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
+}
+
+export async function checkChromeNanoAvailability(timeoutMs = 3500): Promise<ChromeRawAvailability> {
   if (typeof globalThis === "undefined") {
     return "no";
   }
@@ -238,14 +254,20 @@ export async function checkChromeNanoAvailability(): Promise<ChromeRawAvailabili
 
   try {
     if (g.LanguageModel?.availability) {
-      const state = await g.LanguageModel.availability(TEXT_ONLY_ON_DEVICE_CREATE_OPTIONS);
+      const state = await withAvailDeadline(
+        g.LanguageModel.availability(TEXT_ONLY_ON_DEVICE_CREATE_OPTIONS),
+        timeoutMs,
+        "no",
+      );
       if (state === "available" || state === "readily") return "readily";
       if (state === "downloading") return "downloading";
       if (state === "downloadable" || state === "after-download") return "downloadable";
       return "no";
     }
     if (g.ai?.languageModel?.capabilities) {
-      const caps = await g.ai.languageModel.capabilities();
+      const caps = await withAvailDeadline(g.ai.languageModel.capabilities(), timeoutMs, {
+        available: "no",
+      });
       if (caps?.available === "readily" || caps?.available === "available") return "readily";
       if (caps?.available === "downloading") return "downloading";
       if (caps?.available === "after-download" || caps?.available === "downloadable") {

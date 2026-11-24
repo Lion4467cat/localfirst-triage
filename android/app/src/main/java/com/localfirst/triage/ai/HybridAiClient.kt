@@ -41,6 +41,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.produceIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 
 interface HybridAiTransport {
@@ -69,6 +70,8 @@ class FirebaseHybridAiTransport : HybridAiTransport {
 
         /** AICore emits nothing while it waits for unmetered Wi-Fi, so this drives the stalled state. */
         const val STALL_TIMEOUT_MS = 10_000L
+        const val AUTH_TIMEOUT_MS = 8_000L
+        const val PROBE_TIMEOUT_MS = 4_000L
     }
 
     /** Set by the first probe that finds a usable model, so download and inference agree on it. */
@@ -85,7 +88,11 @@ class FirebaseHybridAiTransport : HybridAiTransport {
     private suspend fun ensureAuth() {
         val auth = runCatching { FirebaseAuth.getInstance() }.getOrNull() ?: return
         if (auth.currentUser != null) return
-        runCatching { auth.signInAnonymously().await() }
+        runCatching {
+            withTimeoutOrNull(AUTH_TIMEOUT_MS) {
+                auth.signInAnonymously().await()
+            }
+        }
     }
 
     private fun mapInferenceSource(
@@ -128,7 +135,8 @@ class FirebaseHybridAiTransport : HybridAiTransport {
                     Log.w(TAG, "onDeviceExtension is null option=$option model=$cloudModelName")
                     NanoStatus.UNAVAILABLE
                 } else {
-                    mapOnDeviceStatus(extension.checkStatus())
+                    val rawStatus = withTimeoutOrNull(PROBE_TIMEOUT_MS) { extension.checkStatus() }
+                    mapOnDeviceStatus(rawStatus)
                 }
             } catch (err: Throwable) {
                 // Swallowing this used to turn "needs a download" into "not supported".
@@ -304,12 +312,23 @@ class FirebaseHybridAiTransport : HybridAiTransport {
 
 class HybridAiClient(
     private val transport: HybridAiTransport = FirebaseHybridAiTransport(),
+    private val onDeviceTimeoutMs: Long = DEFAULT_ON_DEVICE_TIMEOUT_MS,
+    private val cloudTimeoutMs: Long = DEFAULT_CLOUD_TIMEOUT_MS,
+    private val briefTimeoutMs: Long = DEFAULT_BRIEF_TIMEOUT_MS,
 ) {
     suspend fun checkNanoStatus(runtimeConfig: RuntimeConfigValues = RuntimeConfigValues()): NanoStatus =
-        transport.checkOnDeviceStatus(runtimeConfig.cloudModel)
+        runCatching {
+            withTimeoutOrNull(onDeviceTimeoutMs) {
+                transport.checkOnDeviceStatus(runtimeConfig.cloudModel)
+            } ?: NanoStatus.UNAVAILABLE
+        }.getOrDefault(NanoStatus.UNAVAILABLE)
 
     suspend fun nanoModelName(runtimeConfig: RuntimeConfigValues = RuntimeConfigValues()): String? =
-        runCatching { transport.onDeviceModelName(runtimeConfig.cloudModel) }.getOrNull()
+        runCatching {
+            withTimeoutOrNull(onDeviceTimeoutMs) {
+                transport.onDeviceModelName(runtimeConfig.cloudModel)
+            }
+        }.getOrNull()
 
     fun warmUpOnDevice(runtimeConfig: RuntimeConfigValues = RuntimeConfigValues()): Flow<NanoDownloadState> =
         transport.downloadOnDeviceModel(runtimeConfig.cloudModel)
@@ -327,7 +346,7 @@ class HybridAiClient(
         onStreamChunk: ((String) -> Unit)? = null,
     ): TriageResult {
         val startedNs = System.nanoTime()
-        val nanoStatus = transport.checkOnDeviceStatus(runtimeConfig.cloudModel)
+        val nanoStatus = checkNanoStatus(runtimeConfig)
 
         var usedNano = false
         val semanticItems = mutableListOf<SemanticExtractionItem>()
@@ -338,7 +357,9 @@ class HybridAiClient(
         if (nanoStatus == NanoStatus.READY) {
             val semanticPrompt = buildStage1ExtractionPrompt(rawText, customRunbooks)
             val nanoAttempt = runCatching {
-                transport.generateOnDeviceOnly(semanticPrompt, runtimeConfig.cloudModel)
+                withTimeout(onDeviceTimeoutMs) {
+                    transport.generateOnDeviceOnly(semanticPrompt, runtimeConfig.cloudModel)
+                }
             }.getOrNull()
 
             if (nanoAttempt != null && nanoAttempt.first.isNotBlank()) {
@@ -544,13 +565,15 @@ class HybridAiClient(
         runtimeConfig: RuntimeConfigValues = RuntimeConfigValues(),
     ): SandboxScan {
         val startedNs = System.nanoTime()
-        val nanoStatus = transport.checkOnDeviceStatus(runtimeConfig.cloudModel)
+        val nanoStatus = checkNanoStatus(runtimeConfig)
 
         val semanticItems = mutableListOf<SemanticExtractionItem>()
         var modelLabel: String? = null
         if (nanoStatus == NanoStatus.READY) {
             val attempt = runCatching {
-                transport.generateOnDeviceOnly(buildSandboxExtractionPrompt(rawText), runtimeConfig.cloudModel)
+                withTimeout(onDeviceTimeoutMs) {
+                    transport.generateOnDeviceOnly(buildSandboxExtractionPrompt(rawText), runtimeConfig.cloudModel)
+                }
             }.getOrNull()
             if (attempt != null && attempt.first.isNotBlank()) {
                 modelLabel = nanoModelName(runtimeConfig)
@@ -668,26 +691,30 @@ class HybridAiClient(
 
         for (modelName in candidateModels) {
             val streamResult = runCatching {
-                val acc = StringBuilder()
-                var lastSource = InferenceSource.IN_CLOUD
-                transport.streamCloudEscalation(outboundPrompt, modelName, SRE_SYSTEM_INSTRUCTION)
-                    .catch { throw it }
-                    .collect { (piece, source) ->
-                        lastSource = source
-                        if (piece.isNotEmpty()) {
-                            acc.append(piece)
-                            onStreamChunk?.invoke(acc.toString())
+                withTimeout(cloudTimeoutMs) {
+                    val acc = StringBuilder()
+                    var lastSource = InferenceSource.IN_CLOUD
+                    transport.streamCloudEscalation(outboundPrompt, modelName, SRE_SYSTEM_INSTRUCTION)
+                        .catch { throw it }
+                        .collect { (piece, source) ->
+                            lastSource = source
+                            if (piece.isNotEmpty()) {
+                                acc.append(piece)
+                                onStreamChunk?.invoke(acc.toString())
+                            }
                         }
-                    }
-                val text = acc.toString().trim()
-                if (text.isEmpty()) error("Empty stream response from $modelName")
-                text to lastSource
+                    val text = acc.toString().trim()
+                    if (text.isEmpty()) error("Empty stream response from $modelName")
+                    text to lastSource
+                }
             }
 
             val resolved = streamResult.getOrElse { err ->
                 lastError = err.message ?: err::class.java.simpleName
                 val unaryAttempt = runCatching {
-                    transport.generateCloudUnary(outboundPrompt, modelName, SRE_SYSTEM_INSTRUCTION)
+                    withTimeout(cloudTimeoutMs) {
+                        transport.generateCloudUnary(outboundPrompt, modelName, SRE_SYSTEM_INSTRUCTION)
+                    }
                 }
                 unaryAttempt.onFailure { uErr ->
                     lastError = uErr.message ?: lastError
@@ -756,7 +783,9 @@ class HybridAiClient(
         }
 
         val hybridAttempt = runCatching {
-            transport.generateHybridBrief(prompt, runtimeConfig.cloudModel)
+            withTimeout(briefTimeoutMs) {
+                transport.generateHybridBrief(prompt, runtimeConfig.cloudModel)
+            }
         }.getOrNull()
 
         if (hybridAttempt != null && hybridAttempt.first.isNotBlank()) {
@@ -772,9 +801,13 @@ class HybridAiClient(
         }
 
         val cloudFallback = runCatching {
-            transport.generateCloudUnary(prompt, runtimeConfig.cloudModel, BRIEF_SYSTEM_INSTRUCTION)
+            withTimeout(briefTimeoutMs) {
+                transport.generateCloudUnary(prompt, runtimeConfig.cloudModel, BRIEF_SYSTEM_INSTRUCTION)
+            }
         }.recoverCatching {
-            transport.generateCloudUnary(prompt, runtimeConfig.cloudFallbackModel, BRIEF_SYSTEM_INSTRUCTION)
+            withTimeout(briefTimeoutMs) {
+                transport.generateCloudUnary(prompt, runtimeConfig.cloudFallbackModel, BRIEF_SYSTEM_INSTRUCTION)
+            }
         }.getOrNull()
 
         val ms = maxOf(1L, (System.nanoTime() - startedNs) / 1_000_000L)
@@ -836,21 +869,32 @@ class HybridAiClient(
     ).joinToString("\n")
 
     /**
-     * Tolerant reader for the sandbox prompt. The model sometimes prefixes a header line or wraps
-     * phrases in quotes, and a strict parser would silently drop every span it produced.
+     * Tolerant reader for the sandbox prompt. Handles markdown fences, bulleted lines, phrases with
+     * internal pipes, and JSON-shaped fallback outputs without throwing on malformed model text.
      */
-    private fun parseSandboxPhrases(raw: String, itemsOut: MutableList<SemanticExtractionItem>) {
-        for (line in raw.lines()) {
+    internal fun parseSandboxPhrases(raw: String, itemsOut: MutableList<SemanticExtractionItem>) {
+        val cleaned = raw
+            .replace(CONTROL_CHARS_REGEX, "")
+            .replace(CODE_FENCE_REGEX, "")
+            .trim()
+        if (cleaned.isEmpty()) return
+
+        var parsedAnyPipe = false
+        for (line in cleaned.lines()) {
             val trimmed = line.trim().trimStart('-', '*', '•').trim()
             if (trimmed.isEmpty() || trimmed.equals("NONE", ignoreCase = true)) continue
-            val parts = trimmed.split("|")
-            if (parts.size < 2) continue
-            val phrase = parts[0].trim().trim('"', '\'', '`')
-            val category = parts[1].trim().substringBefore(' ').uppercase()
-            if (phrase.length < 3 || category.isEmpty()) continue
+            val sep = trimmed.lastIndexOf('|')
+            if (sep <= 0 || sep >= trimmed.lastIndex) continue
+            val phrase = trimmed.substring(0, sep).trim().trim('"', '\'', '`')
+            val category = trimmed.substring(sep + 1).trim().substringBefore(' ').trim('"', '\'', '`', ',', '}').uppercase()
+            if (phrase.length < 3 || category.isEmpty() || phrase.contains("[REDACTED:")) continue
+            parsedAnyPipe = true
             if (itemsOut.none { it.phrase.equals(phrase, ignoreCase = true) }) {
                 itemsOut.add(SemanticExtractionItem(phrase, category))
             }
+        }
+        if (!parsedAnyPipe && cleaned.contains('{')) {
+            extractFallbackJsonEntities(cleaned, itemsOut)
         }
     }
 
@@ -864,29 +908,77 @@ class HybridAiClient(
         ).joinToString("\n")
     }
 
-    private fun parseStage1Response(
+    internal fun parseStage1Response(
         raw: String,
         itemsOut: MutableList<SemanticExtractionItem>,
     ): Triple<Severity, String, String?>? {
-        val lines = raw.lines().map { it.trim() }.filter { it.isNotEmpty() }
+        val cleaned = raw
+            .replace(CONTROL_CHARS_REGEX, "")
+            .replace(CODE_FENCE_REGEX, "")
+            .trim()
+        val lines = cleaned.lines().map { it.trim() }.filter { it.isNotEmpty() }
         if (lines.isEmpty()) return null
         val header = lines.first().split("|")
         val sev = runCatching { Severity.valueOf(header.getOrNull(0)?.trim()?.uppercase() ?: "") }
-            .getOrNull() ?: return null
+            .getOrNull()
+        if (sev == null) {
+            if (!cleaned.contains('{')) return null
+            extractFallbackJsonEntities(cleaned, itemsOut)
+            val jsonSev = JSON_SEVERITY_REGEX.find(cleaned)?.groupValues?.getOrNull(1)?.uppercase()
+                ?.let { runCatching { Severity.valueOf(it) }.getOrNull() }
+                ?: return null
+            val jsonRb = JSON_RUNBOOK_REGEX.find(cleaned)?.groupValues?.getOrNull(1)?.trim()
+                ?.takeUnless { it.isBlank() || it.equals("null", ignoreCase = true) || it.equals("none", ignoreCase = true) }
+            return Triple(jsonSev, jsonRb ?: "GENERAL_INCIDENT", jsonRb)
+        }
         val cat = header.getOrNull(1)?.trim()?.takeIf { it.isNotBlank() } ?: "GENERAL_INCIDENT"
         val rb = header.getOrNull(2)?.trim()?.takeUnless { it.isBlank() || it.equals("NONE", ignoreCase = true) }
 
         for (line in lines.drop(1)) {
-            val parts = line.split("|")
-            if (parts.size >= 2 && parts[0].trim().length >= 3) {
-                itemsOut.add(SemanticExtractionItem(parts[0].trim(), parts[1].trim()))
+            val sep = line.lastIndexOf('|')
+            if (sep <= 0 || sep >= line.lastIndex) continue
+            val phrase = line.substring(0, sep).trim().trim('"', '\'', '`')
+            val itemCat = line.substring(sep + 1).trim()
+            if (phrase.length >= 3 && itemCat.isNotEmpty() && !phrase.contains("[REDACTED:")) {
+                itemsOut.add(SemanticExtractionItem(phrase, itemCat))
             }
         }
         return Triple(sev, cat, rb)
     }
 
+    private fun extractFallbackJsonEntities(cleaned: String, itemsOut: MutableList<SemanticExtractionItem>) {
+        for (objMatch in JSON_OBJECT_REGEX.findAll(cleaned)) {
+            val block = objMatch.value
+            val phrase = JSON_VALUE_FIELD_REGEX.find(block)?.groupValues?.getOrNull(1)
+                ?.replace("\\\"", "\"")
+                ?.replace("\\\\", "\\")
+                ?.trim()
+                .orEmpty()
+            val category = JSON_TYPE_FIELD_REGEX.find(block)?.groupValues?.getOrNull(1)
+                ?.trim()
+                ?.uppercase()
+                .orEmpty()
+                .ifEmpty { "SENSITIVE" }
+            if (phrase.length >= 3 && !phrase.contains("[REDACTED:") &&
+                itemsOut.none { it.phrase.equals(phrase, ignoreCase = true) }
+            ) {
+                itemsOut.add(SemanticExtractionItem(phrase, category))
+            }
+        }
+    }
+
     companion object {
         const val CLIENT_TAG = "CordonNano"
+        const val DEFAULT_ON_DEVICE_TIMEOUT_MS = 12_000L
+        const val DEFAULT_CLOUD_TIMEOUT_MS = 25_000L
+        const val DEFAULT_BRIEF_TIMEOUT_MS = 15_000L
+        private val CONTROL_CHARS_REGEX = Regex("""[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]""")
+        private val CODE_FENCE_REGEX = Regex("""```(?:json)?""", RegexOption.IGNORE_CASE)
+        private val JSON_OBJECT_REGEX = Regex("""\{[^{}]{1,400}\}""")
+        private val JSON_VALUE_FIELD_REGEX = Regex(""""(?:value|phrase)"\s*:\s*"((?:\\.|[^"\\]){1,180})"""")
+        private val JSON_TYPE_FIELD_REGEX = Regex(""""(?:type|category)"\s*:\s*"([A-Za-z0-9_ -]{1,40})"""")
+        private val JSON_SEVERITY_REGEX = Regex(""""severity"\s*:\s*"(P[0-3])"""", RegexOption.IGNORE_CASE)
+        private val JSON_RUNBOOK_REGEX = Regex(""""runbookId"\s*:\s*"([^"]{1,80})"""")
         const val SRE_SYSTEM_INSTRUCTION =
             "You are a Principal SRE Incident Triage Assistant. Produce concise Markdown with sections: ### Root Cause Hypothesis, ### Immediate Mitigation, and ### Verification Checklist. Never ask for or echo redacted PII. Preserve exact [REDACTED:...] tokens verbatim and omit horizontal --- rules."
         const val BRIEF_SYSTEM_INSTRUCTION =

@@ -37,12 +37,87 @@ const DETECTOR_PRIORITY: Record<DetectorSource, number> = {
   HEURISTIC_GUARD: 1,
 };
 
+const OBFUSCATION_STRIP_REGEX = /[\u200B-\u200D\uFEFF\u00AD]/g;
+const OBFUSCATION_TEST_REGEX = /[\u00A0\u00AD\u200B-\u200D\uFEFF]/;
+
+const RAW_CREDENTIAL_GUARDS = [
+  /AKIA[0-9A-Z]{16}/,
+  /AIza[0-9A-Za-z_-]{35}/,
+  /(?:sk|rk)_(?:live|test)_[0-9A-Za-z]{16,}/,
+  /ghp_[0-9A-Za-z]{20,}/,
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
+];
+
+function isStrippableObfuscationCode(code: number): boolean {
+  return (
+    code === 0x00ad ||
+    code === 0x200b ||
+    code === 0x200c ||
+    code === 0x200d ||
+    code === 0xfeff
+  );
+}
+
+export function stripZeroWidthAndObfuscation(input: string): string {
+  if (!input || !OBFUSCATION_TEST_REGEX.test(input)) return input;
+  return input.replace(OBFUSCATION_STRIP_REGEX, "").replace(/\u00A0/g, " ");
+}
+
+export interface NormalizedScanView {
+  scanBuffer: string;
+  protectedRanges: Array<{ start: number; end: number }>;
+  rawStart: (normStart: number) => number;
+  rawEnd: (normEnd: number) => number;
+  toNormIndex: (rawIdx: number) => number;
+}
+
+export function prepareNormalizedScanView(rawText: string): NormalizedScanView {
+  const { scanBuffer: maskedRaw, protectedRanges } = maskProtectedTokens(rawText);
+  if (!OBFUSCATION_TEST_REGEX.test(maskedRaw)) {
+    return {
+      scanBuffer: maskedRaw,
+      protectedRanges,
+      rawStart: (idx) => idx,
+      rawEnd: (idx) => idx,
+      toNormIndex: (idx) => idx,
+    };
+  }
+
+  const map = new Int32Array(maskedRaw.length);
+  const chars: string[] = [];
+  let outLen = 0;
+  for (let i = 0; i < maskedRaw.length; i++) {
+    const code = maskedRaw.charCodeAt(i);
+    if (isStrippableObfuscationCode(code)) continue;
+    chars.push(code === 0x00a0 ? " " : maskedRaw[i]);
+    map[outLen++] = i;
+  }
+  const scanBuffer = chars.join("");
+
+  return {
+    scanBuffer,
+    protectedRanges,
+    rawStart: (normStart) => map[normStart] ?? normStart,
+    rawEnd: (normEnd) => (normEnd > 0 ? map[normEnd - 1] + 1 : 0),
+    toNormIndex: (rawIdx) => {
+      let lo = 0;
+      let hi = outLen;
+      while (lo < hi) {
+        const mid = (lo + hi) >>> 1;
+        if (map[mid] < rawIdx) lo = mid + 1;
+        else hi = mid;
+      }
+      return lo;
+    },
+  };
+}
+
 function escapeRegExp(literal: string): string {
   return literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 export function isTechnicalAllowlisted(phrase: string): boolean {
-  const normalized = phrase.trim().toLowerCase();
+  const normalized = stripZeroWidthAndObfuscation(phrase).trim().toLowerCase();
   if (!normalized) return true;
   if (TECHNICAL_ALLOWLIST.has(normalized)) return true;
   if (/^(?:http\s+\d{3}|err_[a-z0-9_]+)$/i.test(normalized)) return true;
@@ -170,11 +245,11 @@ export function buildSemanticSpans(
   items: SemanticExtractionItem[],
 ): RedactionSpan[] {
   const spans: RedactionSpan[] = [];
-  const { scanBuffer, protectedRanges } = maskProtectedTokens(text);
+  const view = prepareNormalizedScanView(text);
   let counter = 1;
 
   for (const item of items) {
-    const phrase = item.phrase?.trim();
+    const phrase = stripZeroWidthAndObfuscation(item.phrase ?? "").trim();
     if (!phrase || !isValidNanoPhrase(phrase)) {
       continue;
     }
@@ -191,12 +266,18 @@ export function buildSemanticSpans(
     const regex = new RegExp(pattern, "gi");
     let match: RegExpExecArray | null;
 
-    while ((match = regex.exec(scanBuffer)) !== null) {
-      const start = match.index;
-      const end = start + match[0].length;
+    while ((match = regex.exec(view.scanBuffer)) !== null) {
+      if (match[0].includes("\u0000")) continue;
+      const normStart = match.index;
+      const normEnd = normStart + match[0].length;
+      if (normStart < 0 || normEnd <= normStart || normEnd > view.scanBuffer.length) continue;
+      const start = view.rawStart(normStart);
+      const end = view.rawEnd(normEnd);
       if (
-        match[0].includes("\u0000") ||
-        protectedRanges.some((pr) => start < pr.end && end > pr.start)
+        start < 0 ||
+        end <= start ||
+        end > text.length ||
+        view.protectedRanges.some((pr) => start < pr.end && end > pr.start)
       ) {
         continue;
       }
@@ -218,17 +299,22 @@ export function buildSemanticSpans(
 }
 
 export function applyMaskedSpans(rawText: string, spans: RedactionSpan[]): string {
+  if (spans.length === 0) return rawText;
   const activeSpans = spans
     .filter((s) => s.masked !== false && s.start >= 0 && s.end <= rawText.length && s.start < s.end)
-    .sort((a, b) => a.start - b.start);
+    .sort((a, b) => (a.start !== b.start ? a.start - b.start : b.end - b.start - (a.end - a.start)));
+  if (activeSpans.length === 0) return rawText;
 
-  let sanitizedText = rawText;
-  for (let i = activeSpans.length - 1; i >= 0; i--) {
-    const s = activeSpans[i];
-    sanitizedText =
-      sanitizedText.slice(0, s.start) + s.placeholder + sanitizedText.slice(s.end);
+  const chunks: string[] = [];
+  let cursor = 0;
+  for (const s of activeSpans) {
+    if (s.start < cursor) continue;
+    if (s.start > cursor) chunks.push(rawText.slice(cursor, s.start));
+    chunks.push(s.placeholder);
+    cursor = s.end;
   }
-  return sanitizedText;
+  if (cursor < rawText.length) chunks.push(rawText.slice(cursor));
+  return chunks.join("");
 }
 
 const PROTECTED_PLACEHOLDER_REGEX = /\[REDACTED:[A-Z0-9_]+\]/g;
@@ -376,15 +462,21 @@ export function verifyZeroLeakage(
   outboundPrompt: string,
   spans: RedactionSpan[],
 ): ZeroLeakageAudit {
+  const normalizedOutbound = stripZeroWidthAndObfuscation(outboundPrompt);
   const activeMasked = spans.filter(
-    (s) => s.masked !== false && s.matchedText && s.matchedText.trim().length >= 3,
+    (s) =>
+      s.masked !== false &&
+      s.matchedText &&
+      stripZeroWidthAndObfuscation(s.matchedText).trim().length >= 3,
   );
   const leakedCategories: string[] = [];
 
   for (const span of activeMasked) {
     const candidates = new Set<string>([
       span.matchedText,
+      stripZeroWidthAndObfuscation(span.matchedText),
       ...(span.constituentTexts ?? []),
+      ...(span.constituentTexts ?? []).map(stripZeroWidthAndObfuscation),
     ]);
 
     let leaked = false;
@@ -401,6 +493,7 @@ export function verifyZeroLeakage(
 
       if (
         outboundPrompt.includes(candidate) ||
+        normalizedOutbound.includes(candidate) ||
         (urlEncoded.length >= 3 && outboundPrompt.includes(urlEncoded)) ||
         (jsonEscaped.length >= 3 && outboundPrompt.includes(jsonEscaped))
       ) {
@@ -412,6 +505,14 @@ export function verifyZeroLeakage(
     if (leaked) {
       leakedCategories.push(span.category);
     }
+  }
+
+  if (
+    RAW_CREDENTIAL_GUARDS.some(
+      (rx) => rx.test(outboundPrompt) || rx.test(normalizedOutbound),
+    )
+  ) {
+    leakedCategories.push("RAW_CREDENTIAL_PATTERN");
   }
 
   return {

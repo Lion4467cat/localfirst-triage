@@ -67,6 +67,22 @@ export interface PipelineDeps {
   ) => Promise<{ text: string; inferenceSource: "ON_DEVICE" | "IN_CLOUD" }>;
   onStreamChunk?: (partialText: string) => void;
   bypassCache?: boolean;
+  cloudTimeoutMs?: number;
+}
+
+const DEFAULT_CLOUD_TIMEOUT_MS = 25_000;
+const DEFAULT_BRIEF_TIMEOUT_MS = 15_000;
+
+function withCloudDeadline<T>(work: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    work,
+    new Promise<T>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+    }),
+  ]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
 }
 
 function normalizeCloudResponse(
@@ -124,6 +140,7 @@ async function defaultCallCloud(
   sanitizedPrompt: string,
   config: RuntimeConfigValues,
   onStreamChunk?: (partialText: string) => void,
+  timeoutMs = DEFAULT_CLOUD_TIMEOUT_MS,
 ): Promise<CloudCallResponse> {
   const ai = getHybridAI();
   if (!ai) {
@@ -145,26 +162,37 @@ async function defaultCallCloud(
     const model = createCloudEscalationModel(ai, modelName, SRE_SYSTEM_INSTRUCTION);
     try {
       if (typeof model.generateContentStream === "function") {
-        const streamResult = await model.generateContentStream(sanitizedPrompt);
-        let accumulated = "";
-        for await (const chunk of streamResult.stream) {
-          const piece = typeof chunk.text === "function" ? chunk.text() : "";
-          if (piece) {
-            accumulated += piece;
-            onStreamChunk?.(accumulated);
-          }
-        }
-        const finalResponse = await streamResult.response;
-        const finalText = accumulated || finalResponse.text();
-        return {
-          ok: true,
-          text: finalText,
-          inferenceSource: normalizeSdkInferenceSource(finalResponse, "IN_CLOUD"),
-          modelUsed: modelName,
-        };
+        const streamed = await withCloudDeadline(
+          (async () => {
+            const streamResult = await model.generateContentStream(sanitizedPrompt);
+            let accumulated = "";
+            for await (const chunk of streamResult.stream) {
+              const piece = typeof chunk.text === "function" ? chunk.text() : "";
+              if (piece) {
+                accumulated += piece;
+                onStreamChunk?.(accumulated);
+              }
+            }
+            const finalResponse = await streamResult.response;
+            const finalText = accumulated || finalResponse.text();
+            return {
+              ok: true as const,
+              text: finalText,
+              inferenceSource: normalizeSdkInferenceSource(finalResponse, "IN_CLOUD"),
+              modelUsed: modelName,
+            };
+          })(),
+          timeoutMs,
+          `Cloud stream (${modelName})`,
+        );
+        return streamed;
       }
 
-      const res = await model.generateContent(sanitizedPrompt);
+      const res = await withCloudDeadline(
+        model.generateContent(sanitizedPrompt),
+        timeoutMs,
+        `Cloud unary (${modelName})`,
+      );
       return {
         ok: true,
         text: res.response.text(),
@@ -179,7 +207,11 @@ async function defaultCallCloud(
         /parse-failed|stream|500|503|high demand/i.test(lastError)
       ) {
         try {
-          const unaryRes = await model.generateContent(sanitizedPrompt);
+          const unaryRes = await withCloudDeadline(
+            model.generateContent(sanitizedPrompt),
+            timeoutMs,
+            `Cloud unary retry (${modelName})`,
+          );
           const text = unaryRes.response.text();
           onStreamChunk?.(text);
           return {
@@ -455,14 +487,20 @@ export async function runTriagePipeline(
       createdAt,
       startedAt,
     },
-    { loadConfig, callCloud, onStreamChunk: deps.onStreamChunk, bypassCache: deps.bypassCache },
+    {
+      loadConfig,
+      callCloud,
+      onStreamChunk: deps.onStreamChunk,
+      bypassCache: deps.bypassCache,
+      cloudTimeoutMs: deps.cloudTimeoutMs,
+    },
   );
 }
 
 export async function escalateApprovedTicket(
   ticket: TriageResult,
   updatedSpans: RedactionSpan[],
-  deps: Pick<PipelineDeps, "loadConfig" | "callCloud" | "onStreamChunk" | "bypassCache"> & {
+  deps: Pick<PipelineDeps, "loadConfig" | "callCloud" | "onStreamChunk" | "bypassCache" | "cloudTimeoutMs"> & {
     offlineMode?: boolean;
   } = {},
 ): Promise<TriageResult> {
@@ -530,10 +568,13 @@ async function escalateSanitizedResult(
     createdAt?: number;
     startedAt: number;
   },
-  deps: Pick<PipelineDeps, "loadConfig" | "callCloud" | "onStreamChunk" | "bypassCache">,
+  deps: Pick<PipelineDeps, "loadConfig" | "callCloud" | "onStreamChunk" | "bypassCache" | "cloudTimeoutMs">,
 ): Promise<TriageResult> {
   const loadConfig = deps.loadConfig ?? loadRuntimeConfig;
-  const callCloud = deps.callCloud ?? defaultCallCloud;
+  const timeoutMs = deps.cloudTimeoutMs ?? DEFAULT_CLOUD_TIMEOUT_MS;
+  const callCloud =
+    deps.callCloud ??
+    ((prompt, cfg, onChunk) => defaultCallCloud(prompt, cfg, onChunk, timeoutMs));
   const approxTokens = Math.max(40, Math.ceil(ctx.rawText.length / 4));
   const sourcePlatform: SourcePlatform =
     ctx.sourcePlatform ?? (ctx.importedFromExtension ? "CHROME_EXTENSION" : "WEB");
@@ -665,7 +706,22 @@ async function escalateSanitizedResult(
   }
 
   const cloudStart = performance.now();
-  const rawResponse = await callCloud(cloudPrompt, runtimeConfig, deps.onStreamChunk);
+  let rawResponse: CloudCallResponse | { text: string; inferenceSource: InferenceSource } | undefined;
+  try {
+    rawResponse = await withCloudDeadline(
+      callCloud(cloudPrompt, runtimeConfig, deps.onStreamChunk),
+      timeoutMs,
+      "Cloud escalation",
+    );
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    rawResponse = {
+      ok: false,
+      text: buildLocalEmergencyRcaFallback(ctx.sanitizedText, errMsg),
+      inferenceSource: "CLOUD_ERROR",
+      error: errMsg,
+    };
+  }
   const cloudResponse = normalizeCloudResponse(rawResponse, runtimeConfig.cloudModel);
   const stage2LatencyMs = Math.max(1, Math.round(performance.now() - cloudStart));
   const latencyMs = ctx.stage1LatencyMs + stage2LatencyMs;
@@ -762,10 +818,12 @@ export async function generateSanitizedHybridBrief(
   result: TriageResult,
   options: {
     offlineMode?: boolean;
+    timeoutMs?: number;
     deps?: Pick<PipelineDeps, "loadConfig" | "callHybridBrief" | "callCloud">;
   } = {},
 ): Promise<HybridBriefResult> {
   const startedAt = performance.now();
+  const briefTimeoutMs = options.timeoutMs ?? DEFAULT_BRIEF_TIMEOUT_MS;
   const prompt = [
     "Start directly with **Executive Summary:** (2 concise sentences, no conversational intro or ---/*** horizontal rules) followed by **Slack Incident Update:** (1 short paragraph).",
     "Preserve exact [REDACTED:...] placeholders verbatim without stripping category suffixes.",
@@ -791,7 +849,11 @@ export async function generateSanitizedHybridBrief(
 
     if (options.deps?.callHybridBrief) {
       try {
-        const custom = await options.deps.callHybridBrief(prompt, config);
+        const custom = await withCloudDeadline(
+          options.deps.callHybridBrief(prompt, config),
+          briefTimeoutMs,
+          "Hybrid brief",
+        );
         return {
           summary: custom.text,
           stakeholderDraft: custom.text,
@@ -800,8 +862,14 @@ export async function generateSanitizedHybridBrief(
           generatedAt: Date.now(),
         };
       } catch {
-        const fallbackCloud = options.deps.callCloud ?? defaultCallCloud;
-        const cloudRaw = await fallbackCloud(prompt, config);
+        const fallbackCloud =
+          options.deps.callCloud ??
+          ((p, c, onChunk) => defaultCallCloud(p, c, onChunk, briefTimeoutMs));
+        const cloudRaw = await withCloudDeadline(
+          fallbackCloud(prompt, config),
+          briefTimeoutMs,
+          "Cloud brief fallback",
+        );
         const cloudNorm = normalizeCloudResponse(cloudRaw, config.cloudModel);
         if (!cloudNorm.ok) {
           throw new Error(cloudNorm.error ?? "Cloud brief fallback failed");
@@ -822,7 +890,11 @@ export async function generateSanitizedHybridBrief(
     }
     try {
       const model = createHybridBriefModel(ai, config.cloudModel);
-      const res = await model.generateContent(prompt);
+      const res = await withCloudDeadline(
+        model.generateContent(prompt),
+        briefTimeoutMs,
+        "Hybrid brief",
+      );
       const text = res.response.text();
       const source = normalizeSdkInferenceSource(res.response, "IN_CLOUD");
       return {
@@ -835,7 +907,7 @@ export async function generateSanitizedHybridBrief(
     } catch {
       // If PREFER_ON_DEVICE threw mid-call because Chrome's native on-device worker exited,
       // automatically recover via Cloud Gemini (PREFER_IN_CLOUD) on the verified zero-PII prompt
-      const cloudRes = await defaultCallCloud(prompt, config);
+      const cloudRes = await defaultCallCloud(prompt, config, undefined, briefTimeoutMs);
       if (!cloudRes.ok) {
         throw new Error(cloudRes.error ?? "Cloud brief fallback failed");
       }
